@@ -470,7 +470,7 @@
 
   <!-- Login screen -->
   <div class="login-screen" id="login-screen">
-    <div style="position:absolute; bottom:12px; left:16px; font-size:12px; color:#aaa;">v1.1.8</div>
+    <div style="position:absolute; bottom:12px; left:16px; font-size:12px; color:#aaa;">v1.1.9</div>
     <div class="login-box">
       <h1>Plattegrond Dashboard</h1>
       <p>Voer het wachtwoord in om door te gaan</p>
@@ -485,7 +485,7 @@
 
   <!-- App (hidden until logged in) -->
   <div id="app-container" style="display:none;">
-  <div style="position:fixed; bottom:12px; left:16px; font-size:12px; color:#aaa; z-index:1000; pointer-events:none;">v1.1.8</div>
+  <div style="position:fixed; bottom:12px; left:16px; font-size:12px; color:#aaa; z-index:1000; pointer-events:none;">v1.1.9</div>
 
   <!-- Top bar with dropdowns -->
   <div class="topbar">
@@ -1943,7 +1943,23 @@
     restoreSavedPassword();
 
     if (isSessionValid()) {
-      showApp();
+      // Validate token still works before showing app
+      fetch(CONFIG.customersUrl, {
+        headers: { 'Authorization': 'token ' + getGitHubToken(), 'Accept': 'application/vnd.github.v3+json' },
+        cache: 'no-store',
+      }).then(resp => {
+        if (resp.ok) {
+          showApp();
+        } else {
+          sessionStorage.clear();
+          loginError.textContent = 'Sessie verlopen. Log opnieuw in.';
+          checkLockoutState();
+        }
+      }).catch(() => {
+        sessionStorage.clear();
+        loginError.textContent = 'Kon verbinding niet controleren. Log opnieuw in.';
+        checkLockoutState();
+      });
     } else {
       checkLockoutState();
     }
