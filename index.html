@@ -492,6 +492,16 @@
       cursor: pointer;
     }
 
+    /* Menu dropdown items */
+    #topbar-menu button:active {
+      background: #f5f5f5;
+    }
+    @media (hover: hover) {
+      #topbar-menu button:hover {
+        background: #f5f5f5;
+      }
+    }
+
     /* Prevent 300ms tap delay on all interactive elements */
     button, select, input, label, .side-panel-item {
       touch-action: manipulation;
@@ -503,7 +513,7 @@
 
   <!-- Login screen -->
   <div class="login-screen" id="login-screen">
-    <div style="position:absolute; bottom:12px; left:16px; font-size:12px; color:#aaa;">v1.3.1</div>
+    <div style="position:absolute; bottom:12px; left:16px; font-size:12px; color:#aaa;">v1.3.2</div>
     <div class="login-box">
       <h1>Plattegrond Dashboard</h1>
       <p>Voer het wachtwoord in om door te gaan</p>
@@ -518,7 +528,7 @@
 
   <!-- App (hidden until logged in) -->
   <div id="app-container" style="display:none;">
-  <div style="position:fixed; bottom:12px; left:16px; font-size:12px; color:#aaa; z-index:1000; pointer-events:none;">v1.3.1</div>
+  <div style="position:fixed; bottom:12px; left:16px; font-size:12px; color:#aaa; z-index:1000; pointer-events:none;">v1.3.2</div>
 
   <!-- Top bar with dropdowns -->
   <div class="topbar">
@@ -532,7 +542,12 @@
     <span style="flex:1;"></span>
     <button class="btn-reset" id="btn-reset" style="display:none;">Reset zoom</button>
     <button class="btn-reset" id="btn-edit" style="display:none;">&#9998; Bewerken</button>
-    <button class="btn-reset" id="btn-logout">Uitloggen</button>
+    <div style="position:relative;">
+      <button class="btn-reset" id="btn-menu" style="padding:6px 10px; font-size:18px; line-height:1;">&#9776;</button>
+      <div id="topbar-menu" style="display:none; position:absolute; right:0; top:100%; margin-top:4px; background:white; border-radius:8px; box-shadow:0 4px 16px rgba(0,0,0,0.2); min-width:160px; z-index:200; overflow:hidden;">
+        <button id="btn-logout" style="display:block; width:100%; padding:14px 20px; border:none; background:white; font-size:16px; font-weight:600; color:#d93025; text-align:left; cursor:pointer;">Uitloggen</button>
+      </div>
+    </div>
   </div>
 
   <!-- Edit mode bar -->
@@ -1980,7 +1995,19 @@
       restoreSavedPassword();
     }
 
-    document.getElementById('btn-logout').addEventListener('click', logout);
+    // Menu toggle
+    const topbarMenu = document.getElementById('topbar-menu');
+    document.getElementById('btn-menu').addEventListener('click', (e) => {
+      e.stopPropagation();
+      topbarMenu.style.display = topbarMenu.style.display === 'none' ? 'block' : 'none';
+    });
+    document.addEventListener('click', () => { topbarMenu.style.display = 'none'; });
+
+    // Logout with confirmation
+    document.getElementById('btn-logout').addEventListener('click', () => {
+      topbarMenu.style.display = 'none';
+      if (confirm('Weet je zeker dat je wilt uitloggen?')) logout();
+    });
     loginBtn.addEventListener('click', handleLogin);
     loginPassword.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') handleLogin();
