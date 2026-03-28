@@ -635,8 +635,7 @@
 
     async function fetchGitHubSVG(fileUrl) {
       // Step 1: get file metadata (sha)
-      const cacheBust = '?_=' + Date.now();
-      const metaResp = await fetch(fileUrl + cacheBust, {
+      const metaResp = await fetch(fileUrl, {
         headers: ghHeaders(),
         cache: 'no-store',
       });
@@ -919,12 +918,16 @@
       editBar.style.display = 'flex';
       infoPanel.style.display = 'none';
       deselectDoor();
+      // Reset save button state
+      document.getElementById('btn-edit-save').disabled = false;
+      document.getElementById('btn-edit-save').textContent = 'Opslaan';
       // Hide normal UI
       btnEdit.style.display = 'none';
       btnReset.style.display = 'none';
     }
 
     function exitEditMode() {
+      if (resizingMarker) applyResize();
       isEditMode = false;
       topbar.classList.remove('edit-mode');
       editBar.style.display = 'none';
@@ -935,6 +938,8 @@
     }
 
     function cancelEditMode() {
+      // Cancel any active resize
+      if (resizingMarker) cancelResize();
       // Revert all changes
       editChanges.reverse().forEach(change => {
         if (change.type === 'add') {
@@ -954,6 +959,12 @@
             marker.setAttributeNS('http://www.inkscape.org/namespaces/inkscape', 'label', change.oldId);
             marker.dataset.doorId = change.oldId;
           }
+        } else if (change.type === 'resize') {
+          const marker = svgContainer.querySelector(`[data-door-id="${change.doorId}"]`);
+          if (marker) {
+            marker.setAttribute('rx', change.oldRx.toString());
+            marker.setAttribute('ry', change.oldRx.toString());
+          }
         }
       });
       exitEditMode();
@@ -961,6 +972,9 @@
     }
 
     async function saveEditMode() {
+      // Finish any active resize first
+      if (resizingMarker) applyResize();
+
       if (editChanges.length === 0) {
         exitEditMode();
         return;
@@ -1023,8 +1037,8 @@
 
     function showEditPopup(title, defaultValue, buttons) {
       editPopupTitle.textContent = title;
-      editPopupInput.value = defaultValue || '';
       editPopupButtons.innerHTML = '';
+      const primaryAction = buttons.length > 0 ? buttons[0].action : null;
       buttons.forEach(btn => {
         const el = document.createElement('button');
         el.textContent = btn.text;
@@ -1035,12 +1049,16 @@
       });
       editPopup.style.display = 'block';
       editOverlay.style.display = 'block';
-      if (defaultValue === undefined || defaultValue === '') {
-        editPopupInput.style.display = 'block';
-        editPopupInput.focus();
-      } else if (defaultValue === null) {
+      if (defaultValue === null) {
         editPopupInput.style.display = 'none';
+      } else {
+        editPopupInput.style.display = 'block';
+        editPopupInput.value = defaultValue || '';
+        editPopupInput.focus();
       }
+      editPopupInput.onkeydown = (e) => {
+        if (e.key === 'Enter' && primaryAction) primaryAction();
+      };
     }
 
     function closeEditPopup() {
@@ -1101,8 +1119,52 @@
       populateSidePanel();
     }
 
+    let resizingMarker = null;
+    let resizingOldRx = null;
+
+    function startResizeMode(marker, doorId, currentRx) {
+      resizingMarker = { marker, doorId };
+      resizingOldRx = currentRx;
+
+      // Set slider to current size
+      const slider = document.getElementById('edit-marker-size');
+      slider.value = currentRx;
+      editMarkerSize = currentRx;
+      document.getElementById('edit-size-label').textContent = currentRx;
+
+      // Highlight the marker
+      marker.style.opacity = '1';
+      marker.style.stroke = '#e67700';
+      marker.style.strokeWidth = '3';
+
+      // Change edit bar label
+      document.querySelector('.edit-label').textContent = 'Grootte aanpassen: ' + doorId + ' — gebruik de slider';
+    }
+
+    function applyResize() {
+      if (!resizingMarker) return;
+      editChanges.push({ type: 'resize', doorId: resizingMarker.doorId, oldRx: resizingOldRx });
+      resizingMarker.marker.style.stroke = 'transparent';
+      resizingMarker.marker.style.strokeWidth = '20';
+      resizingMarker = null;
+      resizingOldRx = null;
+      document.querySelector('.edit-label').textContent = 'Bewerkingsmodus';
+    }
+
+    function cancelResize() {
+      if (!resizingMarker) return;
+      resizingMarker.marker.setAttribute('rx', resizingOldRx.toString());
+      resizingMarker.marker.setAttribute('ry', resizingOldRx.toString());
+      resizingMarker.marker.style.stroke = 'transparent';
+      resizingMarker.marker.style.strokeWidth = '20';
+      resizingMarker = null;
+      resizingOldRx = null;
+      document.querySelector('.edit-label').textContent = 'Bewerkingsmodus';
+    }
+
     function handleEditTapOnEmpty(e) {
       if (!isEditMode) return;
+      if (resizingMarker) { applyResize(); return; }
       const svgEl = svgContainer.querySelector('svg');
       if (!svgEl) return;
 
@@ -1112,6 +1174,10 @@
       const screenY = e.clientY - containerRect.top;
       const svgX = (screenX - panX) / scale;
       const svgY = (screenY - panY) / scale;
+
+      // Check if tap is within SVG viewBox bounds
+      const vb = svgEl.viewBox.baseVal;
+      if (svgX < 0 || svgY < 0 || svgX > vb.width || svgY > vb.height) return;
 
       showEditPopup('Nieuwe deur', '', [
         {
@@ -1134,6 +1200,7 @@
 
     function handleEditTapOnDoor(doorId) {
       if (!isEditMode) return;
+      if (resizingMarker) { applyResize(); return; }
       // Set slider to current marker size
       const marker = svgContainer.querySelector(`[data-door-id="${doorId}"]`);
       if (marker) {
@@ -1148,48 +1215,7 @@
           action: () => {
             closeEditPopup();
             const currentRx = parseInt(marker.getAttribute('rx'), 10) || 10;
-            // Build custom popup with inline slider
-            editPopupTitle.textContent = 'Grootte: ' + doorId;
-            editPopupInput.style.display = 'none';
-            const sliderHtml = document.createElement('div');
-            sliderHtml.style.cssText = 'display:flex; align-items:center; gap:12px; justify-content:center; margin-bottom:16px;';
-            sliderHtml.innerHTML = `<input type="range" id="popup-size-slider" min="3" max="30" value="${currentRx}" style="width:140px;">
-              <span id="popup-size-label" style="font-size:16px; font-weight:700; min-width:24px;">${currentRx}</span>`;
-            editPopupButtons.innerHTML = '';
-            editPopup.insertBefore(sliderHtml, editPopupButtons);
-
-            // Live preview
-            const popupSlider = document.getElementById('popup-size-slider');
-            const popupLabel = document.getElementById('popup-size-label');
-            popupSlider.addEventListener('input', () => {
-              popupLabel.textContent = popupSlider.value;
-              marker.setAttribute('rx', popupSlider.value);
-              marker.setAttribute('ry', popupSlider.value);
-            });
-
-            const btnApply = document.createElement('button');
-            btnApply.textContent = 'Toepassen';
-            btnApply.style.cssText = 'background:#34a853; color:white;';
-            btnApply.addEventListener('click', () => {
-              editChanges.push({ type: 'resize', doorId: doorId, oldRx: currentRx });
-              sliderHtml.remove();
-              closeEditPopup();
-            });
-
-            const btnCancel = document.createElement('button');
-            btnCancel.textContent = 'Annuleren';
-            btnCancel.style.cssText = 'background:#e0e0e0; color:#333;';
-            btnCancel.addEventListener('click', () => {
-              marker.setAttribute('rx', currentRx.toString());
-              marker.setAttribute('ry', currentRx.toString());
-              sliderHtml.remove();
-              closeEditPopup();
-            });
-
-            editPopupButtons.appendChild(btnApply);
-            editPopupButtons.appendChild(btnCancel);
-            editPopup.style.display = 'block';
-            editOverlay.style.display = 'block';
+            startResizeMode(marker, doorId, currentRx);
           }
         },
         {
@@ -1482,7 +1508,7 @@
     // ============================================================
 
     async function pollStatus() {
-      if (!currentFloorplan) return;
+      if (!currentFloorplan || isEditMode) return;
       try {
         doorStatus = await fetchGitHubJSON(CONFIG.statusUrl);
         refreshAllDoorColors();
@@ -1620,6 +1646,11 @@
     document.getElementById('edit-marker-size').addEventListener('input', (e) => {
       editMarkerSize = parseInt(e.target.value, 10);
       document.getElementById('edit-size-label').textContent = editMarkerSize;
+      // Live preview during resize mode
+      if (resizingMarker) {
+        resizingMarker.marker.setAttribute('rx', editMarkerSize.toString());
+        resizingMarker.marker.setAttribute('ry', editMarkerSize.toString());
+      }
     });
 
     // ============================================================
@@ -1679,7 +1710,6 @@
       passwordHash: '0123940987a658e40d82d640ba2084a0f11828593a9a3be547e3e764d45f5ed7',
       maxAttempts: 3,
       lockoutMinutes: 10,
-      sessionDays: 30,
       tokenKey: 'fd_auth_token',
       tokenTimeKey: 'fd_auth_time',
       lockoutKey: 'fd_lockout',
@@ -1770,6 +1800,9 @@
         sessionStorage.setItem(LOGIN_CONFIG.tokenKey, 'authenticated');
         sessionStorage.setItem(LOGIN_CONFIG.tokenTimeKey, Date.now().toString());
         sessionStorage.setItem('fd_github_token', token);
+
+        // Read attempts before clearing
+        const priorAttempts = getAttempts();
         localStorage.removeItem(LOGIN_CONFIG.attemptsKey);
         localStorage.removeItem(LOGIN_CONFIG.lockoutKey);
 
@@ -1781,7 +1814,7 @@
         }
 
         loginBtn.textContent = 'Inloggen';
-        sendLoginNotification('Succesvol ingelogd', getAttempts() > 0 ? getAttempts() + ' foute pogingen vooraf' : '0');
+        sendLoginNotification('Succesvol ingelogd', priorAttempts > 0 ? priorAttempts + ' foute pogingen vooraf' : '0');
         showApp();
       } else {
         const attempts = getAttempts() + 1;
@@ -1853,8 +1886,7 @@
     // ============================================================
 
     async function init() {
-      await loadCustomers();
-      await loadStatus();
+      await Promise.all([loadCustomers(), loadStatus()]);
     }
 
     // Check if already logged in and session not expired
@@ -1862,13 +1894,6 @@
       const token = sessionStorage.getItem(LOGIN_CONFIG.tokenKey);
       const time = sessionStorage.getItem(LOGIN_CONFIG.tokenTimeKey);
       if (token !== 'authenticated' || !time) return false;
-      const elapsed = Date.now() - parseInt(time, 10);
-      const maxAge = LOGIN_CONFIG.sessionDays * 24 * 60 * 60 * 1000;
-      if (elapsed > maxAge) {
-        sessionStorage.removeItem(LOGIN_CONFIG.tokenKey);
-        sessionStorage.removeItem(LOGIN_CONFIG.tokenTimeKey);
-        return false;
-      }
       return true;
     }
 
