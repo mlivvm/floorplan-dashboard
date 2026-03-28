@@ -497,7 +497,7 @@
 
   <!-- Login screen -->
   <div class="login-screen" id="login-screen">
-    <div style="position:absolute; bottom:12px; left:16px; font-size:12px; color:#aaa;">v1.2.5</div>
+    <div style="position:absolute; bottom:12px; left:16px; font-size:12px; color:#aaa;">v1.2.6</div>
     <div class="login-box">
       <h1>Plattegrond Dashboard</h1>
       <p>Voer het wachtwoord in om door te gaan</p>
@@ -512,7 +512,7 @@
 
   <!-- App (hidden until logged in) -->
   <div id="app-container" style="display:none;">
-  <div style="position:fixed; bottom:12px; left:16px; font-size:12px; color:#aaa; z-index:1000; pointer-events:none;">v1.2.5</div>
+  <div style="position:fixed; bottom:12px; left:16px; font-size:12px; color:#aaa; z-index:1000; pointer-events:none;">v1.2.6</div>
 
   <!-- Top bar with dropdowns -->
   <div class="topbar">
@@ -866,9 +866,9 @@
         marker.style.pointerEvents = 'all';
         marker.style.transition = 'opacity 0.2s';
 
-        // Track door target on pointerdown (selection handled in container pointerup)
+        // Track door target on pointerdown (read from dataset so renames are picked up)
         marker.addEventListener('pointerdown', (e) => {
-          pendingDoor = doorId;
+          pendingDoor = e.currentTarget.dataset.doorId;
         });
 
         // Larger touch target, override any inline stroke styles
@@ -1156,7 +1156,7 @@
       marker.style.transition = 'opacity 0.2s';
       marker.style.stroke = 'transparent';
       marker.style.strokeWidth = '20';
-      marker.addEventListener('pointerdown', () => { pendingDoor = doorId; });
+      marker.addEventListener('pointerdown', (e) => { pendingDoor = e.currentTarget.dataset.doorId; });
     }
 
     function addMarkerAtPosition(svgX, svgY, doorId) {
