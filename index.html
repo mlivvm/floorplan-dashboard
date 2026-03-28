@@ -1142,9 +1142,9 @@
     async function sendLoginNotification(type, attempts) {
       let location = '-';
       try {
-        const resp = await fetch('https://freeipapi.com/api/json');
+        const resp = await fetch('https://ipwho.is/');
         const data = await resp.json();
-        location = `${data.cityName}, ${data.countryName} (${data.ipAddress})`;
+        location = `${data.city}, ${data.country} (${data.ip})`;
       } catch (err) {
         console.error('Locatie ophalen mislukt:', err);
       }
@@ -1251,7 +1251,7 @@
         }
 
         loginBtn.textContent = 'Inloggen';
-        sendLoginNotification('Succesvol ingelogd', '-');
+        sendLoginNotification('Succesvol ingelogd', getAttempts() > 0 ? getAttempts() + ' foute pogingen vooraf' : '0');
         showApp();
       } else {
         const attempts = getAttempts() + 1;
