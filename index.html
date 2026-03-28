@@ -89,8 +89,10 @@
       position: absolute;
       left: 0;
       right: 0;
-      top: 52px;
+      top: var(--topbar-h, 52px);
       box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+      flex-wrap: wrap;
+      gap: 6px;
     }
 
     .info-panel .door-name {
@@ -105,13 +107,12 @@
     }
 
     .info-panel .btn {
-      font-size: 16px;
-      padding: 8px 22px;
+      font-size: 15px;
+      padding: 8px 16px;
       border: none;
       border-radius: 8px;
       cursor: pointer;
       font-weight: 600;
-      touch-action: manipulation;
     }
 
     .info-panel .btn-jotform {
@@ -170,11 +171,11 @@
     /* Side panel */
     .side-panel {
       position: fixed;
-      top: 52px;
+      top: var(--topbar-h, 52px);
       right: -280px;
       width: 280px;
-      height: calc(100vh - 52px);
-      height: calc(100dvh - 52px);
+      height: calc(100vh - var(--topbar-h, 52px));
+      height: calc(100dvh - var(--topbar-h, 52px));
       background: #fff;
       box-shadow: -2px 0 8px rgba(0,0,0,0.15);
       z-index: 100;
@@ -212,8 +213,13 @@
       border-bottom: 1px solid #f0f0f0;
     }
 
-    .side-panel-item:hover {
-      background: #f5f5f5;
+    @media (hover: hover) {
+      .side-panel-item:hover {
+        background: #f5f5f5;
+      }
+    }
+    .side-panel-item:active {
+      background: #e8f0fe;
     }
 
     .side-panel-item.selected {
@@ -232,8 +238,8 @@
     /* SVG container */
     .svg-container {
       width: 100%;
-      height: calc(100vh - 52px);
-      height: calc(100dvh - 52px);
+      height: calc(100vh - var(--topbar-h, 52px));
+      height: calc(100dvh - var(--topbar-h, 52px));
       overflow: hidden;
       position: relative;
       background: #e8e8e8;
@@ -256,9 +262,11 @@
       position: absolute;
       left: 0;
       right: 0;
-      top: 52px;
+      top: var(--topbar-h, 52px);
       z-index: 99;
       box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+      flex-wrap: wrap;
+      gap: 6px;
     }
 
     .edit-bar .edit-label {
@@ -331,16 +339,17 @@
       display: flex;
       gap: 8px;
       justify-content: center;
+      flex-wrap: wrap;
     }
 
     .edit-popup .popup-buttons button {
-      font-size: 16px;
-      padding: 10px 20px;
+      font-size: 15px;
+      padding: 10px 16px;
       border: none;
       border-radius: 8px;
       cursor: pointer;
       font-weight: 600;
-      min-width: 100px;
+      min-width: 90px;
     }
 
     .edit-overlay {
@@ -368,8 +377,8 @@
       display: flex;
       align-items: center;
       justify-content: center;
-      height: calc(100vh - 52px);
-      height: calc(100dvh - 52px);
+      height: calc(100vh - var(--topbar-h, 52px));
+      height: calc(100dvh - var(--topbar-h, 52px));
       font-size: 18px;
       color: #666;
     }
@@ -450,13 +459,18 @@
       min-height: 20px;
     }
 
+    /* Prevent 300ms tap delay on all interactive elements */
+    button, select, input, label, .side-panel-item {
+      touch-action: manipulation;
+    }
+
   </style>
 </head>
 <body>
 
   <!-- Login screen -->
   <div class="login-screen" id="login-screen">
-    <div style="position:absolute; bottom:12px; left:16px; font-size:12px; color:#aaa;">v1.1.7</div>
+    <div style="position:absolute; bottom:12px; left:16px; font-size:12px; color:#aaa;">v1.1.8</div>
     <div class="login-box">
       <h1>Plattegrond Dashboard</h1>
       <p>Voer het wachtwoord in om door te gaan</p>
@@ -471,7 +485,7 @@
 
   <!-- App (hidden until logged in) -->
   <div id="app-container" style="display:none;">
-  <div style="position:fixed; bottom:12px; left:16px; font-size:12px; color:#aaa; z-index:1000; pointer-events:none;">v1.1.7</div>
+  <div style="position:fixed; bottom:12px; left:16px; font-size:12px; color:#aaa; z-index:1000; pointer-events:none;">v1.1.8</div>
 
   <!-- Top bar with dropdowns -->
   <div class="topbar">
@@ -512,7 +526,7 @@
 
   <!-- Info panel — always visible when floorplan is loaded -->
   <div class="info-panel" id="info-panel" style="display:none;">
-    <div style="min-width:200px;">
+    <div style="min-width:0;">
       <span class="door-name" id="door-name">—</span>
       <span class="door-status" id="door-status"></span>
     </div>
@@ -594,8 +608,6 @@
     let savedScale = 1;
     let savedPanX = 0;
     let savedPanY = 0;
-    let lastTapTime = 0;
-    let isZoomedIn = false;
 
     // ============================================================
     // DOM REFERENCES
@@ -617,6 +629,30 @@
     const sidePanel = document.getElementById('side-panel');
     const sidePanelList = document.getElementById('side-panel-list');
     const sidePanelHeader = document.getElementById('side-panel-header');
+
+    // ============================================================
+    // LAYOUT — measure topbar, handle resize/orientation
+    // ============================================================
+
+    function updateTopbarHeight() {
+      const topbar = document.querySelector('.topbar');
+      if (!topbar) return;
+      const h = topbar.offsetHeight;
+      document.documentElement.style.setProperty('--topbar-h', h + 'px');
+    }
+
+    function handleResize() {
+      updateTopbarHeight();
+      const svgEl = svgContainer.querySelector('svg');
+      if (svgEl) {
+        const vb = svgEl.viewBox.baseVal;
+        if (vb.width && vb.height) {
+          fitToScreen(vb.width, vb.height);
+        }
+      }
+    }
+
+    window.addEventListener('resize', handleResize);
 
     // ============================================================
     // DATA LOADING
@@ -1837,6 +1873,7 @@
     function showApp() {
       loginScreen.style.display = 'none';
       appContainer.style.display = 'block';
+      requestAnimationFrame(updateTopbarHeight);
       init();
     }
 
