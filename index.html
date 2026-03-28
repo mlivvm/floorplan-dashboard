@@ -331,9 +331,8 @@
       <h1>Plattegrond Dashboard</h1>
       <p>Voer het wachtwoord in om door te gaan</p>
       <input type="password" id="login-password" placeholder="Wachtwoord" autocomplete="off">
-      <input type="password" id="login-token" placeholder="GitHub token" autocomplete="off" style="margin-top:4px;">
       <label style="display:inline-flex; align-items:center; gap:8px; margin-bottom:16px; font-size:14px; color:#666; cursor:pointer;">
-        <input type="checkbox" id="login-remember" style="width:18px; height:18px; flex-shrink:0; margin:0;"> <span style="line-height:1;">Token onthouden</span>
+        <input type="checkbox" id="login-remember" style="width:18px; height:18px; flex-shrink:0; margin:0;"> <span style="line-height:1;">Wachtwoord onthouden</span>
       </label>
       <button id="login-btn">Inloggen</button>
       <div class="login-error" id="login-error"></div>
@@ -1136,6 +1135,33 @@
     // LOGIN
     // ============================================================
 
+    // Encrypted GitHub token (AES-256-GCM, key derived from password)
+    const ENCRYPTED_TOKEN = {
+      iv: 'zW5VwF3RM84cHw/y',
+      tag: 'qSFkPl6gS3ANfKhUNaJo3g==',
+      data: '7psEJZndzotzoCnaN95BOsPofFJ2EqTwmStOlg3jnac7FDNhOAnBUw==',
+    };
+
+    async function decryptToken(password) {
+      const enc = new TextEncoder();
+      const keyMaterial = await crypto.subtle.importKey('raw', enc.encode(password), 'PBKDF2', false, ['deriveKey']);
+      const key = await crypto.subtle.deriveKey(
+        { name: 'PBKDF2', salt: enc.encode('fd_salt'), iterations: 100000, hash: 'SHA-256' },
+        keyMaterial,
+        { name: 'AES-GCM', length: 256 },
+        false,
+        ['decrypt']
+      );
+      const iv = Uint8Array.from(atob(ENCRYPTED_TOKEN.iv), c => c.charCodeAt(0));
+      const data = Uint8Array.from(atob(ENCRYPTED_TOKEN.data), c => c.charCodeAt(0));
+      const tag = Uint8Array.from(atob(ENCRYPTED_TOKEN.tag), c => c.charCodeAt(0));
+      const combined = new Uint8Array(data.length + tag.length);
+      combined.set(data);
+      combined.set(tag, data.length);
+      const decrypted = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: iv }, key, combined);
+      return new TextDecoder().decode(decrypted);
+    }
+
     // EmailJS setup
     emailjs.init('3DTmVGOU0h5-m-l12');
 
@@ -1214,18 +1240,29 @@
       }
 
       const password = loginPassword.value;
-      const token = document.getElementById('login-token').value;
-      if (!password || !token) {
-        loginError.textContent = 'Vul wachtwoord en token in.';
+      if (!password) {
+        loginError.textContent = 'Vul het wachtwoord in.';
         return;
       }
 
       const hash = await hashPassword(password);
 
       if (hash === LOGIN_CONFIG.passwordHash) {
-        // Validate token against GitHub API
         loginBtn.disabled = true;
         loginBtn.textContent = 'Controleren...';
+
+        // Decrypt GitHub token with password
+        let token;
+        try {
+          token = await decryptToken(password);
+        } catch {
+          loginBtn.disabled = false;
+          loginBtn.textContent = 'Inloggen';
+          loginError.textContent = 'Kon token niet ontsleutelen.';
+          return;
+        }
+
+        // Validate token against GitHub API
         try {
           const testResp = await fetch(CONFIG.customersUrl, {
             headers: { 'Authorization': 'token ' + token, 'Accept': 'application/vnd.github.v3+json' },
@@ -1245,11 +1282,11 @@
         localStorage.removeItem(LOGIN_CONFIG.attemptsKey);
         localStorage.removeItem(LOGIN_CONFIG.lockoutKey);
 
-        // Remember token if checkbox is checked
+        // Remember password if checkbox is checked
         if (document.getElementById('login-remember').checked) {
-          localStorage.setItem('fd_saved_token', token);
+          localStorage.setItem('fd_saved_password', password);
         } else {
-          localStorage.removeItem('fd_saved_token');
+          localStorage.removeItem('fd_saved_password');
         }
 
         loginBtn.textContent = 'Inloggen';
@@ -1310,26 +1347,13 @@
       loginBtn.disabled = false;
       loginBtn.textContent = 'Inloggen';
       loginPassword.disabled = false;
-      document.getElementById('login-token').disabled = false;
       stopPolling();
-
-      // Restore saved token if remembered
-      const remembered = localStorage.getItem('fd_saved_token');
-      if (remembered) {
-        document.getElementById('login-token').value = remembered;
-        document.getElementById('login-remember').checked = true;
-      } else {
-        document.getElementById('login-token').value = '';
-        document.getElementById('login-remember').checked = false;
-      }
+      restoreSavedPassword();
     }
 
     document.getElementById('btn-logout').addEventListener('click', logout);
     loginBtn.addEventListener('click', handleLogin);
     loginPassword.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') document.getElementById('login-token').focus();
-    });
-    document.getElementById('login-token').addEventListener('keydown', (e) => {
       if (e.key === 'Enter') handleLogin();
     });
 
@@ -1357,18 +1381,19 @@
       return true;
     }
 
-    // Pre-fill saved token
-    const savedToken = localStorage.getItem('fd_saved_token');
-    if (savedToken) {
-      document.getElementById('login-token').value = savedToken;
-      document.getElementById('login-remember').checked = true;
+    function restoreSavedPassword() {
+      const saved = localStorage.getItem('fd_saved_password');
+      if (saved) {
+        loginPassword.value = saved;
+        document.getElementById('login-remember').checked = true;
+      }
     }
+
+    restoreSavedPassword();
 
     if (isSessionValid()) {
       showApp();
     } else {
-      // Clear any old localStorage tokens (migration)
-      localStorage.removeItem('fd_auth_token');
       checkLockoutState();
     }
   </script>
