@@ -497,7 +497,7 @@
 
   <!-- Login screen -->
   <div class="login-screen" id="login-screen">
-    <div style="position:absolute; bottom:12px; left:16px; font-size:12px; color:#aaa;">v1.2.6</div>
+    <div style="position:absolute; bottom:12px; left:16px; font-size:12px; color:#aaa;">v1.2.7</div>
     <div class="login-box">
       <h1>Plattegrond Dashboard</h1>
       <p>Voer het wachtwoord in om door te gaan</p>
@@ -512,7 +512,7 @@
 
   <!-- App (hidden until logged in) -->
   <div id="app-container" style="display:none;">
-  <div style="position:fixed; bottom:12px; left:16px; font-size:12px; color:#aaa; z-index:1000; pointer-events:none;">v1.2.6</div>
+  <div style="position:fixed; bottom:12px; left:16px; font-size:12px; color:#aaa; z-index:1000; pointer-events:none;">v1.2.7</div>
 
   <!-- Top bar with dropdowns -->
   <div class="topbar">
@@ -1495,8 +1495,15 @@
       applyTransform();
     });
 
+    let wasPinching = false;
+
     svgContainer.addEventListener('pointerup', (e) => {
       isPanning = false;
+      if (wasPinching) {
+        wasPinching = false;
+        pendingDoor = null;
+        return;
+      }
       if (!hasMoved && pendingDoor) {
         if (isEditMode) {
           handleEditTapOnDoor(pendingDoor);
@@ -1514,6 +1521,7 @@
       if (e.touches.length === 2) {
         e.preventDefault();
         isPanning = false;
+        wasPinching = true;
         initialPinchDist = getTouchDist(e.touches);
         initialScale = scale;
       }
