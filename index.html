@@ -497,7 +497,7 @@
 
   <!-- Login screen -->
   <div class="login-screen" id="login-screen">
-    <div style="position:absolute; bottom:12px; left:16px; font-size:12px; color:#aaa;">v1.2.3</div>
+    <div style="position:absolute; bottom:12px; left:16px; font-size:12px; color:#aaa;">v1.2.4</div>
     <div class="login-box">
       <h1>Plattegrond Dashboard</h1>
       <p>Voer het wachtwoord in om door te gaan</p>
@@ -512,7 +512,7 @@
 
   <!-- App (hidden until logged in) -->
   <div id="app-container" style="display:none;">
-  <div style="position:fixed; bottom:12px; left:16px; font-size:12px; color:#aaa; z-index:1000; pointer-events:none;">v1.2.3</div>
+  <div style="position:fixed; bottom:12px; left:16px; font-size:12px; color:#aaa; z-index:1000; pointer-events:none;">v1.2.4</div>
 
   <!-- Top bar with dropdowns -->
   <div class="topbar">
@@ -534,8 +534,8 @@
     <span class="edit-label">Bewerkingsmodus</span>
     <div style="display:flex; align-items:center; gap:8px;">
       <label style="font-size:13px; color:#e67700; font-weight:600; white-space:nowrap;">Grootte:</label>
-      <input type="range" id="edit-marker-size" min="3" max="30" value="10" style="width:180px; height:36px;">
-      <span id="edit-size-label" style="font-size:13px; color:#e67700; min-width:24px;">10</span>
+      <input type="range" id="edit-marker-size" min="3" max="30" value="15" style="width:180px; height:36px;">
+      <span id="edit-size-label" style="font-size:13px; color:#e67700; min-width:24px;">15</span>
     </div>
     <div>
       <button class="btn-edit-cancel" id="btn-edit-cancel">Annuleren</button>
@@ -977,7 +977,7 @@
 
     let isEditMode = false;
     let editChanges = []; // track changes for undo on cancel
-    let editMarkerSize = 10;
+    let editMarkerSize = 15;
 
     const topbar = document.querySelector('.topbar');
     const editBar = document.getElementById('edit-bar');
@@ -999,9 +999,9 @@
       // Reset save button and slider state
       document.getElementById('btn-edit-save').disabled = false;
       document.getElementById('btn-edit-save').textContent = 'Opslaan';
-      editMarkerSize = 10;
-      document.getElementById('edit-marker-size').value = 10;
-      document.getElementById('edit-size-label').textContent = '10';
+      editMarkerSize = 15;
+      document.getElementById('edit-marker-size').value = 15;
+      document.getElementById('edit-size-label').textContent = '15';
       // Hide normal UI
       btnEdit.style.display = 'none';
       btnReset.style.display = 'none';
@@ -1221,7 +1221,7 @@
       marker.style.strokeWidth = '3';
 
       // Change edit bar label
-      document.querySelector('.edit-label').textContent = 'Grootte aanpassen: ' + doorId + ' — gebruik de slider';
+      document.querySelector('.edit-label').textContent = doorId;
     }
 
     function applyResize() {
@@ -1284,14 +1284,7 @@
     function handleEditTapOnDoor(doorId) {
       if (!isEditMode) return;
       if (resizingMarker) { applyResize(); return; }
-      // Set slider to current marker size
       const marker = svgContainer.querySelector(`[data-door-id="${doorId}"]`);
-      if (marker) {
-        const currentRx = parseFloat(marker.getAttribute('rx')) || 10;
-        document.getElementById('edit-marker-size').value = currentRx;
-        editMarkerSize = currentRx;
-        document.getElementById('edit-size-label').textContent = currentRx;
-      }
       showEditPopup('Deur: ' + doorId, null, [
         {
           text: 'Grootte aanpassen', color: '#e67700',
