@@ -515,7 +515,7 @@
 
   <!-- Login screen -->
   <div class="login-screen" id="login-screen">
-    <div style="position:absolute; bottom:12px; left:16px; font-size:12px; color:#aaa;">v1.4.0</div>
+    <div style="position:absolute; bottom:12px; left:16px; font-size:12px; color:#aaa;">v1.4.1</div>
     <div class="login-box">
       <h1>Plattegrond Dashboard</h1>
       <p>Voer het wachtwoord in om door te gaan</p>
@@ -530,7 +530,7 @@
 
   <!-- App (hidden until logged in) -->
   <div id="app-container" style="display:none;">
-  <div style="position:fixed; bottom:12px; left:16px; font-size:12px; color:#aaa; z-index:1000; pointer-events:none;">v1.4.0</div>
+  <div style="position:fixed; bottom:12px; left:16px; font-size:12px; color:#aaa; z-index:1000; pointer-events:none;">v1.4.1</div>
 
   <!-- Top bar with dropdowns -->
   <div class="topbar">
@@ -1075,6 +1075,7 @@
       btnEdit.style.display = 'inline-block';
       btnReset.style.display = 'inline-block';
       closeEditPopup();
+      stopQrScanner();
     }
 
     function cancelEditMode() {
@@ -1208,7 +1209,7 @@
     function closeEditPopup() {
       editPopup.style.display = 'none';
       editOverlay.style.display = 'none';
-      if (qrScanner) stopQrScanner();
+      if (qrScannerRunning) hideQrScanner();
     }
 
     function initSingleMarker(marker, doorId) {
@@ -1820,24 +1821,32 @@
 
     const qrOverlay = document.getElementById('qr-overlay');
     const qrStatus = document.getElementById('qr-status');
+    let qrScannerRunning = false;
 
     async function startQrScanner() {
       qrOverlay.style.display = 'flex';
       qrStatus.textContent = 'Camera starten...';
 
       try {
-        qrScanner = new Html5Qrcode('qr-reader');
-        await qrScanner.start(
-          { facingMode: 'environment' },
-          { fps: 10, qrbox: { width: 250, height: 250 } },
-          (decodedText) => {
-            // Success — fill input and close scanner
-            editPopupInput.value = decodedText.trim().toUpperCase();
-            editPopupInput.focus();
-            stopQrScanner();
-          },
-          () => {} // ignore scan failures (no QR in frame)
-        );
+        if (!qrScanner) {
+          qrScanner = new Html5Qrcode('qr-reader');
+        }
+
+        if (!qrScannerRunning) {
+          await qrScanner.start(
+            { facingMode: 'environment' },
+            { fps: 10, qrbox: { width: 250, height: 250 } },
+            (decodedText) => {
+              editPopupInput.value = decodedText.trim().toUpperCase();
+              editPopupInput.focus();
+              hideQrScanner();
+            },
+            () => {}
+          );
+          qrScannerRunning = true;
+        } else {
+          await qrScanner.resume();
+        }
         qrStatus.textContent = 'Richt de camera op een QR code';
       } catch (err) {
         console.error('Camera fout:', err);
@@ -1845,19 +1854,27 @@
       }
     }
 
+    async function hideQrScanner() {
+      if (qrScanner && qrScannerRunning) {
+        try { await qrScanner.pause(true); } catch (e) {}
+      }
+      qrOverlay.style.display = 'none';
+    }
+
     async function stopQrScanner() {
-      if (qrScanner) {
+      if (qrScanner && qrScannerRunning) {
         try {
           await qrScanner.stop();
           qrScanner.clear();
         } catch (e) {}
+        qrScannerRunning = false;
         qrScanner = null;
       }
       qrOverlay.style.display = 'none';
     }
 
     btnScanQr.addEventListener('click', startQrScanner);
-    document.getElementById('btn-qr-close').addEventListener('click', stopQrScanner);
+    document.getElementById('btn-qr-close').addEventListener('click', hideQrScanner);
 
     // ============================================================
     // LOGIN
