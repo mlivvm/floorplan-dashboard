@@ -229,11 +229,126 @@
 
     /* no longer needed — info panel overlays */
 
+    /* Edit mode */
+    .topbar.edit-mode {
+      background: #e67700;
+    }
+
+    .edit-bar {
+      display: none;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 16px;
+      background: #fff3e0;
+      border-bottom: 2px solid #e67700;
+      position: absolute;
+      left: 0;
+      right: 0;
+      top: 52px;
+      z-index: 99;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+    }
+
+    .edit-bar .edit-label {
+      font-size: 16px;
+      font-weight: 700;
+      color: #e67700;
+    }
+
+    .edit-bar .btn-edit-save {
+      font-size: 16px;
+      padding: 8px 22px;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      font-weight: 600;
+      background: #34a853;
+      color: white;
+      margin-left: 8px;
+    }
+
+    .edit-bar .btn-edit-cancel {
+      font-size: 16px;
+      padding: 8px 22px;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      font-weight: 600;
+      background: #d93025;
+      color: white;
+    }
+
+    .edit-popup {
+      display: none;
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      background: white;
+      padding: 24px;
+      border-radius: 12px;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+      z-index: 200;
+      min-width: 280px;
+      text-align: center;
+    }
+
+    .edit-popup h3 {
+      font-size: 18px;
+      margin-bottom: 16px;
+      color: #333;
+    }
+
+    .edit-popup input {
+      width: 100%;
+      font-size: 18px;
+      padding: 10px 14px;
+      border: 2px solid #ddd;
+      border-radius: 8px;
+      margin-bottom: 16px;
+      text-align: center;
+      text-transform: uppercase;
+    }
+
+    .edit-popup input:focus {
+      outline: none;
+      border-color: #e67700;
+    }
+
+    .edit-popup .popup-buttons {
+      display: flex;
+      gap: 8px;
+      justify-content: center;
+    }
+
+    .edit-popup .popup-buttons button {
+      font-size: 16px;
+      padding: 10px 20px;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      font-weight: 600;
+      min-width: 100px;
+    }
+
+    .edit-overlay {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0,0,0,0.4);
+      z-index: 199;
+    }
+
     .svg-container svg {
       position: absolute;
       top: 0;
       left: 0;
       transform-origin: 0 0;
+      user-select: none;
+      -webkit-user-select: none;
     }
 
     /* Loading state */
@@ -353,7 +468,30 @@
       <option value="">-- Kies plattegrond --</option>
     </select>
     <button class="btn-reset" id="btn-reset" style="display:none;">Reset zoom</button>
+    <button class="btn-reset" id="btn-edit" style="display:none;">&#9998; Bewerken</button>
     <button class="btn-reset" id="btn-logout">Uitloggen</button>
+  </div>
+
+  <!-- Edit mode bar -->
+  <div class="edit-bar" id="edit-bar">
+    <span class="edit-label">Bewerkingsmodus</span>
+    <div style="display:flex; align-items:center; gap:8px;">
+      <label style="font-size:13px; color:#e67700; font-weight:600; white-space:nowrap;">Grootte:</label>
+      <input type="range" id="edit-marker-size" min="3" max="30" value="10" style="width:100px;">
+      <span id="edit-size-label" style="font-size:13px; color:#e67700; min-width:24px;">10</span>
+    </div>
+    <div>
+      <button class="btn-edit-cancel" id="btn-edit-cancel">Annuleren</button>
+      <button class="btn-edit-save" id="btn-edit-save">Opslaan</button>
+    </div>
+  </div>
+
+  <!-- Edit popup + overlay -->
+  <div class="edit-overlay" id="edit-overlay"></div>
+  <div class="edit-popup" id="edit-popup">
+    <h3 id="edit-popup-title">Nieuwe deur</h3>
+    <input type="text" id="edit-popup-input" placeholder="Deurcode (bijv. A1B2C3)" maxlength="10" autocomplete="off">
+    <div class="popup-buttons" id="edit-popup-buttons"></div>
   </div>
 
   <!-- Info panel — always visible when floorplan is loaded -->
@@ -611,6 +749,7 @@
         updateStatusBar();
         infoPanel.style.display = 'flex';
         btnPanelToggle.style.display = 'block';
+        btnEdit.style.display = 'inline-block';
         populateSidePanel();
         startPolling();
 
@@ -753,6 +892,341 @@
 
       const url = `${CONFIG.jotformBaseUrl}${CONFIG.jotformFormId}?${params.toString()}`;
       window.open(url, '_blank');
+    }
+
+    // ============================================================
+    // EDIT MODE
+    // ============================================================
+
+    let isEditMode = false;
+    let editChanges = []; // track changes for undo on cancel
+    let editMarkerSize = 10;
+
+    const topbar = document.querySelector('.topbar');
+    const editBar = document.getElementById('edit-bar');
+    const btnEdit = document.getElementById('btn-edit');
+    const editPopup = document.getElementById('edit-popup');
+    const editOverlay = document.getElementById('edit-overlay');
+    const editPopupTitle = document.getElementById('edit-popup-title');
+    const editPopupInput = document.getElementById('edit-popup-input');
+    const editPopupButtons = document.getElementById('edit-popup-buttons');
+
+    function enterEditMode() {
+      if (!currentFloorplan) return;
+      isEditMode = true;
+      editChanges = [];
+      topbar.classList.add('edit-mode');
+      editBar.style.display = 'flex';
+      infoPanel.style.display = 'none';
+      deselectDoor();
+      // Hide normal UI
+      btnEdit.style.display = 'none';
+      btnReset.style.display = 'none';
+    }
+
+    function exitEditMode() {
+      isEditMode = false;
+      topbar.classList.remove('edit-mode');
+      editBar.style.display = 'none';
+      infoPanel.style.display = 'flex';
+      btnEdit.style.display = 'inline-block';
+      btnReset.style.display = 'inline-block';
+      closeEditPopup();
+    }
+
+    function cancelEditMode() {
+      // Revert all changes
+      editChanges.reverse().forEach(change => {
+        if (change.type === 'add') {
+          // Remove added marker
+          const marker = svgContainer.querySelector(`[data-door-id="${change.doorId}"]`);
+          if (marker) marker.remove();
+        } else if (change.type === 'delete') {
+          // Re-add deleted marker
+          const svgEl = svgContainer.querySelector('svg');
+          svgEl.appendChild(change.element);
+          initSingleMarker(change.element, change.doorId);
+        } else if (change.type === 'rename') {
+          // Restore old ID
+          const marker = svgContainer.querySelector(`[data-door-id="${change.newId}"]`);
+          if (marker) {
+            marker.setAttribute('id', change.oldId);
+            marker.setAttributeNS('http://www.inkscape.org/namespaces/inkscape', 'label', change.oldId);
+            marker.dataset.doorId = change.oldId;
+          }
+        }
+      });
+      exitEditMode();
+      populateSidePanel();
+    }
+
+    async function saveEditMode() {
+      if (editChanges.length === 0) {
+        exitEditMode();
+        return;
+      }
+
+      // Serialize SVG back to string
+      const svgEl = svgContainer.querySelector('svg');
+      // Reset door marker styles before saving
+      const markers = svgEl.querySelectorAll('[data-door-id]');
+      markers.forEach(m => {
+        m.style.fill = '';
+        m.style.opacity = '';
+        m.style.cursor = '';
+        m.style.pointerEvents = '';
+        m.style.transition = '';
+        m.style.stroke = '';
+        m.style.strokeWidth = '';
+        m.removeAttribute('data-door-id');
+      });
+
+      const svgText = new XMLSerializer().serializeToString(svgEl);
+
+      // Upload to GitHub
+      const btnSave = document.getElementById('btn-edit-save');
+      btnSave.textContent = 'Opslaan...';
+      btnSave.disabled = true;
+
+      try {
+        const fp = customers[parseInt(customerSelect.value, 10)].floorplans[parseInt(floorplanSelect.value, 10)];
+        const fileUrl = CONFIG.svgBaseUrl + encodeURIComponent(fp.file);
+
+        // Get current SHA
+        const metaResp = await fetch(fileUrl, { headers: ghHeaders(), cache: 'no-store' });
+        if (!metaResp.ok) throw new Error('Kon bestand niet ophalen');
+        const meta = await metaResp.json();
+
+        // Upload updated SVG
+        const content = btoa(unescape(encodeURIComponent(svgText)));
+        const updateResp = await fetch(fileUrl, {
+          method: 'PUT',
+          headers: ghHeaders(),
+          body: JSON.stringify({
+            message: 'Markers bijgewerkt: ' + currentCustomer + ' - ' + currentFloorplan,
+            content: content,
+            sha: meta.sha,
+          }),
+        });
+        if (!updateResp.ok) throw new Error('Kon niet opslaan');
+
+        exitEditMode();
+        // Reload to get clean state
+        loadFloorplan(parseInt(customerSelect.value, 10), parseInt(floorplanSelect.value, 10));
+
+      } catch (err) {
+        alert('Opslaan mislukt: ' + err.message);
+        btnSave.textContent = 'Opslaan';
+        btnSave.disabled = false;
+      }
+    }
+
+    function showEditPopup(title, defaultValue, buttons) {
+      editPopupTitle.textContent = title;
+      editPopupInput.value = defaultValue || '';
+      editPopupButtons.innerHTML = '';
+      buttons.forEach(btn => {
+        const el = document.createElement('button');
+        el.textContent = btn.text;
+        el.style.background = btn.color || '#1a73e8';
+        el.style.color = btn.textColor || 'white';
+        el.addEventListener('click', btn.action);
+        editPopupButtons.appendChild(el);
+      });
+      editPopup.style.display = 'block';
+      editOverlay.style.display = 'block';
+      if (defaultValue === undefined || defaultValue === '') {
+        editPopupInput.style.display = 'block';
+        editPopupInput.focus();
+      } else if (defaultValue === null) {
+        editPopupInput.style.display = 'none';
+      }
+    }
+
+    function closeEditPopup() {
+      editPopup.style.display = 'none';
+      editOverlay.style.display = 'none';
+    }
+
+    function initSingleMarker(marker, doorId) {
+      marker.dataset.doorId = doorId;
+      const isDone = getDoorStatus(doorId);
+      applyDoorColor(marker, isDone);
+      marker.style.cursor = 'pointer';
+      marker.style.pointerEvents = 'all';
+      marker.style.transition = 'opacity 0.2s';
+      marker.style.stroke = 'transparent';
+      marker.style.strokeWidth = '20';
+      marker.addEventListener('pointerdown', () => { pendingDoor = doorId; });
+    }
+
+    function addMarkerAtPosition(svgX, svgY, doorId) {
+      const svgEl = svgContainer.querySelector('svg');
+      const ns = 'http://www.w3.org/2000/svg';
+      const inkNs = 'http://www.inkscape.org/namespaces/inkscape';
+
+      const ellipse = document.createElementNS(ns, 'ellipse');
+      ellipse.setAttribute('id', doorId);
+      ellipse.setAttributeNS(inkNs, 'inkscape:label', doorId);
+      ellipse.setAttribute('cx', Math.round(svgX));
+      ellipse.setAttribute('cy', Math.round(svgY));
+      ellipse.setAttribute('rx', editMarkerSize.toString());
+      ellipse.setAttribute('ry', editMarkerSize.toString());
+      ellipse.style.fill = '#1a73e8';
+      ellipse.style.opacity = '0.7';
+
+      svgEl.appendChild(ellipse);
+      initSingleMarker(ellipse, doorId);
+
+      editChanges.push({ type: 'add', doorId: doorId });
+      populateSidePanel();
+    }
+
+    function deleteMarker(doorId) {
+      const marker = svgContainer.querySelector(`[data-door-id="${doorId}"]`);
+      if (!marker) return;
+      editChanges.push({ type: 'delete', doorId: doorId, element: marker });
+      marker.remove();
+      deselectDoor();
+      populateSidePanel();
+    }
+
+    function renameMarker(doorId, newId) {
+      const marker = svgContainer.querySelector(`[data-door-id="${doorId}"]`);
+      if (!marker) return;
+      marker.setAttribute('id', newId);
+      marker.setAttributeNS('http://www.inkscape.org/namespaces/inkscape', 'label', newId);
+      marker.dataset.doorId = newId;
+      editChanges.push({ type: 'rename', oldId: doorId, newId: newId });
+      populateSidePanel();
+    }
+
+    function handleEditTapOnEmpty(e) {
+      if (!isEditMode) return;
+      const svgEl = svgContainer.querySelector('svg');
+      if (!svgEl) return;
+
+      // Convert screen coordinates to SVG coordinates
+      const containerRect = svgContainer.getBoundingClientRect();
+      const screenX = e.clientX - containerRect.left;
+      const screenY = e.clientY - containerRect.top;
+      const svgX = (screenX - panX) / scale;
+      const svgY = (screenY - panY) / scale;
+
+      showEditPopup('Nieuwe deur', '', [
+        {
+          text: 'Toevoegen', color: '#34a853',
+          action: () => {
+            const code = editPopupInput.value.trim().toUpperCase();
+            if (!code) return;
+            // Check for duplicate
+            if (svgContainer.querySelector(`[data-door-id="${code}"]`)) {
+              alert('Deze code bestaat al op deze plattegrond.');
+              return;
+            }
+            addMarkerAtPosition(svgX, svgY, code);
+            closeEditPopup();
+          }
+        },
+        { text: 'Annuleren', color: '#e0e0e0', textColor: '#333', action: closeEditPopup }
+      ]);
+    }
+
+    function handleEditTapOnDoor(doorId) {
+      if (!isEditMode) return;
+      // Set slider to current marker size
+      const marker = svgContainer.querySelector(`[data-door-id="${doorId}"]`);
+      if (marker) {
+        const currentRx = parseInt(marker.getAttribute('rx'), 10) || 10;
+        document.getElementById('edit-marker-size').value = currentRx;
+        editMarkerSize = currentRx;
+        document.getElementById('edit-size-label').textContent = currentRx;
+      }
+      showEditPopup('Deur: ' + doorId, null, [
+        {
+          text: 'Grootte aanpassen', color: '#e67700',
+          action: () => {
+            closeEditPopup();
+            const currentRx = parseInt(marker.getAttribute('rx'), 10) || 10;
+            // Build custom popup with inline slider
+            editPopupTitle.textContent = 'Grootte: ' + doorId;
+            editPopupInput.style.display = 'none';
+            const sliderHtml = document.createElement('div');
+            sliderHtml.style.cssText = 'display:flex; align-items:center; gap:12px; justify-content:center; margin-bottom:16px;';
+            sliderHtml.innerHTML = `<input type="range" id="popup-size-slider" min="3" max="30" value="${currentRx}" style="width:140px;">
+              <span id="popup-size-label" style="font-size:16px; font-weight:700; min-width:24px;">${currentRx}</span>`;
+            editPopupButtons.innerHTML = '';
+            editPopup.insertBefore(sliderHtml, editPopupButtons);
+
+            // Live preview
+            const popupSlider = document.getElementById('popup-size-slider');
+            const popupLabel = document.getElementById('popup-size-label');
+            popupSlider.addEventListener('input', () => {
+              popupLabel.textContent = popupSlider.value;
+              marker.setAttribute('rx', popupSlider.value);
+              marker.setAttribute('ry', popupSlider.value);
+            });
+
+            const btnApply = document.createElement('button');
+            btnApply.textContent = 'Toepassen';
+            btnApply.style.cssText = 'background:#34a853; color:white;';
+            btnApply.addEventListener('click', () => {
+              editChanges.push({ type: 'resize', doorId: doorId, oldRx: currentRx });
+              sliderHtml.remove();
+              closeEditPopup();
+            });
+
+            const btnCancel = document.createElement('button');
+            btnCancel.textContent = 'Annuleren';
+            btnCancel.style.cssText = 'background:#e0e0e0; color:#333;';
+            btnCancel.addEventListener('click', () => {
+              marker.setAttribute('rx', currentRx.toString());
+              marker.setAttribute('ry', currentRx.toString());
+              sliderHtml.remove();
+              closeEditPopup();
+            });
+
+            editPopupButtons.appendChild(btnApply);
+            editPopupButtons.appendChild(btnCancel);
+            editPopup.style.display = 'block';
+            editOverlay.style.display = 'block';
+          }
+        },
+        {
+          text: 'Code wijzigen', color: '#1a73e8',
+          action: () => {
+            closeEditPopup();
+            showEditPopup('Code wijzigen', doorId, [
+              {
+                text: 'Opslaan', color: '#34a853',
+                action: () => {
+                  const newCode = editPopupInput.value.trim().toUpperCase();
+                  if (!newCode) return;
+                  if (newCode === doorId) { closeEditPopup(); return; }
+                  if (svgContainer.querySelector(`[data-door-id="${newCode}"]`)) {
+                    alert('Deze code bestaat al op deze plattegrond.');
+                    return;
+                  }
+                  renameMarker(doorId, newCode);
+                  closeEditPopup();
+                }
+              },
+              { text: 'Annuleren', color: '#e0e0e0', textColor: '#333', action: closeEditPopup }
+            ]);
+          }
+        },
+        {
+          text: 'Verwijderen', color: '#d93025',
+          action: () => {
+            closeEditPopup();
+            showEditPopup('Weet je zeker dat je deur ' + doorId + ' wilt verwijderen?', null, [
+              { text: 'Ja, verwijderen', color: '#d93025', action: () => { deleteMarker(doorId); closeEditPopup(); } },
+              { text: 'Nee', color: '#e0e0e0', textColor: '#333', action: closeEditPopup }
+            ]);
+          }
+        },
+        { text: 'Sluiten', color: '#e0e0e0', textColor: '#333', action: closeEditPopup }
+      ]);
     }
 
     // ============================================================
@@ -912,10 +1386,16 @@
       applyTransform();
     });
 
-    svgContainer.addEventListener('pointerup', () => {
+    svgContainer.addEventListener('pointerup', (e) => {
       isPanning = false;
       if (!hasMoved && pendingDoor) {
-        selectDoor(pendingDoor);
+        if (isEditMode) {
+          handleEditTapOnDoor(pendingDoor);
+        } else {
+          selectDoor(pendingDoor);
+        }
+      } else if (!hasMoved && !pendingDoor && isEditMode) {
+        handleEditTapOnEmpty(e);
       }
       pendingDoor = null;
     });
@@ -1099,6 +1579,8 @@
       btnReset.style.display = 'none';
       infoPanel.style.display = 'none';
       btnPanelToggle.style.display = 'none';
+      btnEdit.style.display = 'none';
+      if (isEditMode) exitEditMode();
       sidePanel.classList.remove('open');
       btnPanelToggle.classList.remove('panel-open');
       deselectDoor();
@@ -1131,6 +1613,14 @@
     btnClose.addEventListener('click', deselectDoor);
     btnReset.addEventListener('click', resetZoom);
     btnPanelToggle.addEventListener('click', toggleSidePanel);
+    btnEdit.addEventListener('click', enterEditMode);
+    document.getElementById('btn-edit-save').addEventListener('click', saveEditMode);
+    document.getElementById('btn-edit-cancel').addEventListener('click', cancelEditMode);
+    editOverlay.addEventListener('click', closeEditPopup);
+    document.getElementById('edit-marker-size').addEventListener('input', (e) => {
+      editMarkerSize = parseInt(e.target.value, 10);
+      document.getElementById('edit-size-label').textContent = editMarkerSize;
+    });
 
     // ============================================================
     // LOGIN
@@ -1138,9 +1628,9 @@
 
     // Encrypted GitHub token (AES-256-GCM, key derived from password)
     const ENCRYPTED_TOKEN = {
-      iv: 'zW5VwF3RM84cHw/y',
-      tag: 'qSFkPl6gS3ANfKhUNaJo3g==',
-      data: '7psEJZndzotzoCnaN95BOsPofFJ2EqTwmStOlg3jnac7FDNhOAnBUw==',
+      iv: 'V1BeyMFSJuUhGC9Q',
+      tag: 'I+8b6Ih0dVsiQgDfip5xGQ==',
+      data: 'vWek2PmH1d2ddAsF1rAMWhRAQN5WSrQgcGYhpcmLTKV8w0eIRfDLOw==',
     };
 
     async function decryptToken(password) {
@@ -1186,7 +1676,7 @@
     }
 
     const LOGIN_CONFIG = {
-      passwordHash: 'd1d21c563d99f55c7b010584af290c755ec3c6cbf20320720c4556e60b04acda',
+      passwordHash: '0123940987a658e40d82d640ba2084a0f11828593a9a3be547e3e764d45f5ed7',
       maxAttempts: 3,
       lockoutMinutes: 10,
       sessionDays: 30,
