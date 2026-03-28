@@ -503,7 +503,7 @@
 
   <!-- Login screen -->
   <div class="login-screen" id="login-screen">
-    <div style="position:absolute; bottom:12px; left:16px; font-size:12px; color:#aaa;">v1.2.8</div>
+    <div style="position:absolute; bottom:12px; left:16px; font-size:12px; color:#aaa;">v1.2.9</div>
     <div class="login-box">
       <h1>Plattegrond Dashboard</h1>
       <p>Voer het wachtwoord in om door te gaan</p>
@@ -518,7 +518,7 @@
 
   <!-- App (hidden until logged in) -->
   <div id="app-container" style="display:none;">
-  <div style="position:fixed; bottom:12px; left:16px; font-size:12px; color:#aaa; z-index:1000; pointer-events:none;">v1.2.8</div>
+  <div style="position:fixed; bottom:12px; left:16px; font-size:12px; color:#aaa; z-index:1000; pointer-events:none;">v1.2.9</div>
 
   <!-- Top bar with dropdowns -->
   <div class="topbar">
@@ -1221,20 +1221,28 @@
       editMarkerSize = Math.round(currentRx);
       document.getElementById('edit-size-label').textContent = Math.round(currentRx);
 
-      // Highlight the marker
+      // Highlight the marker with even border
       marker.style.opacity = '1';
       marker.style.stroke = '#e67700';
-      marker.style.strokeWidth = '3';
+      marker.style.strokeWidth = '4';
+      marker.style.paintOrder = 'stroke';
+      marker.style.vectorEffect = 'non-scaling-stroke';
 
       // Change edit bar label
       document.querySelector('.edit-label').textContent = doorId;
     }
 
+    function clearResizeHighlight(marker) {
+      marker.style.stroke = 'transparent';
+      marker.style.strokeWidth = '20';
+      marker.style.paintOrder = '';
+      marker.style.vectorEffect = '';
+    }
+
     function applyResize() {
       if (!resizingMarker) return;
       editChanges.push({ type: 'resize', doorId: resizingMarker.doorId, oldRx: resizingOldRx });
-      resizingMarker.marker.style.stroke = 'transparent';
-      resizingMarker.marker.style.strokeWidth = '20';
+      clearResizeHighlight(resizingMarker.marker);
       resizingMarker = null;
       resizingOldRx = null;
       document.querySelector('.edit-label').textContent = 'Bewerkingsmodus';
@@ -1244,8 +1252,7 @@
       if (!resizingMarker) return;
       resizingMarker.marker.setAttribute('rx', resizingOldRx.toString());
       resizingMarker.marker.setAttribute('ry', resizingOldRx.toString());
-      resizingMarker.marker.style.stroke = 'transparent';
-      resizingMarker.marker.style.strokeWidth = '20';
+      clearResizeHighlight(resizingMarker.marker);
       resizingMarker = null;
       resizingOldRx = null;
       document.querySelector('.edit-label').textContent = 'Bewerkingsmodus';
@@ -1501,12 +1508,11 @@
       applyTransform();
     });
 
-    let wasPinching = false;
+    let pinchEndTime = 0;
 
     svgContainer.addEventListener('pointerup', (e) => {
       isPanning = false;
-      if (wasPinching) {
-        wasPinching = false;
+      if (Date.now() - pinchEndTime < 300) {
         pendingDoor = null;
         return;
       }
@@ -1527,7 +1533,6 @@
       if (e.touches.length === 2) {
         e.preventDefault();
         isPanning = false;
-        wasPinching = true;
         initialPinchDist = getTouchDist(e.touches);
         initialScale = scale;
       }
@@ -1552,6 +1557,13 @@
         applyTransform();
       }
     }, { passive: false });
+
+    svgContainer.addEventListener('touchend', (e) => {
+      if (e.touches.length < 2 && initialPinchDist > 0) {
+        pinchEndTime = Date.now();
+        initialPinchDist = 0;
+      }
+    });
 
     // Mouse wheel zoom
     svgContainer.addEventListener('wheel', (e) => {
