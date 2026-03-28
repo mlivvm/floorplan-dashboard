@@ -7,6 +7,7 @@
   <title>Plattegrond Dashboard</title>
   <link rel="manifest" href="manifest.json">
   <script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
+  <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
   <style>
     * {
       margin: 0;
@@ -327,13 +328,12 @@
       color: #333;
     }
 
-    .edit-popup input {
+    .edit-popup input[type="text"] {
       width: 100%;
       font-size: 18px;
       padding: 10px 14px;
       border: 2px solid #ddd;
       border-radius: 8px;
-      margin-bottom: 16px;
       text-align: center;
       text-transform: uppercase;
     }
@@ -515,7 +515,7 @@
 
   <!-- Login screen -->
   <div class="login-screen" id="login-screen">
-    <div style="position:absolute; bottom:12px; left:16px; font-size:12px; color:#aaa;">v1.3.5</div>
+    <div style="position:absolute; bottom:12px; left:16px; font-size:12px; color:#aaa;">v1.4.0</div>
     <div class="login-box">
       <h1>Plattegrond Dashboard</h1>
       <p>Voer het wachtwoord in om door te gaan</p>
@@ -530,7 +530,7 @@
 
   <!-- App (hidden until logged in) -->
   <div id="app-container" style="display:none;">
-  <div style="position:fixed; bottom:12px; left:16px; font-size:12px; color:#aaa; z-index:1000; pointer-events:none;">v1.3.5</div>
+  <div style="position:fixed; bottom:12px; left:16px; font-size:12px; color:#aaa; z-index:1000; pointer-events:none;">v1.4.0</div>
 
   <!-- Top bar with dropdowns -->
   <div class="topbar">
@@ -580,8 +580,20 @@
   <div class="edit-overlay" id="edit-overlay"></div>
   <div class="edit-popup" id="edit-popup">
     <h3 id="edit-popup-title">Nieuwe deur</h3>
-    <input type="text" id="edit-popup-input" placeholder="Deurcode (bijv. A1B2C3)" maxlength="10" autocomplete="off">
+    <div id="edit-popup-input-row" style="display:flex; gap:8px; margin-bottom:16px;">
+      <input type="text" id="edit-popup-input" placeholder="Deurcode" maxlength="20" autocomplete="off" style="flex:1; margin-bottom:0;">
+      <button id="btn-scan-qr" style="padding:8px 14px; border:none; border-radius:8px; background:#1a73e8; color:white; font-size:16px; font-weight:600; cursor:pointer; white-space:nowrap;">&#128247; Scan</button>
+    </div>
     <div class="popup-buttons" id="edit-popup-buttons"></div>
+  </div>
+
+  <!-- QR Scanner overlay -->
+  <div id="qr-overlay" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.85); z-index:400; flex-direction:column; align-items:center; justify-content:center;">
+    <div style="position:relative; width:min(80vw, 400px); max-width:400px;">
+      <div id="qr-reader" style="width:100%; border-radius:12px; overflow:hidden;"></div>
+      <p id="qr-status" style="color:white; font-size:15px; margin-top:12px; text-align:center;">Richt de camera op een QR code</p>
+      <button id="btn-qr-close" style="margin-top:16px; width:100%; padding:14px; border:none; border-radius:8px; background:white; color:#333; font-size:16px; font-weight:600; cursor:pointer;">Sluiten</button>
+    </div>
   </div>
 
   <!-- Info panel — always visible when floorplan is loaded -->
@@ -1011,6 +1023,7 @@
     let isEditMode = false;
     let editChanges = []; // track changes for undo on cancel
     let editMarkerSize = 15;
+    let qrScanner = null;
 
     const topbar = document.querySelector('.topbar');
     const editBar = document.getElementById('edit-bar');
@@ -1163,6 +1176,9 @@
       }
     }
 
+    const editPopupInputRow = document.getElementById('edit-popup-input-row');
+    const btnScanQr = document.getElementById('btn-scan-qr');
+
     function showEditPopup(title, defaultValue, buttons) {
       editPopupTitle.textContent = title;
       editPopupButtons.innerHTML = '';
@@ -1178,9 +1194,9 @@
       editPopup.style.display = 'block';
       editOverlay.style.display = 'block';
       if (defaultValue === null) {
-        editPopupInput.style.display = 'none';
+        editPopupInputRow.style.display = 'none';
       } else {
-        editPopupInput.style.display = 'block';
+        editPopupInputRow.style.display = 'flex';
         editPopupInput.value = defaultValue || '';
         editPopupInput.focus();
       }
@@ -1192,6 +1208,7 @@
     function closeEditPopup() {
       editPopup.style.display = 'none';
       editOverlay.style.display = 'none';
+      if (qrScanner) stopQrScanner();
     }
 
     function initSingleMarker(marker, doorId) {
@@ -1796,6 +1813,51 @@
       e.preventDefault();
       updateSliderValue(sliderValueFromTouch(e));
     }, { passive: false });
+
+    // ============================================================
+    // QR CODE SCANNER
+    // ============================================================
+
+    const qrOverlay = document.getElementById('qr-overlay');
+    const qrStatus = document.getElementById('qr-status');
+
+    async function startQrScanner() {
+      qrOverlay.style.display = 'flex';
+      qrStatus.textContent = 'Camera starten...';
+
+      try {
+        qrScanner = new Html5Qrcode('qr-reader');
+        await qrScanner.start(
+          { facingMode: 'environment' },
+          { fps: 10, qrbox: { width: 250, height: 250 } },
+          (decodedText) => {
+            // Success — fill input and close scanner
+            editPopupInput.value = decodedText.trim().toUpperCase();
+            editPopupInput.focus();
+            stopQrScanner();
+          },
+          () => {} // ignore scan failures (no QR in frame)
+        );
+        qrStatus.textContent = 'Richt de camera op een QR code';
+      } catch (err) {
+        console.error('Camera fout:', err);
+        qrStatus.textContent = 'Camera niet beschikbaar. Controleer de permissies.';
+      }
+    }
+
+    async function stopQrScanner() {
+      if (qrScanner) {
+        try {
+          await qrScanner.stop();
+          qrScanner.clear();
+        } catch (e) {}
+        qrScanner = null;
+      }
+      qrOverlay.style.display = 'none';
+    }
+
+    btnScanQr.addEventListener('click', startQrScanner);
+    document.getElementById('btn-qr-close').addEventListener('click', stopQrScanner);
 
     // ============================================================
     // LOGIN
