@@ -2,7 +2,7 @@
 <html lang="nl">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
   <title>Plattegrond Dashboard</title>
   <link rel="manifest" href="manifest.json">
   <script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
@@ -18,7 +18,9 @@
       background: #f5f5f5;
       overflow: hidden;
       height: 100vh;
+      height: 100dvh;
       touch-action: none;
+      padding-top: env(safe-area-inset-top);
     }
 
     /* Top bar */
@@ -164,6 +166,7 @@
       right: -280px;
       width: 280px;
       height: calc(100vh - 52px);
+      height: calc(100dvh - 52px);
       background: #fff;
       box-shadow: -2px 0 8px rgba(0,0,0,0.15);
       z-index: 100;
@@ -222,6 +225,7 @@
     .svg-container {
       width: 100%;
       height: calc(100vh - 52px);
+      height: calc(100dvh - 52px);
       overflow: hidden;
       position: relative;
       background: #e8e8e8;
@@ -357,6 +361,7 @@
       align-items: center;
       justify-content: center;
       height: calc(100vh - 52px);
+      height: calc(100dvh - 52px);
       font-size: 18px;
       color: #666;
     }
@@ -372,6 +377,7 @@
       align-items: center;
       justify-content: center;
       height: 100vh;
+      height: 100dvh;
       background: #f5f5f5;
     }
 
@@ -442,7 +448,7 @@
 
   <!-- Login screen -->
   <div class="login-screen" id="login-screen">
-    <div style="position:absolute; bottom:12px; left:16px; font-size:12px; color:#aaa;">v1.1.0</div>
+    <div style="position:absolute; bottom:12px; left:16px; font-size:12px; color:#aaa;">v1.1.1</div>
     <div class="login-box">
       <h1>Plattegrond Dashboard</h1>
       <p>Voer het wachtwoord in om door te gaan</p>
