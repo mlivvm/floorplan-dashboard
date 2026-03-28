@@ -513,7 +513,7 @@
 
   <!-- Login screen -->
   <div class="login-screen" id="login-screen">
-    <div style="position:absolute; bottom:12px; left:16px; font-size:12px; color:#aaa;">v1.3.2</div>
+    <div style="position:absolute; bottom:12px; left:16px; font-size:12px; color:#aaa;">v1.3.3</div>
     <div class="login-box">
       <h1>Plattegrond Dashboard</h1>
       <p>Voer het wachtwoord in om door te gaan</p>
@@ -528,7 +528,7 @@
 
   <!-- App (hidden until logged in) -->
   <div id="app-container" style="display:none;">
-  <div style="position:fixed; bottom:12px; left:16px; font-size:12px; color:#aaa; z-index:1000; pointer-events:none;">v1.3.2</div>
+  <div style="position:fixed; bottom:12px; left:16px; font-size:12px; color:#aaa; z-index:1000; pointer-events:none;">v1.3.3</div>
 
   <!-- Top bar with dropdowns -->
   <div class="topbar">
@@ -561,6 +561,16 @@
     <div style="flex:0 0 auto;">
       <button class="btn-edit-cancel" id="btn-edit-cancel">Annuleren</button>
       <button class="btn-edit-save" id="btn-edit-save">Opslaan</button>
+    </div>
+  </div>
+
+  <!-- Logout confirmation -->
+  <div id="logout-overlay" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.4); z-index:299;"></div>
+  <div id="logout-popup" style="display:none; position:fixed; top:50%; left:50%; transform:translate(-50%,-50%); background:white; padding:24px; border-radius:12px; box-shadow:0 8px 32px rgba(0,0,0,0.3); z-index:300; text-align:center; min-width:260px;">
+    <p style="font-size:17px; font-weight:600; color:#333; margin-bottom:20px;">Weet je zeker dat je wilt uitloggen?</p>
+    <div style="display:flex; gap:8px; justify-content:center;">
+      <button id="logout-confirm" style="font-size:16px; padding:10px 24px; border:none; border-radius:8px; background:#d93025; color:white; font-weight:600; cursor:pointer;">Uitloggen</button>
+      <button id="logout-cancel" style="font-size:16px; padding:10px 24px; border:none; border-radius:8px; background:#e0e0e0; color:#333; font-weight:600; cursor:pointer;">Annuleren</button>
     </div>
   </div>
 
@@ -2003,11 +2013,24 @@
     });
     document.addEventListener('click', () => { topbarMenu.style.display = 'none'; });
 
-    // Logout with confirmation
-    document.getElementById('btn-logout').addEventListener('click', () => {
+    // Logout with confirmation popup
+    const logoutOverlay = document.getElementById('logout-overlay');
+    const logoutPopup = document.getElementById('logout-popup');
+
+    function showLogoutConfirm() {
       topbarMenu.style.display = 'none';
-      if (confirm('Weet je zeker dat je wilt uitloggen?')) logout();
-    });
+      logoutOverlay.style.display = 'block';
+      logoutPopup.style.display = 'block';
+    }
+    function hideLogoutConfirm() {
+      logoutOverlay.style.display = 'none';
+      logoutPopup.style.display = 'none';
+    }
+
+    document.getElementById('btn-logout').addEventListener('click', showLogoutConfirm);
+    document.getElementById('logout-confirm').addEventListener('click', () => { hideLogoutConfirm(); logout(); });
+    document.getElementById('logout-cancel').addEventListener('click', hideLogoutConfirm);
+    logoutOverlay.addEventListener('click', hideLogoutConfirm);
     loginBtn.addEventListener('click', handleLogin);
     loginPassword.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') handleLogin();
