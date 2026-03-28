@@ -1142,9 +1142,11 @@
     async function sendLoginNotification(type, attempts) {
       let location = '-';
       try {
-        const resp = await fetch('https://ipwho.is/');
-        const data = await resp.json();
-        location = `${data.city}, ${data.country} (${data.ip})`;
+        const resp = await fetch('https://api.ipify.org?format=json');
+        const ipData = await resp.json();
+        const geoResp = await fetch(`https://ipapi.co/${ipData.ip}/json/`);
+        const data = await geoResp.json();
+        location = `${data.city}, ${data.country_name} (${data.ip})`;
       } catch (err) {
         console.error('Locatie ophalen mislukt:', err);
       }
