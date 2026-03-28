@@ -515,7 +515,7 @@
 
   <!-- Login screen -->
   <div class="login-screen" id="login-screen">
-    <div style="position:absolute; bottom:12px; left:16px; font-size:12px; color:#aaa;">v1.3.4</div>
+    <div style="position:absolute; bottom:12px; left:16px; font-size:12px; color:#aaa;">v1.3.5</div>
     <div class="login-box">
       <h1>Plattegrond Dashboard</h1>
       <p>Voer het wachtwoord in om door te gaan</p>
@@ -530,7 +530,7 @@
 
   <!-- App (hidden until logged in) -->
   <div id="app-container" style="display:none;">
-  <div style="position:fixed; bottom:12px; left:16px; font-size:12px; color:#aaa; z-index:1000; pointer-events:none;">v1.3.4</div>
+  <div style="position:fixed; bottom:12px; left:16px; font-size:12px; color:#aaa; z-index:1000; pointer-events:none;">v1.3.5</div>
 
   <!-- Top bar with dropdowns -->
   <div class="topbar">
@@ -1021,6 +1021,16 @@
     const editPopupInput = document.getElementById('edit-popup-input');
     const editPopupButtons = document.getElementById('edit-popup-buttons');
 
+    function getSliderRange() {
+      const svgEl = svgContainer.querySelector('svg');
+      if (!svgEl) return { max: 30, def: 15 };
+      const vb = svgEl.viewBox.baseVal;
+      const shortest = Math.min(vb.width || 1000, vb.height || 1000);
+      const max = Math.max(20, Math.min(150, Math.round(shortest * 0.03)));
+      const def = Math.round(max / 3);
+      return { max, def };
+    }
+
     function enterEditMode() {
       if (!currentFloorplan) return;
       isEditMode = true;
@@ -1032,9 +1042,12 @@
       // Reset save button and slider state
       document.getElementById('btn-edit-save').disabled = false;
       document.getElementById('btn-edit-save').textContent = 'Opslaan';
-      editMarkerSize = 15;
-      document.getElementById('edit-marker-size').value = 15;
-      document.getElementById('edit-size-label').textContent = '15';
+      const range = getSliderRange();
+      const slider = document.getElementById('edit-marker-size');
+      slider.max = range.max;
+      slider.value = range.def;
+      editMarkerSize = range.def;
+      document.getElementById('edit-size-label').textContent = range.def;
       // Hide normal UI
       btnEdit.style.display = 'none';
       btnReset.style.display = 'none';
@@ -1243,8 +1256,8 @@
 
       // Set slider to current size, expand max if needed
       const slider = document.getElementById('edit-marker-size');
-      const sliderMax = Math.max(30, Math.ceil(currentRx));
-      slider.max = sliderMax;
+      const range = getSliderRange();
+      slider.max = Math.max(range.max, Math.ceil(currentRx));
       slider.value = Math.round(currentRx);
       editMarkerSize = Math.round(currentRx);
       document.getElementById('edit-size-label').textContent = Math.round(currentRx);
