@@ -1,0 +1,1350 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>Plattegrond Dashboard</title>
+  <link rel="manifest" href="manifest.json">
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #f5f5f5;
+      overflow: hidden;
+      height: 100vh;
+      touch-action: none;
+    }
+
+    /* Top bar */
+    .topbar {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 10px 16px;
+      background: #1a73e8;
+      color: white;
+      z-index: 100;
+      position: relative;
+    }
+
+    .topbar h1 {
+      font-size: 18px;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+
+    .topbar select {
+      font-size: 16px;
+      padding: 8px 12px;
+      border: none;
+      border-radius: 6px;
+      background: white;
+      color: #333;
+      min-width: 180px;
+      cursor: pointer;
+    }
+
+    .topbar select:focus {
+      outline: 2px solid #fff;
+    }
+
+    .topbar .btn-reset {
+      margin-left: auto;
+      font-size: 14px;
+      padding: 8px 14px;
+      border: 2px solid white;
+      border-radius: 6px;
+      background: transparent;
+      color: white;
+      cursor: pointer;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+
+    /* Info panel — always visible, overlays the map */
+    .info-panel {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 16px;
+      background: #fff;
+      border-bottom: 2px solid #e0e0e0;
+      z-index: 99;
+      position: absolute;
+      left: 0;
+      right: 0;
+      top: 52px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+    }
+
+    .info-panel .door-name {
+      font-size: 18px;
+      font-weight: 700;
+      color: #333;
+    }
+
+    .info-panel .door-status {
+      font-size: 14px;
+      margin-left: 12px;
+    }
+
+    .info-panel .btn {
+      font-size: 16px;
+      padding: 8px 22px;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      font-weight: 600;
+      touch-action: manipulation;
+    }
+
+    .info-panel .btn-jotform {
+      background: #1a73e8;
+      color: white;
+    }
+
+    .info-panel .btn-done {
+      background: #34a853;
+      color: white;
+    }
+
+    .info-panel .btn-undo {
+      background: #e8e8e8;
+      color: #333;
+      border: 2px solid #999;
+    }
+
+    .info-panel .btn-close {
+      background: #e0e0e0;
+      color: #333;
+      padding: 8px 14px;
+      margin-left: 8px;
+    }
+
+    .info-panel .btn.disabled {
+      opacity: 0.4;
+      cursor: default;
+      pointer-events: none;
+    }
+
+    /* Side panel toggle button */
+    .btn-panel-toggle {
+      position: fixed;
+      right: 0;
+      top: 50%;
+      transform: translateY(-50%);
+      z-index: 101;
+      background: #1a73e8;
+      color: white;
+      border: none;
+      border-radius: 8px 0 0 8px;
+      padding: 12px 6px;
+      font-size: 18px;
+      cursor: pointer;
+      writing-mode: vertical-lr;
+      letter-spacing: 2px;
+      font-weight: 600;
+      box-shadow: -2px 0 8px rgba(0,0,0,0.15);
+    }
+
+    .btn-panel-toggle.panel-open {
+      right: 280px;
+    }
+
+    /* Side panel */
+    .side-panel {
+      position: fixed;
+      top: 52px;
+      right: -280px;
+      width: 280px;
+      height: calc(100vh - 52px);
+      background: #fff;
+      box-shadow: -2px 0 8px rgba(0,0,0,0.15);
+      z-index: 100;
+      transition: right 0.25s ease;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .side-panel.open {
+      right: 0;
+    }
+
+    .side-panel-header {
+      padding: 12px 16px;
+      font-size: 15px;
+      font-weight: 700;
+      color: #333;
+      border-bottom: 1px solid #e0e0e0;
+      flex-shrink: 0;
+    }
+
+    .side-panel-list {
+      flex: 1;
+      overflow-y: auto;
+      padding: 4px 0;
+    }
+
+    .side-panel-item {
+      display: flex;
+      align-items: center;
+      padding: 8px 16px;
+      cursor: pointer;
+      font-size: 15px;
+      color: #333;
+      border-bottom: 1px solid #f0f0f0;
+    }
+
+    .side-panel-item:hover {
+      background: #f5f5f5;
+    }
+
+    .side-panel-item.selected {
+      background: #e8f0fe;
+      font-weight: 700;
+    }
+
+    .side-panel-dot {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      margin-right: 12px;
+      flex-shrink: 0;
+    }
+
+    /* SVG container */
+    .svg-container {
+      width: 100%;
+      height: calc(100vh - 52px);
+      overflow: hidden;
+      position: relative;
+      background: #e8e8e8;
+    }
+
+    /* no longer needed — info panel overlays */
+
+    .svg-container svg {
+      position: absolute;
+      top: 0;
+      left: 0;
+      transform-origin: 0 0;
+    }
+
+    /* Loading state */
+    .loading {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      height: calc(100vh - 52px);
+      font-size: 18px;
+      color: #666;
+    }
+
+    .loading.hidden {
+      display: none;
+    }
+
+    /* Login screen */
+    .login-screen {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      background: #f5f5f5;
+    }
+
+    .login-box {
+      background: white;
+      padding: 40px 32px;
+      border-radius: 12px;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.12);
+      text-align: center;
+      width: 340px;
+      max-width: 90vw;
+    }
+
+    .login-box h1 {
+      font-size: 22px;
+      color: #1a73e8;
+      margin-bottom: 8px;
+    }
+
+    .login-box p {
+      font-size: 14px;
+      color: #666;
+      margin-bottom: 24px;
+    }
+
+    .login-box input {
+      width: 100%;
+      font-size: 18px;
+      padding: 12px 16px;
+      border: 2px solid #ddd;
+      border-radius: 8px;
+      margin-bottom: 16px;
+      text-align: center;
+    }
+
+    .login-box input:focus {
+      outline: none;
+      border-color: #1a73e8;
+    }
+
+    .login-box button {
+      width: 100%;
+      font-size: 18px;
+      padding: 12px;
+      background: #1a73e8;
+      color: white;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      font-weight: 600;
+    }
+
+    .login-box button:disabled {
+      background: #ccc;
+      cursor: default;
+    }
+
+    .login-error {
+      color: #d93025;
+      font-size: 14px;
+      margin-top: 12px;
+      min-height: 20px;
+    }
+
+  </style>
+</head>
+<body>
+
+  <!-- Login screen -->
+  <div class="login-screen" id="login-screen">
+    <div class="login-box">
+      <h1>Plattegrond Dashboard</h1>
+      <p>Voer het wachtwoord in om door te gaan</p>
+      <input type="password" id="login-password" placeholder="Wachtwoord" autocomplete="off">
+      <input type="password" id="login-token" placeholder="GitHub token" autocomplete="off" style="margin-top:4px;">
+      <label style="display:inline-flex; align-items:center; gap:8px; margin-bottom:16px; font-size:14px; color:#666; cursor:pointer;">
+        <input type="checkbox" id="login-remember" style="width:18px; height:18px; flex-shrink:0; margin:0;"> <span style="line-height:1;">Token onthouden</span>
+      </label>
+      <button id="login-btn">Inloggen</button>
+      <div class="login-error" id="login-error"></div>
+    </div>
+  </div>
+
+  <!-- App (hidden until logged in) -->
+  <div id="app-container" style="display:none;">
+
+  <!-- Top bar with dropdowns -->
+  <div class="topbar">
+    <h1>Deuren</h1>
+    <select id="customer-select">
+      <option value="">-- Kies klant --</option>
+    </select>
+    <select id="floorplan-select" disabled>
+      <option value="">-- Kies plattegrond --</option>
+    </select>
+    <button class="btn-reset" id="btn-reset" style="display:none;">Reset zoom</button>
+    <button class="btn-reset" id="btn-logout">Uitloggen</button>
+  </div>
+
+  <!-- Info panel — always visible when floorplan is loaded -->
+  <div class="info-panel" id="info-panel" style="display:none;">
+    <div style="min-width:200px;">
+      <span class="door-name" id="door-name">—</span>
+      <span class="door-status" id="door-status"></span>
+    </div>
+    <div id="status-count" style="font-size:16px; font-weight:600; color:#555;"></div>
+    <div style="display:flex; align-items:center; gap:8px;">
+      <button class="btn btn-jotform disabled" id="btn-jotform">Open JotForm</button>
+      <button class="btn btn-done disabled" id="btn-done">Gedaan</button>
+      <button class="btn btn-close disabled" id="btn-close">&#10005;</button>
+    </div>
+  </div>
+
+  <!-- SVG display area -->
+  <div class="loading" id="loading">Kies een klant en plattegrond om te beginnen.</div>
+  <div class="svg-container" id="svg-container" style="display:none;"></div>
+
+  <!-- Side panel toggle button -->
+  <button class="btn-panel-toggle" id="btn-panel-toggle" style="display:none;">Deuren</button>
+
+  <!-- Side panel with door list -->
+  <div class="side-panel" id="side-panel">
+    <div class="side-panel-header" id="side-panel-header">Deuren</div>
+    <div class="side-panel-list" id="side-panel-list"></div>
+  </div>
+
+  </div><!-- /app-container -->
+
+  <script>
+    // ============================================================
+    // CONFIGURATION
+    // ============================================================
+
+    const CONFIG = {
+      customersUrl: 'https://api.github.com/repos/mlivvm/floorplan-dashboard-data/contents/customers.json',
+      statusUrl: 'https://api.github.com/repos/mlivvm/floorplan-dashboard-data/contents/status.json',
+      svgBaseUrl: 'https://api.github.com/repos/mlivvm/gallery/contents/',
+      jotformBaseUrl: 'https://eu.jotform.com/',
+      jotformFormId: '250122093908351',
+      pollInterval: 30000,
+    };
+
+    const COLORS = {
+      todo: '#1a73e8',
+      done: '#34a853',
+    };
+
+    const OPACITY = {
+      normal: '0.7',
+      dimmed: '0.25',
+      selected: '1.0',
+    };
+
+    // ============================================================
+    // STATE
+    // ============================================================
+
+    let customers = [];
+    let doorStatus = {};
+    let currentCustomer = null;
+    let currentFloorplan = null;
+    let selectedDoor = null;
+    let pollTimer = null;
+
+    // Floorplan load generation counter (guards against race conditions)
+    let loadGeneration = 0;
+    let pendingDoor = null;
+
+    // Pan & zoom
+    let scale = 1;
+    let panX = 0;
+    let panY = 0;
+    let isPanning = false;
+    let hasMoved = false;
+    let startX = 0;
+    let startY = 0;
+    let lastPanX = 0;
+    let lastPanY = 0;
+    let initialPinchDist = 0;
+    let initialScale = 1;
+    let savedScale = 1;
+    let savedPanX = 0;
+    let savedPanY = 0;
+    let lastTapTime = 0;
+    let isZoomedIn = false;
+
+    // ============================================================
+    // DOM REFERENCES
+    // ============================================================
+
+    const customerSelect = document.getElementById('customer-select');
+    const floorplanSelect = document.getElementById('floorplan-select');
+    const svgContainer = document.getElementById('svg-container');
+    const loadingEl = document.getElementById('loading');
+    const infoPanel = document.getElementById('info-panel');
+    const doorNameEl = document.getElementById('door-name');
+    const doorStatusEl = document.getElementById('door-status');
+    const btnJotform = document.getElementById('btn-jotform');
+    const btnDone = document.getElementById('btn-done');
+    const btnClose = document.getElementById('btn-close');
+    const btnReset = document.getElementById('btn-reset');
+    const statusCount = document.getElementById('status-count');
+    const btnPanelToggle = document.getElementById('btn-panel-toggle');
+    const sidePanel = document.getElementById('side-panel');
+    const sidePanelList = document.getElementById('side-panel-list');
+    const sidePanelHeader = document.getElementById('side-panel-header');
+
+    // ============================================================
+    // DATA LOADING
+    // ============================================================
+
+    function getGitHubToken() {
+      return sessionStorage.getItem('fd_github_token') || '';
+    }
+
+    function ghHeaders(accept) {
+      return {
+        'Authorization': 'token ' + getGitHubToken(),
+        'Accept': accept || 'application/vnd.github.v3+json',
+      };
+    }
+
+    function decodeBase64UTF8(base64) {
+      const binary = atob(base64.replace(/\n/g, ''));
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) {
+        bytes[i] = binary.charCodeAt(i);
+      }
+      return new TextDecoder('utf-8').decode(bytes);
+    }
+
+    async function fetchGitHubJSON(url) {
+      const response = await fetch(url, { headers: ghHeaders(), cache: 'no-store' });
+      if (!response.ok) throw new Error('GitHub fetch failed: ' + response.status);
+      const data = await response.json();
+      return JSON.parse(decodeBase64UTF8(data.content));
+    }
+
+    async function fetchGitHubSVG(fileUrl) {
+      // Step 1: get file metadata (sha)
+      const cacheBust = '?_=' + Date.now();
+      const metaResp = await fetch(fileUrl + cacheBust, {
+        headers: ghHeaders(),
+        cache: 'no-store',
+      });
+      if (!metaResp.ok) throw new Error('Bestand niet gevonden');
+      const meta = await metaResp.json();
+
+      // Step 2: fetch blob by SHA (works for any file size, stays on api.github.com)
+      const blobUrl = `https://api.github.com/repos/mlivvm/gallery/git/blobs/${meta.sha}`;
+      const blobResp = await fetch(blobUrl, {
+        headers: ghHeaders(),
+        cache: 'no-store',
+      });
+      if (!blobResp.ok) throw new Error('Kon blob niet laden');
+      const blob = await blobResp.json();
+
+      // Step 3: decode base64 to UTF-8 text
+      return decodeBase64UTF8(blob.content);
+    }
+
+    async function loadCustomers() {
+      try {
+        customers = await fetchGitHubJSON(CONFIG.customersUrl);
+        populateCustomerDropdown();
+      } catch (err) {
+        console.error('Kon klanten niet laden:', err);
+        loadingEl.textContent = 'Fout bij laden van klantgegevens.';
+      }
+    }
+
+    async function loadStatus() {
+      try {
+        doorStatus = await fetchGitHubJSON(CONFIG.statusUrl);
+      } catch (err) {
+        console.error('Kon status niet laden:', err);
+        doorStatus = {};
+      }
+      updateStatusBar();
+    }
+
+    function populateCustomerDropdown() {
+      customerSelect.innerHTML = '<option value="">-- Kies klant --</option>';
+      customers.forEach((c, i) => {
+        const opt = document.createElement('option');
+        opt.value = i;
+        opt.textContent = c.customer;
+        customerSelect.appendChild(opt);
+      });
+    }
+
+    function populateFloorplanDropdown(customerIndex) {
+      const c = customers[customerIndex];
+      floorplanSelect.innerHTML = '<option value="">-- Kies plattegrond --</option>';
+      floorplanSelect.disabled = false;
+      c.floorplans.forEach((fp, i) => {
+        const opt = document.createElement('option');
+        opt.value = i;
+        opt.textContent = fp.name;
+        floorplanSelect.appendChild(opt);
+      });
+    }
+
+    // ============================================================
+    // SVG LOADING & DOOR DETECTION
+    // ============================================================
+
+    async function loadFloorplan(customerIndex, floorplanIndex) {
+      const c = customers[customerIndex];
+      const fp = c.floorplans[floorplanIndex];
+      currentCustomer = c.customer;
+      currentFloorplan = fp.name;
+
+      const thisGeneration = ++loadGeneration;
+
+      loadingEl.textContent = 'Plattegrond laden...';
+      loadingEl.classList.remove('hidden');
+      svgContainer.style.display = 'none';
+      btnReset.style.display = 'none';
+
+      try {
+        const svgUrl = CONFIG.svgBaseUrl + encodeURIComponent(fp.file);
+        const svgText = await fetchGitHubSVG(svgUrl);
+
+        // Another floorplan was requested while we were loading — abort
+        if (thisGeneration !== loadGeneration) return;
+
+        svgContainer.innerHTML = svgText;
+        const svgEl = svgContainer.querySelector('svg');
+        if (!svgEl) throw new Error('Geen geldig SVG bestand.');
+
+        // Show container so it has dimensions
+        loadingEl.classList.add('hidden');
+        svgContainer.style.display = 'block';
+        btnReset.style.display = 'inline-block';
+
+        await new Promise(r => requestAnimationFrame(r));
+
+        // Set SVG to viewBox pixel dimensions
+        const vb = svgEl.viewBox.baseVal;
+        if (!vb.width || !vb.height) throw new Error('SVG heeft geen geldige viewBox.');
+        svgEl.setAttribute('width', vb.width);
+        svgEl.setAttribute('height', vb.height);
+        svgEl.style.width = vb.width + 'px';
+        svgEl.style.height = vb.height + 'px';
+
+        fitToScreen(vb.width, vb.height);
+
+        // Find and style all door markers
+        initDoorMarkers(svgEl);
+        deselectDoor();
+        updateStatusBar();
+        infoPanel.style.display = 'flex';
+        btnPanelToggle.style.display = 'block';
+        populateSidePanel();
+        startPolling();
+
+      } catch (err) {
+        if (thisGeneration !== loadGeneration) return;
+        svgContainer.style.display = 'none';
+        svgContainer.innerHTML = '';
+        loadingEl.classList.remove('hidden');
+        loadingEl.textContent = 'Fout: ' + err.message;
+      }
+    }
+
+    function getDoorId(el) {
+      const id = el.getAttribute('id') || '';
+      const label = el.getAttributeNS('http://www.inkscape.org/namespaces/inkscape', 'label') || '';
+      // Use label if id is generic
+      if (/^(ellipse|circle)\d+$/i.test(id) && label) {
+        return label;
+      }
+      return id || label;
+    }
+
+    function initDoorMarkers(svgEl) {
+      const markers = svgEl.querySelectorAll('ellipse, circle');
+      markers.forEach(marker => {
+        const doorId = getDoorId(marker);
+        if (!doorId) return;
+        if (/^(defs|namedview|image)\d*$/i.test(doorId)) return;
+
+        marker.dataset.doorId = doorId;
+
+        const isDone = getDoorStatus(doorId);
+        applyDoorColor(marker, isDone);
+
+        marker.style.cursor = 'pointer';
+        marker.style.pointerEvents = 'all';
+        marker.style.transition = 'opacity 0.2s';
+
+        // Track door target on pointerdown (selection handled in container pointerup)
+        marker.addEventListener('pointerdown', (e) => {
+          pendingDoor = doorId;
+        });
+
+        // Larger touch target, override any inline stroke styles
+        marker.style.stroke = 'transparent';
+        marker.style.strokeWidth = '20';
+      });
+    }
+
+    function applyDoorColor(marker, isDone) {
+      const isSelected = marker.dataset.doorId === selectedDoor;
+      const hasSelection = selectedDoor !== null;
+
+      if (isDone) {
+        marker.style.fill = COLORS.done;
+      } else {
+        marker.style.fill = COLORS.todo;
+      }
+
+      if (isSelected) {
+        marker.style.opacity = OPACITY.selected;
+      } else if (hasSelection) {
+        marker.style.opacity = OPACITY.dimmed;
+      } else {
+        marker.style.opacity = OPACITY.normal;
+      }
+    }
+
+    function getDoorStatus(doorId) {
+      if (!currentCustomer || !currentFloorplan) return false;
+      const cs = doorStatus[currentCustomer];
+      if (!cs) return false;
+      const fps = cs[currentFloorplan];
+      if (!fps) return false;
+      return fps[doorId] === 'done';
+    }
+
+    function refreshAllDoorColors() {
+      const markers = svgContainer.querySelectorAll('[data-door-id]');
+      markers.forEach(marker => {
+        applyDoorColor(marker, getDoorStatus(marker.dataset.doorId));
+      });
+      updateStatusBar();
+      refreshSidePanel();
+    }
+
+    // ============================================================
+    // DOOR SELECTION
+    // ============================================================
+
+    function selectDoor(doorId) {
+      // If same door clicked again, deselect
+      if (selectedDoor === doorId) {
+        deselectDoor();
+        return;
+      }
+
+      selectedDoor = doorId;
+
+      // Update all markers (dim non-selected, highlight selected)
+      refreshAllDoorColors();
+
+      // Show door info
+      const isDone = getDoorStatus(doorId);
+      doorNameEl.textContent = doorId;
+      doorStatusEl.textContent = isDone ? '(afgerond)' : '(nog te doen)';
+      doorStatusEl.style.color = isDone ? COLORS.done : COLORS.todo;
+      btnJotform.classList.remove('disabled');
+      btnClose.classList.remove('disabled');
+      updateDoneButton();
+
+      // Scroll side panel to selected door
+      const panelItem = sidePanelList.querySelector(`.side-panel-item[data-door-id="${doorId}"]`);
+      if (panelItem) {
+        panelItem.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }
+    }
+
+    function deselectDoor() {
+      selectedDoor = null;
+      refreshAllDoorColors();
+      doorNameEl.textContent = '—';
+      doorStatusEl.textContent = '';
+      btnJotform.classList.add('disabled');
+      btnClose.classList.add('disabled');
+      updateDoneButton();
+    }
+
+    // ============================================================
+    // JOTFORM LINK
+    // ============================================================
+
+    function openJotForm() {
+      if (!selectedDoor) return;
+
+      const params = new URLSearchParams();
+      params.set('klant', currentCustomer);       // ID 82: Klant - Locatie
+      params.set('deurNummer', selectedDoor);      // ID 3: Deur nummer
+      params.set('typeA120', selectedDoor);        // ID 120: QR Code Lezer
+
+      const url = `${CONFIG.jotformBaseUrl}${CONFIG.jotformFormId}?${params.toString()}`;
+      window.open(url, '_blank');
+    }
+
+    // ============================================================
+    // DOOR STATUS UPDATE
+    // ============================================================
+
+    async function saveStatusToGitHub() {
+      // Get current file SHA (needed for update)
+      const metaResp = await fetch(CONFIG.statusUrl, {
+        headers: ghHeaders(),
+        cache: 'no-store',
+      });
+      if (!metaResp.ok) throw new Error('Kon status.json niet ophalen');
+      const meta = await metaResp.json();
+
+      // Encode updated status as base64
+      const content = btoa(unescape(encodeURIComponent(JSON.stringify(doorStatus, null, 2))));
+
+      // Update file on GitHub
+      const updateResp = await fetch(CONFIG.statusUrl, {
+        method: 'PUT',
+        headers: ghHeaders(),
+        body: JSON.stringify({
+          message: 'Status update: ' + currentCustomer,
+          content: content,
+          sha: meta.sha,
+        }),
+      });
+      if (!updateResp.ok) throw new Error('Kon status niet opslaan');
+    }
+
+    async function toggleDoorStatus() {
+      if (!selectedDoor || !currentCustomer || !currentFloorplan) return;
+
+      const isDone = getDoorStatus(selectedDoor);
+      const newStatus = isDone ? 'todo' : 'done';
+
+      // Update local state
+      if (!doorStatus[currentCustomer]) doorStatus[currentCustomer] = {};
+      if (!doorStatus[currentCustomer][currentFloorplan]) doorStatus[currentCustomer][currentFloorplan] = {};
+
+      if (newStatus === 'done') {
+        doorStatus[currentCustomer][currentFloorplan][selectedDoor] = 'done';
+      } else {
+        delete doorStatus[currentCustomer][currentFloorplan][selectedDoor];
+      }
+
+      // Update UI immediately
+      refreshAllDoorColors();
+      updateDoneButton();
+
+      // Save to GitHub in background
+      try {
+        await saveStatusToGitHub();
+      } catch (err) {
+        console.error('Opslaan mislukt:', err);
+        alert('Status kon niet worden opgeslagen. Controleer je internetverbinding.');
+        // Revert local state
+        if (newStatus === 'done') {
+          delete doorStatus[currentCustomer][currentFloorplan][selectedDoor];
+        } else {
+          doorStatus[currentCustomer][currentFloorplan][selectedDoor] = 'done';
+        }
+        refreshAllDoorColors();
+        updateDoneButton();
+      }
+    }
+
+    function updateDoneButton() {
+      if (!selectedDoor) {
+        btnDone.classList.add('disabled');
+        btnDone.textContent = 'Gedaan';
+        btnDone.className = 'btn btn-done disabled';
+        return;
+      }
+      const isDone = getDoorStatus(selectedDoor);
+      btnDone.classList.remove('disabled');
+      if (isDone) {
+        btnDone.textContent = 'Terugzetten';
+        btnDone.className = 'btn btn-undo';
+      } else {
+        btnDone.textContent = 'Gedaan';
+        btnDone.className = 'btn btn-done';
+      }
+    }
+
+    // ============================================================
+    // PAN & ZOOM
+    // ============================================================
+
+    function fitToScreen(svgWidth, svgHeight) {
+      const containerRect = svgContainer.getBoundingClientRect();
+      // Account for info panel overlay (~44px) by shifting available area down
+      const infoPanelHeight = 44;
+      const availableWidth = containerRect.width;
+      const availableHeight = containerRect.height - infoPanelHeight;
+      const scaleX = availableWidth / svgWidth;
+      const scaleY = availableHeight / svgHeight;
+      scale = Math.min(scaleX, scaleY) * 0.92;
+      panX = (availableWidth - svgWidth * scale) / 2;
+      panY = infoPanelHeight + (availableHeight - svgHeight * scale) / 2;
+      // Save initial view for reset
+      savedScale = scale;
+      savedPanX = panX;
+      savedPanY = panY;
+      applyTransform();
+    }
+
+    function resetZoom() {
+      scale = savedScale;
+      panX = savedPanX;
+      panY = savedPanY;
+      isZoomedIn = false;
+      applyTransform();
+    }
+
+    function applyTransform() {
+      const svgEl = svgContainer.querySelector('svg');
+      if (!svgEl) return;
+      svgEl.style.transform = `translate(${panX}px, ${panY}px) scale(${scale})`;
+    }
+
+    function getTouchDist(touches) {
+      const dx = touches[0].clientX - touches[1].clientX;
+      const dy = touches[0].clientY - touches[1].clientY;
+      return Math.sqrt(dx * dx + dy * dy);
+    }
+
+    function getTouchCenter(touches) {
+      return {
+        x: (touches[0].clientX + touches[1].clientX) / 2,
+        y: (touches[0].clientY + touches[1].clientY) / 2,
+      };
+    }
+
+    // Pan via pointer events
+    svgContainer.addEventListener('pointerdown', (e) => {
+      if (e.pointerType === 'touch' && e.isPrimary === false) return;
+      isPanning = true;
+      hasMoved = false;
+      startX = e.clientX;
+      startY = e.clientY;
+      lastPanX = panX;
+      lastPanY = panY;
+      svgContainer.setPointerCapture(e.pointerId);
+    });
+
+    svgContainer.addEventListener('pointermove', (e) => {
+      if (!isPanning) return;
+      const dx = e.clientX - startX;
+      const dy = e.clientY - startY;
+      // Only start panning after moving more than 5px (prevents accidental pan on tap)
+      if (!hasMoved && Math.abs(dx) < 5 && Math.abs(dy) < 5) return;
+      hasMoved = true;
+      panX = lastPanX + dx;
+      panY = lastPanY + dy;
+      applyTransform();
+    });
+
+    svgContainer.addEventListener('pointerup', () => {
+      isPanning = false;
+      if (!hasMoved && pendingDoor) {
+        selectDoor(pendingDoor);
+      }
+      pendingDoor = null;
+    });
+
+    // Pinch-to-zoom
+    svgContainer.addEventListener('touchstart', (e) => {
+      if (e.touches.length === 2) {
+        e.preventDefault();
+        isPanning = false;
+        initialPinchDist = getTouchDist(e.touches);
+        initialScale = scale;
+      }
+    }, { passive: false });
+
+    svgContainer.addEventListener('touchmove', (e) => {
+      if (e.touches.length === 2) {
+        e.preventDefault();
+        const dist = getTouchDist(e.touches);
+        const center = getTouchCenter(e.touches);
+        const containerRect = svgContainer.getBoundingClientRect();
+
+        const newScale = initialScale * (dist / initialPinchDist);
+        const clampedScale = Math.max(0.02, Math.min(10, newScale));
+
+        const cx = center.x - containerRect.left;
+        const cy = center.y - containerRect.top;
+        panX = cx - (cx - panX) * (clampedScale / scale);
+        panY = cy - (cy - panY) * (clampedScale / scale);
+        scale = clampedScale;
+
+        applyTransform();
+      }
+    }, { passive: false });
+
+    // Mouse wheel zoom
+    svgContainer.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      const containerRect = svgContainer.getBoundingClientRect();
+      const cx = e.clientX - containerRect.left;
+      const cy = e.clientY - containerRect.top;
+
+      const zoomFactor = e.deltaY > 0 ? 0.9 : 1.1;
+      const newScale = Math.max(0.02, Math.min(10, scale * zoomFactor));
+
+      panX = cx - (cx - panX) * (newScale / scale);
+      panY = cy - (cy - panY) * (newScale / scale);
+      scale = newScale;
+
+      applyTransform();
+    }, { passive: false });
+
+    // Double-tap to zoom in / reset
+    svgContainer.addEventListener('touchend', (e) => {
+      if (e.touches.length > 0) return; // still fingers down
+      const now = Date.now();
+      if (now - lastTapTime < 300) {
+        // Double tap detected
+        e.preventDefault();
+        if (isZoomedIn) {
+          resetZoom();
+          isZoomedIn = false;
+        } else {
+          const touch = e.changedTouches[0];
+          const containerRect = svgContainer.getBoundingClientRect();
+          const cx = touch.clientX - containerRect.left;
+          const cy = touch.clientY - containerRect.top;
+
+          // Zoom in 3x toward tap point
+          const newScale = Math.min(10, scale * 3);
+          panX = cx - (cx - panX) * (newScale / scale);
+          panY = cy - (cy - panY) * (newScale / scale);
+          scale = newScale;
+          applyTransform();
+          isZoomedIn = true;
+        }
+        lastTapTime = 0;
+      } else {
+        lastTapTime = now;
+      }
+    });
+
+    // ============================================================
+    // STATUS POLLING
+    // ============================================================
+
+    async function pollStatus() {
+      if (!currentFloorplan) return;
+      try {
+        doorStatus = await fetchGitHubJSON(CONFIG.statusUrl);
+        refreshAllDoorColors();
+      } catch (err) {
+        console.error('Sync fout:', err);
+      }
+    }
+
+    function startPolling() {
+      if (pollTimer) clearInterval(pollTimer);
+      pollTimer = setInterval(pollStatus, CONFIG.pollInterval);
+    }
+
+    function stopPolling() {
+      if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+    }
+
+    function updateStatusBar() {
+      const markers = svgContainer.querySelectorAll('[data-door-id]');
+      if (markers.length === 0) {
+        statusCount.textContent = '';
+        return;
+      }
+      let done = 0;
+      markers.forEach(m => {
+        if (getDoorStatus(m.dataset.doorId)) done++;
+      });
+      statusCount.textContent = `${done} / ${markers.length} deuren afgerond`;
+    }
+
+    // ============================================================
+    // SIDE PANEL
+    // ============================================================
+
+    function toggleSidePanel() {
+      sidePanel.classList.toggle('open');
+      btnPanelToggle.classList.toggle('panel-open');
+    }
+
+    function populateSidePanel() {
+      sidePanelList.innerHTML = '';
+      const markers = svgContainer.querySelectorAll('[data-door-id]');
+      // Sort alphabetically
+      const doorIds = Array.from(markers).map(m => m.dataset.doorId).sort();
+
+      doorIds.forEach(doorId => {
+        const item = document.createElement('div');
+        item.className = 'side-panel-item';
+        item.dataset.doorId = doorId;
+
+        const dot = document.createElement('span');
+        dot.className = 'side-panel-dot';
+        const isDone = getDoorStatus(doorId);
+        dot.style.background = isDone ? COLORS.done : COLORS.todo;
+
+        const label = document.createElement('span');
+        label.textContent = doorId;
+
+        item.appendChild(dot);
+        item.appendChild(label);
+
+        item.addEventListener('click', () => selectDoor(doorId));
+
+        sidePanelList.appendChild(item);
+      });
+
+      sidePanelHeader.textContent = `Deuren (${doorIds.length})`;
+    }
+
+    function refreshSidePanel() {
+      const items = sidePanelList.querySelectorAll('.side-panel-item');
+      items.forEach(item => {
+        const doorId = item.dataset.doorId;
+        const isDone = getDoorStatus(doorId);
+        const dot = item.querySelector('.side-panel-dot');
+        dot.style.background = isDone ? COLORS.done : COLORS.todo;
+
+        if (doorId === selectedDoor) {
+          item.classList.add('selected');
+        } else {
+          item.classList.remove('selected');
+        }
+      });
+    }
+
+    // ============================================================
+    // EVENT LISTENERS
+    // ============================================================
+
+    customerSelect.addEventListener('change', () => {
+      // Always clear current floorplan when customer changes
+      svgContainer.style.display = 'none';
+      svgContainer.innerHTML = '';
+      btnReset.style.display = 'none';
+      infoPanel.style.display = 'none';
+      btnPanelToggle.style.display = 'none';
+      sidePanel.classList.remove('open');
+      btnPanelToggle.classList.remove('panel-open');
+      deselectDoor();
+      currentCustomer = null;
+      currentFloorplan = null;
+      stopPolling();
+
+      const idx = customerSelect.value;
+      if (idx === '') {
+        floorplanSelect.innerHTML = '<option value="">-- Kies plattegrond --</option>';
+        floorplanSelect.disabled = true;
+        loadingEl.textContent = 'Kies een klant en plattegrond om te beginnen.';
+        loadingEl.classList.remove('hidden');
+        return;
+      }
+      loadingEl.textContent = 'Kies een plattegrond.';
+      loadingEl.classList.remove('hidden');
+      populateFloorplanDropdown(parseInt(idx, 10));
+    });
+
+    floorplanSelect.addEventListener('change', () => {
+      const ci = parseInt(customerSelect.value, 10);
+      const fi = parseInt(floorplanSelect.value, 10);
+      if (isNaN(ci) || isNaN(fi)) return;
+      loadFloorplan(ci, fi);
+    });
+
+    btnJotform.addEventListener('click', openJotForm);
+    btnDone.addEventListener('click', toggleDoorStatus);
+    btnClose.addEventListener('click', deselectDoor);
+    btnReset.addEventListener('click', resetZoom);
+    btnPanelToggle.addEventListener('click', toggleSidePanel);
+
+    // ============================================================
+    // LOGIN
+    // ============================================================
+
+    const LOGIN_CONFIG = {
+      passwordHash: 'd1d21c563d99f55c7b010584af290c755ec3c6cbf20320720c4556e60b04acda',
+      maxAttempts: 3,
+      lockoutMinutes: 10,
+      sessionDays: 30,
+      tokenKey: 'fd_auth_token',
+      tokenTimeKey: 'fd_auth_time',
+      lockoutKey: 'fd_lockout',
+      attemptsKey: 'fd_attempts',
+    };
+
+    const loginScreen = document.getElementById('login-screen');
+    const appContainer = document.getElementById('app-container');
+    const loginPassword = document.getElementById('login-password');
+    const loginBtn = document.getElementById('login-btn');
+    const loginError = document.getElementById('login-error');
+
+    async function hashPassword(password) {
+      const encoder = new TextEncoder();
+      const data = encoder.encode(password);
+      const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+      const hashArray = Array.from(new Uint8Array(hashBuffer));
+      return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+    }
+
+    function isLockedOut() {
+      const lockout = localStorage.getItem(LOGIN_CONFIG.lockoutKey);
+      if (!lockout) return false;
+      const lockoutTime = parseInt(lockout, 10);
+      const remaining = lockoutTime - Date.now();
+      if (remaining <= 0) {
+        localStorage.removeItem(LOGIN_CONFIG.lockoutKey);
+        localStorage.removeItem(LOGIN_CONFIG.attemptsKey);
+        return false;
+      }
+      return true;
+    }
+
+    function getLockoutMinutes() {
+      const lockout = localStorage.getItem(LOGIN_CONFIG.lockoutKey);
+      if (!lockout) return 0;
+      const remaining = parseInt(lockout, 10) - Date.now();
+      return Math.ceil(remaining / 60000);
+    }
+
+    function getAttempts() {
+      return parseInt(localStorage.getItem(LOGIN_CONFIG.attemptsKey) || '0', 10);
+    }
+
+    async function handleLogin() {
+      if (isLockedOut()) {
+        loginError.textContent = `Geblokkeerd. Probeer opnieuw over ${getLockoutMinutes()} minuten.`;
+        return;
+      }
+
+      const password = loginPassword.value;
+      const token = document.getElementById('login-token').value;
+      if (!password || !token) {
+        loginError.textContent = 'Vul wachtwoord en token in.';
+        return;
+      }
+
+      const hash = await hashPassword(password);
+
+      if (hash === LOGIN_CONFIG.passwordHash) {
+        // Validate token against GitHub API
+        loginBtn.disabled = true;
+        loginBtn.textContent = 'Controleren...';
+        try {
+          const testResp = await fetch(CONFIG.customersUrl, {
+            headers: { 'Authorization': 'token ' + token, 'Accept': 'application/vnd.github.v3+json' },
+            cache: 'no-store',
+          });
+          if (!testResp.ok) throw new Error();
+        } catch {
+          loginBtn.disabled = false;
+          loginBtn.textContent = 'Inloggen';
+          loginError.textContent = 'GitHub token is ongeldig of verlopen.';
+          return;
+        }
+
+        sessionStorage.setItem(LOGIN_CONFIG.tokenKey, 'authenticated');
+        sessionStorage.setItem(LOGIN_CONFIG.tokenTimeKey, Date.now().toString());
+        sessionStorage.setItem('fd_github_token', token);
+        localStorage.removeItem(LOGIN_CONFIG.attemptsKey);
+        localStorage.removeItem(LOGIN_CONFIG.lockoutKey);
+
+        // Remember token if checkbox is checked
+        if (document.getElementById('login-remember').checked) {
+          localStorage.setItem('fd_saved_token', token);
+        } else {
+          localStorage.removeItem('fd_saved_token');
+        }
+
+        loginBtn.textContent = 'Inloggen';
+        showApp();
+      } else {
+        const attempts = getAttempts() + 1;
+        localStorage.setItem(LOGIN_CONFIG.attemptsKey, attempts.toString());
+
+        if (attempts >= LOGIN_CONFIG.maxAttempts) {
+          const lockoutUntil = Date.now() + (LOGIN_CONFIG.lockoutMinutes * 60000);
+          localStorage.setItem(LOGIN_CONFIG.lockoutKey, lockoutUntil.toString());
+          loginError.textContent = `Te veel pogingen. Geblokkeerd voor ${LOGIN_CONFIG.lockoutMinutes} minuten.`;
+          loginBtn.disabled = true;
+          loginPassword.disabled = true;
+        } else {
+          const remaining = LOGIN_CONFIG.maxAttempts - attempts;
+          loginError.textContent = `Onjuist wachtwoord. Nog ${remaining} poging${remaining === 1 ? '' : 'en'}.`;
+        }
+        loginPassword.value = '';
+      }
+    }
+
+    function showApp() {
+      loginScreen.style.display = 'none';
+      appContainer.style.display = 'block';
+      init();
+    }
+
+    function checkLockoutState() {
+      if (isLockedOut()) {
+        loginError.textContent = `Geblokkeerd. Probeer opnieuw over ${getLockoutMinutes()} minuten.`;
+        loginBtn.disabled = true;
+        loginPassword.disabled = true;
+        // Re-check every 30 seconds
+        setTimeout(() => {
+          if (!isLockedOut()) {
+            loginBtn.disabled = false;
+            loginPassword.disabled = false;
+            loginError.textContent = '';
+          } else {
+            checkLockoutState();
+          }
+        }, 30000);
+      }
+    }
+
+    function logout() {
+      sessionStorage.removeItem(LOGIN_CONFIG.tokenKey);
+      sessionStorage.removeItem(LOGIN_CONFIG.tokenTimeKey);
+      sessionStorage.removeItem('fd_github_token');
+      appContainer.style.display = 'none';
+      loginScreen.style.display = 'flex';
+      loginPassword.value = '';
+      loginError.textContent = '';
+      loginBtn.disabled = false;
+      loginBtn.textContent = 'Inloggen';
+      loginPassword.disabled = false;
+      document.getElementById('login-token').disabled = false;
+      stopPolling();
+
+      // Restore saved token if remembered
+      const remembered = localStorage.getItem('fd_saved_token');
+      if (remembered) {
+        document.getElementById('login-token').value = remembered;
+        document.getElementById('login-remember').checked = true;
+      } else {
+        document.getElementById('login-token').value = '';
+        document.getElementById('login-remember').checked = false;
+      }
+    }
+
+    document.getElementById('btn-logout').addEventListener('click', logout);
+    loginBtn.addEventListener('click', handleLogin);
+    loginPassword.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') document.getElementById('login-token').focus();
+    });
+    document.getElementById('login-token').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') handleLogin();
+    });
+
+    // ============================================================
+    // INIT
+    // ============================================================
+
+    async function init() {
+      await loadCustomers();
+      await loadStatus();
+    }
+
+    // Check if already logged in and session not expired
+    function isSessionValid() {
+      const token = sessionStorage.getItem(LOGIN_CONFIG.tokenKey);
+      const time = sessionStorage.getItem(LOGIN_CONFIG.tokenTimeKey);
+      if (token !== 'authenticated' || !time) return false;
+      const elapsed = Date.now() - parseInt(time, 10);
+      const maxAge = LOGIN_CONFIG.sessionDays * 24 * 60 * 60 * 1000;
+      if (elapsed > maxAge) {
+        sessionStorage.removeItem(LOGIN_CONFIG.tokenKey);
+        sessionStorage.removeItem(LOGIN_CONFIG.tokenTimeKey);
+        return false;
+      }
+      return true;
+    }
+
+    // Pre-fill saved token
+    const savedToken = localStorage.getItem('fd_saved_token');
+    if (savedToken) {
+      document.getElementById('login-token').value = savedToken;
+      document.getElementById('login-remember').checked = true;
+    }
+
+    if (isSessionValid()) {
+      showApp();
+    } else {
+      // Clear any old localStorage tokens (migration)
+      localStorage.removeItem('fd_auth_token');
+      checkLockoutState();
+    }
+  </script>
+</body>
+</html>

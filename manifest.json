@@ -1,0 +1,10 @@
+{
+  "name": "Plattegrond Dashboard",
+  "short_name": "Deuren",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#f5f5f5",
+  "theme_color": "#1a73e8",
+  "orientation": "any",
+  "icons": []
+}
