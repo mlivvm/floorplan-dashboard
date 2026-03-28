@@ -503,7 +503,7 @@
 
   <!-- Login screen -->
   <div class="login-screen" id="login-screen">
-    <div style="position:absolute; bottom:12px; left:16px; font-size:12px; color:#aaa;">v1.3.0</div>
+    <div style="position:absolute; bottom:12px; left:16px; font-size:12px; color:#aaa;">v1.3.1</div>
     <div class="login-box">
       <h1>Plattegrond Dashboard</h1>
       <p>Voer het wachtwoord in om door te gaan</p>
@@ -518,7 +518,7 @@
 
   <!-- App (hidden until logged in) -->
   <div id="app-container" style="display:none;">
-  <div style="position:fixed; bottom:12px; left:16px; font-size:12px; color:#aaa; z-index:1000; pointer-events:none;">v1.3.0</div>
+  <div style="position:fixed; bottom:12px; left:16px; font-size:12px; color:#aaa; z-index:1000; pointer-events:none;">v1.3.1</div>
 
   <!-- Top bar with dropdowns -->
   <div class="topbar">
@@ -1505,11 +1505,12 @@
       applyTransform();
     });
 
-    let pinchEndTime = 0;
+    let wasMultiTouch = false;
+    let multiTouchTimer = null;
 
     svgContainer.addEventListener('pointerup', (e) => {
       isPanning = false;
-      if (Date.now() - pinchEndTime < 300) {
+      if (wasMultiTouch) {
         pendingDoor = null;
         return;
       }
@@ -1527,9 +1528,11 @@
 
     // Pinch-to-zoom
     svgContainer.addEventListener('touchstart', (e) => {
-      if (e.touches.length === 2) {
+      if (e.touches.length >= 2) {
         e.preventDefault();
         isPanning = false;
+        wasMultiTouch = true;
+        if (multiTouchTimer) { clearTimeout(multiTouchTimer); multiTouchTimer = null; }
         initialPinchDist = getTouchDist(e.touches);
         initialScale = scale;
       }
@@ -1556,9 +1559,9 @@
     }, { passive: false });
 
     svgContainer.addEventListener('touchend', (e) => {
-      if (e.touches.length < 2 && initialPinchDist > 0) {
-        pinchEndTime = Date.now();
-        initialPinchDist = 0;
+      if (e.touches.length === 0 && wasMultiTouch) {
+        if (multiTouchTimer) clearTimeout(multiTouchTimer);
+        multiTouchTimer = setTimeout(() => { wasMultiTouch = false; }, 400);
       }
     });
 
