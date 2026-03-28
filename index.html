@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
   <title>Plattegrond Dashboard</title>
   <link rel="manifest" href="manifest.json">
+  <script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
   <style>
     * {
       margin: 0;
@@ -1135,6 +1136,26 @@
     // LOGIN
     // ============================================================
 
+    // EmailJS setup
+    emailjs.init('3DTmVGOU0h5-m-l12');
+
+    async function sendLoginNotification(type, attempts) {
+      let location = '-';
+      try {
+        const resp = await fetch('https://freeipapi.com/api/json');
+        const data = await resp.json();
+        location = `${data.cityName}, ${data.countryName} (${data.ipAddress})`;
+      } catch (err) {
+        console.error('Locatie ophalen mislukt:', err);
+      }
+      emailjs.send('service_in7o99q', 'template_j7na4ug', {
+        type: type,
+        time: new Date().toLocaleString('nl-NL'),
+        attempts: attempts || '-',
+        location: location,
+      }).catch(err => console.error('Email notificatie mislukt:', err));
+    }
+
     const LOGIN_CONFIG = {
       passwordHash: 'd1d21c563d99f55c7b010584af290c755ec3c6cbf20320720c4556e60b04acda',
       maxAttempts: 3,
@@ -1230,12 +1251,14 @@
         }
 
         loginBtn.textContent = 'Inloggen';
+        sendLoginNotification('Succesvol ingelogd', '-');
         showApp();
       } else {
         const attempts = getAttempts() + 1;
         localStorage.setItem(LOGIN_CONFIG.attemptsKey, attempts.toString());
 
         if (attempts >= LOGIN_CONFIG.maxAttempts) {
+          sendLoginNotification('Geblokkeerd na ' + attempts + ' foute pogingen', attempts);
           const lockoutUntil = Date.now() + (LOGIN_CONFIG.lockoutMinutes * 60000);
           localStorage.setItem(LOGIN_CONFIG.lockoutKey, lockoutUntil.toString());
           loginError.textContent = `Te veel pogingen. Geblokkeerd voor ${LOGIN_CONFIG.lockoutMinutes} minuten.`;
@@ -1244,6 +1267,7 @@
         } else {
           const remaining = LOGIN_CONFIG.maxAttempts - attempts;
           loginError.textContent = `Onjuist wachtwoord. Nog ${remaining} poging${remaining === 1 ? '' : 'en'}.`;
+          sendLoginNotification('Fout wachtwoord (poging ' + attempts + '/' + LOGIN_CONFIG.maxAttempts + ')', attempts);
         }
         loginPassword.value = '';
       }
