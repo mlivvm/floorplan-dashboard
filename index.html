@@ -515,7 +515,7 @@
 
   <!-- Login screen -->
   <div class="login-screen" id="login-screen">
-    <div style="position:absolute; bottom:12px; left:16px; font-size:12px; color:#aaa;">v1.4.2</div>
+    <div style="position:absolute; bottom:12px; left:16px; font-size:12px; color:#aaa;">v1.4.3</div>
     <div class="login-box">
       <h1>Plattegrond Dashboard</h1>
       <p>Voer het wachtwoord in om door te gaan</p>
@@ -530,7 +530,10 @@
 
   <!-- App (hidden until logged in) -->
   <div id="app-container" style="display:none;">
-  <div style="position:fixed; bottom:12px; left:16px; font-size:12px; color:#aaa; z-index:1000; pointer-events:none;">v1.4.2</div>
+  <div style="position:fixed; bottom:12px; left:16px; font-size:12px; color:#aaa; z-index:1000; pointer-events:none;">v1.4.3</div>
+
+  <!-- Toast notification -->
+  <div id="toast" style="display:none; position:fixed; top:calc(var(--topbar-h, 52px) + 12px); left:50%; transform:translateX(-50%); padding:14px 28px; border-radius:10px; font-size:16px; font-weight:600; z-index:500; box-shadow:0 4px 16px rgba(0,0,0,0.25); cursor:pointer; max-width:90vw; text-align:center;"></div>
 
   <!-- Top bar with dropdowns -->
   <div class="topbar">
@@ -576,6 +579,16 @@
     </div>
   </div>
 
+  <!-- Cancel edit confirmation -->
+  <div id="cancel-edit-overlay" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.4); z-index:299;"></div>
+  <div id="cancel-edit-popup" style="display:none; position:fixed; top:50%; left:50%; transform:translate(-50%,-50%); background:white; padding:24px; border-radius:12px; box-shadow:0 8px 32px rgba(0,0,0,0.3); z-index:300; text-align:center; min-width:260px;">
+    <p style="font-size:17px; font-weight:600; color:#333; margin-bottom:20px;">Wijzigingen annuleren? Alles wordt teruggedraaid.</p>
+    <div style="display:flex; gap:8px; justify-content:center;">
+      <button id="cancel-edit-confirm" style="font-size:16px; padding:10px 24px; border:none; border-radius:8px; background:#d93025; color:white; font-weight:600; cursor:pointer;">Ja, annuleren</button>
+      <button id="cancel-edit-back" style="font-size:16px; padding:10px 24px; border:none; border-radius:8px; background:#e0e0e0; color:#333; font-weight:600; cursor:pointer;">Terug</button>
+    </div>
+  </div>
+
   <!-- Edit popup + overlay -->
   <div class="edit-overlay" id="edit-overlay"></div>
   <div class="edit-popup" id="edit-popup">
@@ -584,6 +597,7 @@
       <input type="text" id="edit-popup-input" placeholder="Deurcode" maxlength="20" autocomplete="off" style="flex:1; margin-bottom:0;">
       <button id="btn-scan-qr" style="padding:8px 14px; border:none; border-radius:8px; background:#1a73e8; color:white; font-size:16px; font-weight:600; cursor:pointer; white-space:nowrap;">&#128247; Scan</button>
     </div>
+    <div id="edit-popup-error" style="color:#d93025; font-size:14px; font-weight:600; margin-bottom:12px; min-height:20px;"></div>
     <div class="popup-buttons" id="edit-popup-buttons"></div>
   </div>
 
@@ -725,6 +739,40 @@
     }
 
     window.addEventListener('resize', handleResize);
+
+    // Warn before closing with unsaved edit mode changes
+    window.addEventListener('beforeunload', (e) => {
+      if (isEditMode) {
+        e.preventDefault();
+        e.returnValue = '';
+      }
+    });
+    window.addEventListener('pagehide', (e) => {
+      if (isEditMode) {
+        e.preventDefault();
+      }
+    });
+
+    // ============================================================
+    // TOAST NOTIFICATIONS
+    // ============================================================
+
+    const toastEl = document.getElementById('toast');
+    let toastTimer = null;
+
+    function showToast(message, type) {
+      if (toastTimer) clearTimeout(toastTimer);
+      toastEl.textContent = message;
+      toastEl.style.background = type === 'error' ? '#d93025' : '#34a853';
+      toastEl.style.color = 'white';
+      toastEl.style.display = 'block';
+      toastTimer = setTimeout(() => { toastEl.style.display = 'none'; }, 4000);
+    }
+
+    toastEl.addEventListener('click', () => {
+      toastEl.style.display = 'none';
+      if (toastTimer) clearTimeout(toastTimer);
+    });
 
     // ============================================================
     // DATA LOADING
@@ -1061,9 +1109,11 @@
       slider.value = range.def;
       editMarkerSize = range.def;
       document.getElementById('edit-size-label').textContent = range.def;
-      // Hide normal UI
+      // Hide normal UI, disable dropdowns
       btnEdit.style.display = 'none';
       btnReset.style.display = 'none';
+      customerSelect.disabled = true;
+      floorplanSelect.disabled = true;
     }
 
     function exitEditMode() {
@@ -1074,6 +1124,8 @@
       infoPanel.style.display = 'flex';
       btnEdit.style.display = 'inline-block';
       btnReset.style.display = 'inline-block';
+      customerSelect.disabled = false;
+      floorplanSelect.disabled = false;
       closeEditPopup();
     }
 
@@ -1120,11 +1172,11 @@
         return;
       }
 
-      // Serialize SVG back to string
+      // Serialize a clean clone (keep original intact in case save fails)
       const svgEl = svgContainer.querySelector('svg');
-      // Reset door marker styles before saving
-      const markers = svgEl.querySelectorAll('[data-door-id]');
-      markers.forEach(m => {
+      const svgClone = svgEl.cloneNode(true);
+      const cloneMarkers = svgClone.querySelectorAll('[data-door-id]');
+      cloneMarkers.forEach(m => {
         m.style.fill = '';
         m.style.opacity = '';
         m.style.cursor = '';
@@ -1136,7 +1188,7 @@
         m.removeAttribute('data-door-id');
       });
 
-      const svgText = new XMLSerializer().serializeToString(svgEl);
+      const svgText = new XMLSerializer().serializeToString(svgClone);
 
       // Upload to GitHub
       const btnSave = document.getElementById('btn-edit-save');
@@ -1166,21 +1218,24 @@
         if (!updateResp.ok) throw new Error('Kon niet opslaan');
 
         exitEditMode();
+        showToast('Opgeslagen', 'success');
         // Reload to get clean state
         loadFloorplan(parseInt(customerSelect.value, 10), parseInt(floorplanSelect.value, 10));
 
       } catch (err) {
-        alert('Opslaan mislukt: ' + err.message);
+        showToast('Opslaan mislukt: ' + err.message, 'error');
         btnSave.textContent = 'Opslaan';
         btnSave.disabled = false;
       }
     }
 
     const editPopupInputRow = document.getElementById('edit-popup-input-row');
+    const editPopupError = document.getElementById('edit-popup-error');
     const btnScanQr = document.getElementById('btn-scan-qr');
 
     function showEditPopup(title, defaultValue, buttons) {
       editPopupTitle.textContent = title;
+      editPopupError.textContent = '';
       editPopupButtons.innerHTML = '';
       const primaryAction = buttons.length > 0 ? buttons[0].action : null;
       buttons.forEach(btn => {
@@ -1337,7 +1392,7 @@
             if (!code) return;
             // Check for duplicate
             if (svgContainer.querySelector(`[data-door-id="${code}"]`)) {
-              alert('Deze code bestaat al op deze plattegrond.');
+              editPopupError.textContent = 'Deze code bestaat al op deze plattegrond.';
               return;
             }
             addMarkerAtPosition(svgX, svgY, code);
@@ -1373,7 +1428,7 @@
                   if (!newCode) return;
                   if (newCode === doorId) { closeEditPopup(); return; }
                   if (svgContainer.querySelector(`[data-door-id="${newCode}"]`)) {
-                    alert('Deze code bestaat al op deze plattegrond.');
+                    editPopupError.textContent = 'Deze code bestaat al op deze plattegrond.';
                     return;
                   }
                   renameMarker(doorId, newCode);
@@ -1450,9 +1505,10 @@
       // Save to GitHub in background
       try {
         await saveStatusToGitHub();
+        showToast(newStatus === 'done' ? 'Deur afgerond' : 'Deur teruggezet', 'success');
       } catch (err) {
         console.error('Opslaan mislukt:', err);
-        alert('Status kon niet worden opgeslagen. Controleer je internetverbinding.');
+        showToast('Status kon niet worden opgeslagen. Controleer je internetverbinding.', 'error');
         // Revert local state
         if (newStatus === 'done') {
           delete doorStatus[currentCustomer][currentFloorplan][selectedDoor];
@@ -1777,7 +1833,24 @@
     btnPanelToggle.addEventListener('click', toggleSidePanel);
     btnEdit.addEventListener('click', enterEditMode);
     document.getElementById('btn-edit-save').addEventListener('click', saveEditMode);
-    document.getElementById('btn-edit-cancel').addEventListener('click', cancelEditMode);
+    document.getElementById('btn-edit-cancel').addEventListener('click', () => {
+      if (editChanges.length === 0 && !resizingMarker) { cancelEditMode(); return; }
+      // Show confirmation using logout popup pattern
+      const overlay = document.getElementById('cancel-edit-overlay');
+      const popup = document.getElementById('cancel-edit-popup');
+      overlay.style.display = 'block';
+      popup.style.display = 'block';
+    });
+
+    // Cancel edit confirmation handlers
+    function hideCancelEditPopup() {
+      document.getElementById('cancel-edit-overlay').style.display = 'none';
+      document.getElementById('cancel-edit-popup').style.display = 'none';
+    }
+    document.getElementById('cancel-edit-confirm').addEventListener('click', () => { hideCancelEditPopup(); cancelEditMode(); });
+    document.getElementById('cancel-edit-back').addEventListener('click', hideCancelEditPopup);
+    document.getElementById('cancel-edit-overlay').addEventListener('click', hideCancelEditPopup);
+
     editOverlay.addEventListener('click', closeEditPopup);
     const markerSlider = document.getElementById('edit-marker-size');
 
