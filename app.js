@@ -1587,3 +1587,22 @@
     } else {
       checkLockoutState();
     }
+
+    // ============================================================
+    // SERVICE WORKER REGISTRATION
+    // ============================================================
+
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('sw.js')
+        .then(reg => {
+          reg.onupdatefound = () => {
+            const installing = reg.installing;
+            installing.onstatechange = () => {
+              if (installing.state === 'activated' && navigator.serviceWorker.controller) {
+                showToast('Nieuwe versie beschikbaar — herlaad de pagina', 'success');
+              }
+            };
+          };
+        })
+        .catch(err => console.warn('SW registration failed:', err));
+    }
