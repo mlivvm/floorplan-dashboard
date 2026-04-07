@@ -6,6 +6,7 @@
       customersUrl: 'https://api.github.com/repos/mlivvm/floorplan-dashboard-data/contents/customers.json',
       statusUrl: 'https://api.github.com/repos/mlivvm/floorplan-dashboard-data/contents/status.json',
       svgBaseUrl: 'https://api.github.com/repos/mlivvm/gallery/contents/',
+      svgUploadsUrl: 'https://api.github.com/repos/mlivvm/floorplan-uploads/contents/',
       jotformBaseUrl: 'https://eu.jotform.com/',
       jotformFormId: '250122093908351',
       pollInterval: 30000,
@@ -168,7 +169,9 @@
       const meta = await metaResp.json();
 
       // Step 2: fetch blob by SHA (works for any file size, stays on api.github.com)
-      const blobUrl = `https://api.github.com/repos/mlivvm/gallery/git/blobs/${meta.sha}`;
+      const repoMatch = fileUrl.match(/repos\/([^/]+\/[^/]+)\//);
+      const repo = repoMatch ? repoMatch[1] : 'mlivvm/gallery';
+      const blobUrl = `https://api.github.com/repos/${repo}/git/blobs/${meta.sha}`;
       const blobResp = await fetch(blobUrl, {
         headers: ghHeaders(),
         cache: 'no-store',
@@ -240,7 +243,8 @@
       btnReset.style.display = 'none';
 
       try {
-        const svgUrl = CONFIG.svgBaseUrl + encodeURIComponent(fp.file);
+        const baseUrl = fp.repo === 'uploads' ? CONFIG.svgUploadsUrl : CONFIG.svgBaseUrl;
+        const svgUrl = baseUrl + encodeURIComponent(fp.file);
         const svgText = await fetchGitHubSVG(svgUrl);
 
         // Another floorplan was requested while we were loading — abort
@@ -273,6 +277,7 @@
         btnPanelToggle.style.display = 'block';
         btnEdit.style.display = 'inline-block';
         populateSidePanel();
+        updateDeleteButton();
         startPolling();
 
         // Fit SVG after info panel is rendered so offsetHeight is accurate
@@ -552,7 +557,8 @@
 
       try {
         const fp = customers[parseInt(customerSelect.value, 10)].floorplans[parseInt(floorplanSelect.value, 10)];
-        const fileUrl = CONFIG.svgBaseUrl + encodeURIComponent(fp.file);
+        const editBaseUrl = fp.repo === 'uploads' ? CONFIG.svgUploadsUrl : CONFIG.svgBaseUrl;
+        const fileUrl = editBaseUrl + encodeURIComponent(fp.file);
 
         // Get current SHA
         const metaResp = await fetch(fileUrl, { headers: ghHeaders(), cache: 'no-store' });
@@ -1142,6 +1148,452 @@
     }
 
     // ============================================================
+    // UPLOAD FLOORPLAN
+    // ============================================================
+
+    if (window.pdfjsLib) {
+      pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+    }
+
+    let uploadImageDataUrl = null;
+    let uploadImageWidth = 0;
+    let uploadImageHeight = 0;
+
+    const uploadOverlay = document.getElementById('upload-overlay');
+    const uploadPopup = document.getElementById('upload-popup');
+    const uploadStepChoose = document.getElementById('upload-step-choose');
+    const uploadStepPreview = document.getElementById('upload-step-preview');
+    const uploadStepForm = document.getElementById('upload-step-form');
+    const uploadPreviewImg = document.getElementById('upload-preview-img');
+    const uploadPdfInput = document.getElementById('upload-pdf-input');
+    const uploadPhotoInput = document.getElementById('upload-photo-input');
+    const uploadCustomerSelect = document.getElementById('upload-customer-select');
+    const uploadNewCustomer = document.getElementById('upload-new-customer');
+    const uploadFloorplanName = document.getElementById('upload-floorplan-name');
+    const uploadError = document.getElementById('upload-error');
+
+    function showUploadPopup() {
+      if (isEditMode) { showToast('Sluit eerst de bewerkingsmodus', 'error'); return; }
+      topbarMenu.style.display = 'none';
+      uploadImageDataUrl = null;
+      uploadStepChoose.style.display = 'block';
+      uploadStepPreview.style.display = 'none';
+      uploadStepForm.style.display = 'none';
+      uploadError.textContent = '';
+      uploadOverlay.style.display = 'block';
+      uploadPopup.style.display = 'block';
+    }
+
+    let uploadSaving = false;
+
+    function hideUploadPopup() {
+      if (uploadSaving) return;
+      uploadOverlay.style.display = 'none';
+      uploadPopup.style.display = 'none';
+      uploadPdfInput.value = '';
+      uploadPhotoInput.value = '';
+      uploadImageDataUrl = null;
+      uploadImageWidth = 0;
+      uploadImageHeight = 0;
+      uploadPreviewImg.src = '';
+    }
+
+    function showUploadPreview(dataUrl, width, height) {
+      uploadImageDataUrl = dataUrl;
+      uploadImageWidth = width;
+      uploadImageHeight = height;
+      uploadPreviewImg.src = dataUrl;
+      uploadStepChoose.style.display = 'none';
+      uploadStepPreview.style.display = 'block';
+    }
+
+    function showUploadForm() {
+      uploadCustomerSelect.innerHTML = '<option value="">-- Kies klant --</option>';
+      customers.forEach((c, i) => {
+        const opt = document.createElement('option');
+        opt.value = i;
+        opt.textContent = c.customer;
+        uploadCustomerSelect.appendChild(opt);
+      });
+      const newOpt = document.createElement('option');
+      newOpt.value = '__new__';
+      newOpt.textContent = '+ Nieuwe klant';
+      uploadCustomerSelect.appendChild(newOpt);
+
+      uploadNewCustomer.style.display = 'none';
+      uploadNewCustomer.value = '';
+      uploadFloorplanName.value = '';
+      uploadError.textContent = '';
+
+      uploadStepPreview.style.display = 'none';
+      uploadStepForm.style.display = 'block';
+    }
+
+    function resizeImageToCanvas(img, maxSize) {
+      const canvas = document.createElement('canvas');
+      let w = img.naturalWidth || img.width;
+      let h = img.naturalHeight || img.height;
+
+      if (w > maxSize || h > maxSize) {
+        if (w > h) {
+          h = Math.round(h * maxSize / w);
+          w = maxSize;
+        } else {
+          w = Math.round(w * maxSize / h);
+          h = maxSize;
+        }
+      }
+
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0, w, h);
+      return { canvas, width: w, height: h };
+    }
+
+    // Photo handling
+    uploadPhotoInput.addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      const img = new Image();
+      img.onload = () => {
+        const result = resizeImageToCanvas(img, 2000);
+        const dataUrl = result.canvas.toDataURL('image/jpeg', 0.8);
+        showUploadPreview(dataUrl, result.width, result.height);
+        URL.revokeObjectURL(img.src);
+      };
+      img.src = URL.createObjectURL(file);
+    });
+
+    // PDF handling
+    uploadPdfInput.addEventListener('change', async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      if (!window.pdfjsLib) {
+        showToast('PDF library niet geladen. Gebruik een foto.', 'error');
+        return;
+      }
+      // Show loading state
+      uploadStepChoose.style.display = 'none';
+      uploadStepPreview.style.display = 'block';
+      uploadPreviewImg.style.display = 'none';
+      document.querySelector('#upload-step-preview h3').textContent = 'PDF verwerken...';
+      document.querySelector('#upload-step-preview .upload-btn-grey').style.display = 'none';
+      document.querySelector('#upload-step-preview .upload-btn-green').style.display = 'none';
+      try {
+        const arrayBuffer = await file.arrayBuffer();
+        const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+        const page = await pdf.getPage(1);
+        const viewport = page.getViewport({ scale: 1.5 });
+        const canvas = document.createElement('canvas');
+        canvas.width = viewport.width;
+        canvas.height = viewport.height;
+        await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
+        uploadPreviewImg.style.display = '';
+        document.querySelector('#upload-step-preview h3').textContent = 'Voorbeeld';
+        document.querySelector('#upload-step-preview .upload-btn-grey').style.display = '';
+        document.querySelector('#upload-step-preview .upload-btn-green').style.display = '';
+        showUploadPreview(dataUrl, viewport.width, viewport.height);
+      } catch (err) {
+        uploadStepPreview.style.display = 'none';
+        uploadStepChoose.style.display = 'block';
+        showToast('PDF kon niet worden geladen', 'error');
+      }
+    });
+
+    // Upload customer select
+    uploadCustomerSelect.addEventListener('change', () => {
+      uploadNewCustomer.style.display = uploadCustomerSelect.value === '__new__' ? 'block' : 'none';
+    });
+
+    function sanitizeFilename(name) {
+      const slug = name.toLowerCase()
+        .replace(/[^a-z0-9\-_ ]/g, '')
+        .replace(/\s+/g, '-')
+        .replace(/-+/g, '-')
+        .substring(0, 60);
+      const ts = Date.now();
+      return slug ? ts + '-' + slug : String(ts);
+    }
+
+    async function saveUpload() {
+      const customerIdx = uploadCustomerSelect.value;
+      let customerName;
+      let isNewCustomer = false;
+
+      if (customerIdx === '') {
+        uploadError.textContent = 'Kies een klant.';
+        return;
+      } else if (customerIdx === '__new__') {
+        customerName = uploadNewCustomer.value.trim();
+        if (!customerName) {
+          uploadError.textContent = 'Vul een klantnaam in.';
+          return;
+        }
+        const existingMatch = customers.find(c => c.customer.toLowerCase() === customerName.toLowerCase());
+        if (existingMatch) {
+          uploadError.textContent = 'Deze klant bestaat al. Selecteer "' + existingMatch.customer + '" uit de lijst.';
+          return;
+        }
+        isNewCustomer = true;
+      } else {
+        customerName = customers[parseInt(customerIdx, 10)].customer;
+      }
+
+      const floorplanName = uploadFloorplanName.value.trim();
+      if (!floorplanName) {
+        uploadError.textContent = 'Vul een naam in voor de plattegrond.';
+        return;
+      }
+
+      // Check for duplicate floorplan name
+      if (!isNewCustomer) {
+        const ci = parseInt(customerIdx, 10);
+        const existing = customers[ci].floorplans.find(f => f.name === floorplanName);
+        if (existing) {
+          uploadError.textContent = 'Deze plattegrondnaam bestaat al bij deze klant.';
+          return;
+        }
+      }
+
+      const svgText = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${uploadImageWidth} ${uploadImageHeight}">\n  <image href="${uploadImageDataUrl}" width="${uploadImageWidth}" height="${uploadImageHeight}"/>\n</svg>`;
+
+      const fileName = sanitizeFilename(customerName + ' ' + floorplanName) + '.svg';
+
+      const btnSave = document.getElementById('btn-upload-save');
+      btnSave.textContent = 'Opslaan...';
+      btnSave.disabled = true;
+      uploadSaving = true;
+      uploadError.textContent = '';
+
+      try {
+        // Step 1: Upload SVG to floorplan-uploads repo
+        const svgContent = btoa(unescape(encodeURIComponent(svgText)));
+        const uploadUrl = CONFIG.svgUploadsUrl + encodeURIComponent(fileName);
+
+        // Check if file already exists
+        let sha = null;
+        try {
+          const existResp = await fetch(uploadUrl, { headers: ghHeaders(), cache: 'no-store' });
+          if (existResp.ok) {
+            const existData = await existResp.json();
+            sha = existData.sha;
+          }
+        } catch (e) {}
+
+        const uploadBody = {
+          message: 'Upload: ' + customerName + ' - ' + floorplanName,
+          content: svgContent,
+        };
+        if (sha) uploadBody.sha = sha;
+
+        const uploadResp = await fetch(uploadUrl, {
+          method: 'PUT',
+          headers: ghHeaders(),
+          cache: 'no-store',
+          body: JSON.stringify(uploadBody),
+        });
+        if (!uploadResp.ok) throw new Error('SVG upload mislukt');
+
+        // Step 2: Update customers.json
+        const customersResp = await fetch(CONFIG.customersUrl, { headers: ghHeaders(), cache: 'no-store' });
+        if (!customersResp.ok) throw new Error('Kon customers.json niet ophalen');
+        const customersMeta = await customersResp.json();
+        const currentCustomers = JSON.parse(decodeBase64UTF8(customersMeta.content));
+
+        const newEntry = { name: floorplanName, file: fileName, repo: 'uploads', uploaded: true };
+
+        if (isNewCustomer) {
+          currentCustomers.push({ customer: customerName, floorplans: [newEntry] });
+        } else {
+          const freshCi = currentCustomers.findIndex(c => c.customer === customerName);
+          if (freshCi < 0) throw new Error('Klant niet gevonden in customers.json');
+          currentCustomers[freshCi].floorplans.push(newEntry);
+        }
+
+        const customersContent = btoa(unescape(encodeURIComponent(JSON.stringify(currentCustomers, null, 2))));
+        const customersUpdateResp = await fetch(CONFIG.customersUrl, {
+          method: 'PUT',
+          headers: ghHeaders(),
+          cache: 'no-store',
+          body: JSON.stringify({
+            message: 'Plattegrond toegevoegd: ' + customerName + ' - ' + floorplanName,
+            content: customersContent,
+            sha: customersMeta.sha,
+          }),
+        });
+        if (!customersUpdateResp.ok) throw new Error('Kon customers.json niet bijwerken');
+
+        // Reload and select new floorplan
+        customers = currentCustomers;
+        populateCustomerDropdown();
+        hideUploadPopup();
+        showToast('Plattegrond toegevoegd', 'success');
+
+        const newCi = currentCustomers.findIndex(c => c.customer === customerName);
+        if (newCi >= 0) {
+          customerSelect.value = newCi;
+          populateFloorplanDropdown(newCi);
+          const newFi = currentCustomers[newCi].floorplans.length - 1;
+          floorplanSelect.value = newFi;
+          loadFloorplan(newCi, newFi);
+        }
+
+      } catch (err) {
+        uploadError.textContent = 'Fout: ' + err.message;
+      } finally {
+        btnSave.textContent = 'Opslaan';
+        btnSave.disabled = false;
+        uploadSaving = false;
+      }
+    }
+
+    // Upload button handlers
+    document.getElementById('btn-upload').addEventListener('click', showUploadPopup);
+    document.getElementById('btn-upload-pdf').addEventListener('click', () => { uploadPdfInput.click(); });
+    document.getElementById('btn-upload-photo').addEventListener('click', () => { uploadPhotoInput.click(); });
+    document.getElementById('btn-upload-cancel-1').addEventListener('click', hideUploadPopup);
+    document.getElementById('btn-upload-retake').addEventListener('click', () => {
+      uploadStepPreview.style.display = 'none';
+      uploadStepChoose.style.display = 'block';
+      uploadPdfInput.value = '';
+      uploadPhotoInput.value = '';
+    });
+    document.getElementById('btn-upload-accept').addEventListener('click', showUploadForm);
+    document.getElementById('btn-upload-save').addEventListener('click', saveUpload);
+    document.getElementById('btn-upload-cancel-3').addEventListener('click', hideUploadPopup);
+    uploadOverlay.addEventListener('click', hideUploadPopup);
+
+    // ============================================================
+    // DELETE UPLOADED FLOORPLAN
+    // ============================================================
+
+    const btnDeleteFp = document.getElementById('btn-delete-fp');
+    const deleteFpOverlay = document.getElementById('delete-fp-overlay');
+    const deleteFpPopup = document.getElementById('delete-fp-popup');
+    const deleteFpMessage = document.getElementById('delete-fp-message');
+
+    function updateDeleteButton() {
+      const ci = parseInt(customerSelect.value, 10);
+      const fi = parseInt(floorplanSelect.value, 10);
+      if (!isNaN(ci) && !isNaN(fi) && customers[ci] && customers[ci].floorplans[fi]) {
+        const fp = customers[ci].floorplans[fi];
+        btnDeleteFp.style.display = (fp.uploaded || fp.repo === 'uploads') ? 'block' : 'none';
+      } else {
+        btnDeleteFp.style.display = 'none';
+      }
+    }
+
+    function showDeleteConfirm() {
+      if (isEditMode) { showToast('Sluit eerst de bewerkingsmodus', 'error'); return; }
+      topbarMenu.style.display = 'none';
+      const ci = parseInt(customerSelect.value, 10);
+      const fi = parseInt(floorplanSelect.value, 10);
+      if (isNaN(ci) || isNaN(fi)) return;
+      const fp = customers[ci].floorplans[fi];
+      deleteFpMessage.textContent = 'Weet je zeker dat je "' + fp.name + '" wilt verwijderen?';
+      deleteFpOverlay.style.display = 'block';
+      deleteFpPopup.style.display = 'block';
+    }
+
+    function hideDeleteConfirm() {
+      deleteFpOverlay.style.display = 'none';
+      deleteFpPopup.style.display = 'none';
+    }
+
+    async function deleteUploadedFloorplan() {
+      const ci = parseInt(customerSelect.value, 10);
+      const fi = parseInt(floorplanSelect.value, 10);
+      const fp = customers[ci].floorplans[fi];
+      const customerName = customers[ci].customer;
+
+      hideDeleteConfirm();
+
+      try {
+        // Step 1: Delete SVG from uploads repo
+        const fileUrl = CONFIG.svgUploadsUrl + encodeURIComponent(fp.file);
+        const metaResp = await fetch(fileUrl, { headers: ghHeaders(), cache: 'no-store' });
+        if (!metaResp.ok) throw new Error('Kon bestand niet vinden');
+        const meta = await metaResp.json();
+        const deleteResp = await fetch(fileUrl, {
+          method: 'DELETE',
+          headers: ghHeaders(),
+          cache: 'no-store',
+          body: JSON.stringify({
+            message: 'Verwijderd: ' + customerName + ' - ' + fp.name,
+            sha: meta.sha,
+          }),
+        });
+        if (!deleteResp.ok) throw new Error('Kon bestand niet verwijderen');
+
+        // Step 2: Update customers.json (resolve by name, not stale index)
+        const customersResp = await fetch(CONFIG.customersUrl, { headers: ghHeaders(), cache: 'no-store' });
+        if (!customersResp.ok) throw new Error('Kon customers.json niet ophalen');
+        const customersMeta = await customersResp.json();
+        const currentCustomers = JSON.parse(decodeBase64UTF8(customersMeta.content));
+
+        const freshCi = currentCustomers.findIndex(c => c.customer === customerName);
+        if (freshCi >= 0) {
+          const freshFi = currentCustomers[freshCi].floorplans.findIndex(f => f.file === fp.file);
+          if (freshFi >= 0) currentCustomers[freshCi].floorplans.splice(freshFi, 1);
+          if (currentCustomers[freshCi].floorplans.length === 0) currentCustomers.splice(freshCi, 1);
+        }
+
+        const customersContent = btoa(unescape(encodeURIComponent(JSON.stringify(currentCustomers, null, 2))));
+        const updateResp = await fetch(CONFIG.customersUrl, {
+          method: 'PUT',
+          headers: ghHeaders(),
+          cache: 'no-store',
+          body: JSON.stringify({
+            message: 'Plattegrond verwijderd: ' + customerName + ' - ' + fp.name,
+            content: customersContent,
+            sha: customersMeta.sha,
+          }),
+        });
+        if (!updateResp.ok) throw new Error('Kon customers.json niet bijwerken');
+
+        // Reload
+        customers = currentCustomers;
+        populateCustomerDropdown();
+
+        // Clear stale state
+        currentFloorplan = null;
+        currentCustomer = null;
+        stopPolling();
+
+        // Stay on same customer if still exists
+        const remainingCi = currentCustomers.findIndex(c => c.customer === customerName);
+        if (remainingCi >= 0) {
+          customerSelect.value = remainingCi;
+          populateFloorplanDropdown(remainingCi);
+          floorplanSelect.value = '';
+          svgContainer.style.display = 'none';
+          svgContainer.innerHTML = '';
+          infoPanel.style.display = 'none';
+          btnPanelToggle.style.display = 'none';
+          btnEdit.style.display = 'none';
+          btnReset.style.display = 'none';
+          loadingEl.textContent = 'Kies een plattegrond.';
+          loadingEl.classList.remove('hidden');
+        } else {
+          customerSelect.value = '';
+          customerSelect.dispatchEvent(new Event('change'));
+        }
+        updateDeleteButton();
+        showToast('Plattegrond verwijderd', 'success');
+
+      } catch (err) {
+        showToast('Verwijderen mislukt: ' + err.message, 'error');
+      }
+    }
+
+    btnDeleteFp.addEventListener('click', showDeleteConfirm);
+    document.getElementById('delete-fp-confirm').addEventListener('click', deleteUploadedFloorplan);
+    document.getElementById('delete-fp-cancel').addEventListener('click', hideDeleteConfirm);
+    deleteFpOverlay.addEventListener('click', hideDeleteConfirm);
+
+    // ============================================================
     // EVENT LISTENERS
     // ============================================================
 
@@ -1160,6 +1612,7 @@
       currentCustomer = null;
       currentFloorplan = null;
       stopPolling();
+      updateDeleteButton();
 
       const idx = customerSelect.value;
       if (idx === '') {
@@ -1177,7 +1630,10 @@
     floorplanSelect.addEventListener('change', () => {
       const ci = parseInt(customerSelect.value, 10);
       const fi = parseInt(floorplanSelect.value, 10);
-      if (isNaN(ci) || isNaN(fi)) return;
+      if (isNaN(ci) || isNaN(fi)) {
+        updateDeleteButton();
+        return;
+      }
       loadFloorplan(ci, fi);
     });
 

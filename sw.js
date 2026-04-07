@@ -1,4 +1,4 @@
-const CACHE_NAME = 'fd-v1.5.0';
+const CACHE_NAME = 'fd-v1.6.0';
 
 const STATIC_ASSETS = [
   './',
@@ -41,7 +41,7 @@ self.addEventListener('fetch', (e) => {
   }
 
   // CDN scripts: cache-first (versioned URLs, won't change)
-  if (url.hostname === 'cdn.jsdelivr.net' || url.hostname === 'unpkg.com') {
+  if (url.hostname === 'cdn.jsdelivr.net' || url.hostname === 'unpkg.com' || url.hostname === 'cdnjs.cloudflare.com') {
     e.respondWith(
       caches.match(e.request).then(cached => {
         if (cached) return cached;

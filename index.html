@@ -8,13 +8,14 @@
   <link rel="manifest" href="manifest.json">
   <script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js" integrity="sha384-SALc35EccAf6RzGw4iNsyj7kTPr33K7RoGzYu+7heZhT8s0GZouafRiCg1qy44AS" crossorigin="anonymous"></script>
   <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js" integrity="sha384-c9d8RFSL+u3exBOJ4Yp3HUJXS4znl9f+z66d1y54ig+ea249SpqR+w1wyvXz/lk+" crossorigin="anonymous"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js" crossorigin="anonymous"></script>
   <link rel="stylesheet" href="app.css">
 </head>
 <body>
 
   <!-- Login screen -->
   <div class="login-screen" id="login-screen">
-    <div style="position:absolute; bottom:12px; left:16px; font-size:12px; color:#aaa;">v1.5.0</div>
+    <div style="position:absolute; bottom:12px; left:16px; font-size:12px; color:#aaa;">v1.6.0</div>
     <div class="login-box">
       <h1>Plattegrond Dashboard</h1>
       <p>Voer het wachtwoord in om door te gaan</p>
@@ -29,7 +30,7 @@
 
   <!-- App (hidden until logged in) -->
   <div id="app-container" style="display:none;">
-  <div style="position:fixed; bottom:12px; left:16px; font-size:12px; color:#aaa; z-index:1000; pointer-events:none;">v1.5.0</div>
+  <div style="position:fixed; bottom:12px; left:16px; font-size:12px; color:#aaa; z-index:1000; pointer-events:none;">v1.6.0</div>
 
   <!-- Toast notification -->
   <div id="toast" style="display:none; position:fixed; top:calc(var(--topbar-h, 52px) + 12px); left:50%; transform:translateX(-50%); padding:14px 28px; border-radius:10px; font-size:16px; font-weight:600; z-index:500; box-shadow:0 4px 16px rgba(0,0,0,0.25); cursor:pointer; max-width:90vw; text-align:center;"></div>
@@ -49,6 +50,9 @@
     <div style="position:relative;">
       <button class="btn-reset" id="btn-menu" style="padding:6px 10px; font-size:18px; line-height:1;">&#9776;</button>
       <div id="topbar-menu" style="display:none; position:absolute; right:0; top:100%; margin-top:4px; background:white; border-radius:8px; box-shadow:0 4px 16px rgba(0,0,0,0.2); min-width:160px; z-index:200; overflow:hidden;">
+        <button id="btn-upload" style="display:block; width:100%; padding:14px 20px; border:none; background:white; font-size:16px; font-weight:600; color:#333; text-align:left; cursor:pointer;">Plattegrond toevoegen</button>
+        <button id="btn-delete-fp" style="display:none; width:100%; padding:14px 20px; border:none; background:white; font-size:16px; font-weight:600; color:#d93025; text-align:left; cursor:pointer;">Plattegrond verwijderen</button>
+        <div style="border-top:1px solid #eee;"></div>
         <button id="btn-logout" style="display:block; width:100%; padding:14px 20px; border:none; background:white; font-size:16px; font-weight:600; color:#d93025; text-align:left; cursor:pointer;">Uitloggen</button>
       </div>
     </div>
@@ -134,6 +138,58 @@
   <div class="side-panel" id="side-panel">
     <div class="side-panel-header" id="side-panel-header">Deuren</div>
     <div class="side-panel-list" id="side-panel-list"></div>
+  </div>
+
+  <!-- Upload floorplan popup -->
+  <div id="upload-overlay" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.4); z-index:299;"></div>
+  <div id="upload-popup" style="display:none; position:fixed; top:50%; left:50%; transform:translate(-50%,-50%); background:white; padding:24px; border-radius:12px; box-shadow:0 8px 32px rgba(0,0,0,0.3); z-index:300; min-width:300px; max-width:90vw; max-height:85vh; overflow-y:auto;">
+    <!-- Step 1: Choose method -->
+    <div id="upload-step-choose">
+      <h3 style="font-size:18px; color:#333; margin-bottom:20px; text-align:center;">Plattegrond toevoegen</h3>
+      <div style="display:flex; flex-direction:column; gap:12px;">
+        <button id="btn-upload-pdf" class="upload-btn upload-btn-blue">PDF uploaden</button>
+        <button id="btn-upload-photo" class="upload-btn upload-btn-green">Foto maken</button>
+        <button id="btn-upload-cancel-1" class="upload-btn upload-btn-grey">Annuleren</button>
+      </div>
+      <input type="file" id="upload-pdf-input" accept=".pdf" style="display:none;">
+      <input type="file" id="upload-photo-input" accept="image/*" capture="environment" style="display:none;">
+    </div>
+    <!-- Step 2: Preview -->
+    <div id="upload-step-preview" style="display:none;">
+      <h3 style="font-size:18px; color:#333; margin-bottom:16px; text-align:center;">Voorbeeld</h3>
+      <div style="text-align:center; margin-bottom:16px;">
+        <img id="upload-preview-img" style="max-width:100%; max-height:50vh; border-radius:8px; border:1px solid #ddd;">
+      </div>
+      <div style="display:flex; gap:8px; justify-content:center;">
+        <button id="btn-upload-retake" class="upload-btn upload-btn-grey">Opnieuw</button>
+        <button id="btn-upload-accept" class="upload-btn upload-btn-green">Akkoord</button>
+      </div>
+    </div>
+    <!-- Step 3: Form -->
+    <div id="upload-step-form" style="display:none;">
+      <h3 style="font-size:18px; color:#333; margin-bottom:16px; text-align:center;">Gegevens invullen</h3>
+      <div style="display:flex; flex-direction:column; gap:12px;">
+        <select id="upload-customer-select" class="upload-input"></select>
+        <input type="text" id="upload-new-customer" placeholder="Naam nieuwe klant" class="upload-input" style="display:none;">
+        <input type="text" id="upload-floorplan-name" placeholder="bv. Locatie - Verdieping" class="upload-input">
+        <p style="font-size:13px; color:#888; margin:-4px 0 0 0;">Suggestie: Locatie - Verdieping</p>
+        <div id="upload-error" style="color:#d93025; font-size:14px; font-weight:600; min-height:20px;"></div>
+        <div style="display:flex; gap:8px; justify-content:center;">
+          <button id="btn-upload-save" class="upload-btn upload-btn-green">Opslaan</button>
+          <button id="btn-upload-cancel-3" class="upload-btn upload-btn-grey">Annuleren</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Delete floorplan confirmation -->
+  <div id="delete-fp-overlay" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.4); z-index:299;"></div>
+  <div id="delete-fp-popup" style="display:none; position:fixed; top:50%; left:50%; transform:translate(-50%,-50%); background:white; padding:24px; border-radius:12px; box-shadow:0 8px 32px rgba(0,0,0,0.3); z-index:300; text-align:center; min-width:260px;">
+    <p id="delete-fp-message" style="font-size:17px; font-weight:600; color:#333; margin-bottom:20px;"></p>
+    <div style="display:flex; gap:8px; justify-content:center;">
+      <button id="delete-fp-confirm" style="font-size:16px; padding:10px 24px; border:none; border-radius:8px; background:#d93025; color:white; font-weight:600; cursor:pointer;">Verwijderen</button>
+      <button id="delete-fp-cancel" style="font-size:16px; padding:10px 24px; border:none; border-radius:8px; background:#e0e0e0; color:#333; font-weight:600; cursor:pointer;">Annuleren</button>
+    </div>
   </div>
 
   </div><!-- /app-container -->

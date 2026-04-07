@@ -493,6 +493,32 @@
       }
     }
 
+    /* Upload popup */
+    .upload-btn {
+      padding: 14px 24px;
+      border: none;
+      border-radius: 8px;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+
+    .upload-btn-blue { background: #1a73e8; color: white; }
+    .upload-btn-green { background: #34a853; color: white; }
+    .upload-btn-grey { background: #e0e0e0; color: #333; }
+
+    .upload-input {
+      font-size: 16px;
+      padding: 10px 14px;
+      border: 2px solid #ddd;
+      border-radius: 8px;
+    }
+
+    .upload-input:focus {
+      outline: none;
+      border-color: #1a73e8;
+    }
+
     /* Prevent 300ms tap delay on all interactive elements */
     button, select, input, label, .side-panel-item {
       touch-action: manipulation;
