@@ -15,7 +15,7 @@
 
   <!-- Login screen -->
   <div class="login-screen" id="login-screen">
-    <div style="position:absolute; bottom:12px; left:16px; font-size:12px; color:#aaa;">v1.6.1</div>
+    <div style="position:absolute; bottom:12px; left:16px; font-size:12px; color:#aaa;">v1.6.2</div>
     <div class="login-box">
       <h1>Plattegrond Dashboard</h1>
       <p>Voer het wachtwoord in om door te gaan</p>
@@ -30,7 +30,7 @@
 
   <!-- App (hidden until logged in) -->
   <div id="app-container" style="display:none;">
-  <div style="position:fixed; bottom:12px; left:16px; font-size:12px; color:#aaa; z-index:1000; pointer-events:none;">v1.6.1</div>
+  <div style="position:fixed; bottom:12px; left:16px; font-size:12px; color:#aaa; z-index:1000; pointer-events:none;">v1.6.2</div>
 
   <!-- Toast notification -->
   <div id="toast" style="display:none; position:fixed; top:calc(var(--topbar-h, 52px) + 12px); left:50%; transform:translateX(-50%); padding:14px 28px; border-radius:10px; font-size:16px; font-weight:600; z-index:500; box-shadow:0 4px 16px rgba(0,0,0,0.25); cursor:pointer; max-width:90vw; text-align:center;"></div>
@@ -175,7 +175,10 @@
       <h3 style="font-size:18px; color:#333; margin-bottom:16px; text-align:center;">Gegevens invullen</h3>
       <div style="display:flex; flex-direction:column; gap:12px;">
         <select id="upload-customer-select" class="upload-input"></select>
-        <input type="text" id="upload-new-customer" placeholder="Naam nieuwe klant" class="upload-input" style="display:none;">
+        <div id="upload-new-customer-wrapper" style="display:none;">
+          <input type="text" id="upload-new-customer" placeholder="Naam nieuwe klant" class="upload-input" style="width:100%;">
+          <button type="button" id="btn-back-to-select" style="background:none; border:none; color:#1a73e8; font-size:13px; padding:4px 2px; cursor:pointer; text-decoration:underline; display:inline-block; margin-top:4px;">← Kies bestaande klant</button>
+        </div>
         <input type="text" id="upload-floorplan-name" placeholder="bv. Locatie - Verdieping" class="upload-input">
         <p style="font-size:13px; color:#888; margin:-4px 0 0 0;">Suggestie: Locatie - Verdieping</p>
         <div id="upload-error" style="color:#d93025; font-size:14px; font-weight:600; min-height:20px;"></div>

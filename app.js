@@ -76,6 +76,29 @@
     const sidePanelHeader = document.getElementById('side-panel-header');
 
     // ============================================================
+    // SHARED UI HELPERS
+    // ============================================================
+
+    const BUILDING_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="90" height="90" viewBox="0 0 90 90"><rect x="8" y="32" width="74" height="50" rx="5" fill="#e8f0fe" stroke="#1a73e8" stroke-width="2.5"/><rect x="18" y="44" width="16" height="16" rx="3" fill="#1a73e8" opacity="0.45"/><rect x="56" y="44" width="16" height="16" rx="3" fill="#1a73e8" opacity="0.45"/><rect x="37" y="50" width="16" height="32" rx="3" fill="#1a73e8" opacity="0.65"/><polygon points="45,6 6,32 84,32" fill="#1a73e8" opacity="0.75"/></svg>`;
+
+    function setEmptyState(subtitle, hint) {
+      loadingEl.innerHTML = `<div class="empty-state">
+        <div class="empty-state-icon">${BUILDING_SVG}</div>
+        <div class="empty-state-title">Plattegrond Dashboard</div>
+        <div class="empty-state-sub">${subtitle}</div>
+        ${hint ? `<div class="empty-state-hint">${hint}</div>` : ''}
+      </div>`;
+    }
+
+    function setLoadingState() {
+      loadingEl.innerHTML = `<div class="empty-state">
+        <div class="empty-state-icon loading-scan-container">${BUILDING_SVG}<div class="loading-scan-line"></div></div>
+        <div class="empty-state-title" style="color:#555; font-size:18px; font-weight:600;">Plattegrond laden</div>
+        <div class="loading-dots"><span></span><span></span><span></span></div>
+      </div>`;
+    }
+
+    // ============================================================
     // LAYOUT — measure topbar, handle resize/orientation
     // ============================================================
 
@@ -237,7 +260,7 @@
 
       const thisGeneration = ++loadGeneration;
 
-      loadingEl.textContent = 'Plattegrond laden...';
+      setLoadingState();
       loadingEl.classList.remove('hidden');
       svgContainer.style.display = 'none';
       btnReset.style.display = 'none';
@@ -1196,6 +1219,9 @@
       uploadImageWidth = 0;
       uploadImageHeight = 0;
       uploadPreviewImg.src = '';
+      uploadCustomerSelect.style.display = '';
+      uploadNewCustomerWrapper.style.display = 'none';
+      uploadNewCustomer.value = '';
     }
 
     function showUploadPreview(dataUrl, width, height) {
@@ -1224,7 +1250,8 @@
         uploadCustomerSelect.appendChild(opt);
       });
 
-      uploadNewCustomer.style.display = 'none';
+      uploadCustomerSelect.style.display = '';
+      uploadNewCustomerWrapper.style.display = 'none';
       uploadNewCustomer.value = '';
       uploadFloorplanName.value = '';
       uploadError.textContent = '';
@@ -1306,10 +1333,26 @@
       }
     });
 
-    // Upload customer select
+    const uploadNewCustomerWrapper = document.getElementById('upload-new-customer-wrapper');
+
+    function showNewCustomerInput() {
+      uploadCustomerSelect.style.display = 'none';
+      uploadNewCustomerWrapper.style.display = 'block';
+      uploadNewCustomer.focus();
+    }
+
+    function showCustomerSelect() {
+      uploadNewCustomerWrapper.style.display = 'none';
+      uploadCustomerSelect.style.display = '';
+      uploadCustomerSelect.value = '';
+      uploadNewCustomer.value = '';
+    }
+
     uploadCustomerSelect.addEventListener('change', () => {
-      uploadNewCustomer.style.display = uploadCustomerSelect.value === '__new__' ? 'block' : 'none';
+      if (uploadCustomerSelect.value === '__new__') showNewCustomerInput();
     });
+
+    document.getElementById('btn-back-to-select').addEventListener('click', showCustomerSelect);
 
     function sanitizeFilename(name) {
       const slug = name.toLowerCase()
@@ -1590,7 +1633,7 @@
           btnPanelToggle.style.display = 'none';
           btnEdit.style.display = 'none';
           btnReset.style.display = 'none';
-          loadingEl.textContent = 'Kies een plattegrond.';
+          setEmptyState('Kies een plattegrond<br>uit het dropdown menu.');
           loadingEl.classList.remove('hidden');
         } else {
           customerSelect.value = '';
@@ -1634,16 +1677,11 @@
       if (idx === '') {
         floorplanSelect.innerHTML = '<option value="">-- Kies plattegrond --</option>';
         floorplanSelect.disabled = true;
-        loadingEl.innerHTML = `<div class="empty-state">
-          <div class="empty-state-icon"><svg xmlns="http://www.w3.org/2000/svg" width="90" height="90" viewBox="0 0 90 90"><rect x="8" y="32" width="74" height="50" rx="5" fill="#e8f0fe" stroke="#1a73e8" stroke-width="2.5"/><rect x="18" y="44" width="16" height="16" rx="3" fill="#1a73e8" opacity="0.45"/><rect x="56" y="44" width="16" height="16" rx="3" fill="#1a73e8" opacity="0.45"/><rect x="37" y="50" width="16" height="32" rx="3" fill="#1a73e8" opacity="0.65"/><polygon points="45,6 6,32 84,32" fill="#1a73e8" opacity="0.75"/></svg></div>
-          <div class="empty-state-title">Plattegrond Dashboard</div>
-          <div class="empty-state-sub">Kies een klant en plattegrond<br>om te beginnen.</div>
-          <div class="empty-state-hint">Gebruik de dropdowns bovenaan</div>
-        </div>`;
+        setEmptyState('Kies een klant en plattegrond<br>om te beginnen.', 'Gebruik de dropdowns bovenaan');
         loadingEl.classList.remove('hidden');
         return;
       }
-      loadingEl.textContent = 'Kies een plattegrond.';
+      setEmptyState('Kies een plattegrond<br>uit het dropdown menu.');
       loadingEl.classList.remove('hidden');
       populateFloorplanDropdown(parseInt(idx, 10));
     });
