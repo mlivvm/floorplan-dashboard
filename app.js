@@ -1529,6 +1529,7 @@
     // ============================================================
 
     const btnDeleteFp = document.getElementById('btn-delete-fp');
+    const btnEditImage = document.getElementById('btn-edit-image');
     const deleteFpOverlay = document.getElementById('delete-fp-overlay');
     const deleteFpPopup = document.getElementById('delete-fp-popup');
     const deleteFpMessage = document.getElementById('delete-fp-message');
@@ -1538,9 +1539,12 @@
       const fi = parseInt(floorplanSelect.value, 10);
       if (!isNaN(ci) && !isNaN(fi) && customers[ci] && customers[ci].floorplans[fi]) {
         const fp = customers[ci].floorplans[fi];
-        btnDeleteFp.style.display = (fp.uploaded || fp.repo === 'uploads') ? 'block' : 'none';
+        const isUpload = fp.uploaded || fp.repo === 'uploads';
+        btnDeleteFp.style.display  = isUpload ? 'block' : 'none';
+        btnEditImage.style.display = isUpload ? 'block' : 'none';
       } else {
-        btnDeleteFp.style.display = 'none';
+        btnDeleteFp.style.display  = 'none';
+        btnEditImage.style.display = 'none';
       }
     }
 
@@ -2102,6 +2106,342 @@
     } else {
       checkLockoutState();
     }
+
+    // ============================================================
+    // IMAGE EDITOR
+    // ============================================================
+
+    let editorCanvas, editorCtx, editorScale = 1;
+    let editorTool = 'crop';
+    let editorUndoStack = [];
+    let cropStart = null, cropEnd = null, cropDragging = false;
+    let editorSnapshot = null;
+    let editorRafId = null;
+    let eraseBrushSize = 30;
+    let erasePointerDown = false;
+    let editorSaving = false;
+
+    function getCurrentFloorplanObj() {
+      const ci = parseInt(customerSelect.value, 10);
+      const fi = parseInt(floorplanSelect.value, 10);
+      return customers[ci]?.floorplans[fi];
+    }
+
+    function openImageEditor() {
+      if (isEditMode) { showToast('Sluit eerst de bewerkingsmodus', 'error'); return; }
+      topbarMenu.style.display = 'none';
+
+      const svgImgEl = svgContainer.querySelector('svg image');
+      if (!svgImgEl) { showToast('Geen afbeelding gevonden in plattegrond', 'error'); return; }
+      const dataUrl = svgImgEl.getAttribute('href');
+      if (!dataUrl || !dataUrl.startsWith('data:image')) {
+        showToast('Afbeelding kan niet worden geladen', 'error'); return;
+      }
+
+      editorCanvas = document.getElementById('img-editor-canvas');
+      editorCtx = editorCanvas.getContext('2d');
+      editorUndoStack = [];
+      cropStart = null; cropEnd = null; cropDragging = false;
+      editorSnapshot = null;
+      editorSaving = false;
+
+      const img = new Image();
+      img.onload = () => {
+        editorCanvas.width  = img.naturalWidth;
+        editorCanvas.height = img.naturalHeight;
+        editorCtx.drawImage(img, 0, 0);
+        updateEditorScale();
+        setEditorTool('crop');
+        document.getElementById('img-editor-undo').disabled = true;
+        document.getElementById('img-editor-save').disabled = false;
+        document.getElementById('img-editor-save').textContent = '\uD83D\uDCBE Opslaan';
+        document.getElementById('img-editor-overlay').style.display = 'flex';
+      };
+      img.onerror = () => showToast('Afbeelding laden mislukt', 'error');
+      img.src = dataUrl;
+    }
+
+    function updateEditorScale() {
+      const wrap = document.getElementById('img-editor-canvas-wrap');
+      const scaleX = wrap.clientWidth  / editorCanvas.width;
+      const scaleY = wrap.clientHeight / editorCanvas.height;
+      editorScale = Math.min(scaleX, scaleY, 1);
+      editorCanvas.style.width  = Math.round(editorCanvas.width  * editorScale) + 'px';
+      editorCanvas.style.height = Math.round(editorCanvas.height * editorScale) + 'px';
+    }
+
+    function closeImageEditor() {
+      if (editorRafId) { cancelAnimationFrame(editorRafId); editorRafId = null; }
+      document.getElementById('img-editor-overlay').style.display = 'none';
+      editorUndoStack = [];
+      cropStart = null; cropEnd = null;
+      editorSnapshot = null;
+      editorSaving = false;
+    }
+
+    function setEditorTool(tool) {
+      if (editorRafId) { cancelAnimationFrame(editorRafId); editorRafId = null; }
+      editorTool = tool;
+
+      document.getElementById('img-editor-tool-crop').classList.toggle('active', tool === 'crop');
+      document.getElementById('img-editor-tool-erase').classList.toggle('active', tool === 'erase');
+      document.getElementById('img-editor-brush-row').style.display = tool === 'erase' ? 'flex' : 'none';
+      document.getElementById('img-editor-apply-crop').style.display = 'none';
+
+      if (tool === 'crop') {
+        editorSnapshot = document.createElement('canvas');
+        editorSnapshot.width  = editorCanvas.width;
+        editorSnapshot.height = editorCanvas.height;
+        editorSnapshot.getContext('2d').drawImage(editorCanvas, 0, 0);
+        cropStart = null; cropEnd = null; cropDragging = false;
+        editorRafId = requestAnimationFrame(renderEditorFrame);
+      }
+    }
+
+    function renderEditorFrame() {
+      if (editorTool !== 'crop') return;
+      editorCtx.drawImage(editorSnapshot, 0, 0);
+
+      if (cropStart && cropEnd) {
+        const x = Math.min(cropStart.x, cropEnd.x);
+        const y = Math.min(cropStart.y, cropEnd.y);
+        const w = Math.abs(cropEnd.x - cropStart.x);
+        const h = Math.abs(cropEnd.y - cropStart.y);
+
+        editorCtx.fillStyle = 'rgba(0,0,0,0.45)';
+        editorCtx.fillRect(0, 0, editorCanvas.width, y);
+        editorCtx.fillRect(0, y + h, editorCanvas.width, editorCanvas.height - y - h);
+        editorCtx.fillRect(0, y, x, h);
+        editorCtx.fillRect(x + w, y, editorCanvas.width - x - w, h);
+
+        editorCtx.strokeStyle = '#fff';
+        editorCtx.lineWidth = Math.max(1, Math.round(2 / editorScale));
+        editorCtx.strokeRect(x + 1, y + 1, w - 2, h - 2);
+      }
+
+      editorRafId = requestAnimationFrame(renderEditorFrame);
+    }
+
+    function editorClientToCanvas(e) {
+      const rect = editorCanvas.getBoundingClientRect();
+      const src = e.touches ? e.touches[0] : e;
+      return {
+        x: Math.round((src.clientX - rect.left) / editorScale),
+        y: Math.round((src.clientY - rect.top)  / editorScale),
+      };
+    }
+
+    function editorPointerDown(e) {
+      e.preventDefault();
+      const pt = editorClientToCanvas(e);
+
+      if (editorTool === 'crop') {
+        cropStart = pt; cropEnd = pt; cropDragging = true;
+        document.getElementById('img-editor-apply-crop').style.display = 'none';
+
+      } else if (editorTool === 'erase') {
+        erasePointerDown = true;
+        editorCtx.beginPath();
+        editorCtx.arc(pt.x, pt.y, eraseBrushSize / 2, 0, 2 * Math.PI);
+        editorCtx.fillStyle = 'white';
+        editorCtx.fill();
+      }
+    }
+
+    function editorPointerMove(e) {
+      e.preventDefault();
+      const pt = editorClientToCanvas(e);
+
+      if (editorTool === 'crop' && cropDragging) {
+        cropEnd = pt;
+
+      } else if (editorTool === 'erase' && erasePointerDown) {
+        editorCtx.beginPath();
+        editorCtx.arc(pt.x, pt.y, eraseBrushSize / 2, 0, 2 * Math.PI);
+        editorCtx.fillStyle = 'white';
+        editorCtx.fill();
+      }
+    }
+
+    function editorPointerUp(e) {
+      if (editorTool === 'crop' && cropDragging) {
+        cropDragging = false;
+        const w = cropEnd ? Math.abs(cropEnd.x - cropStart.x) : 0;
+        const h = cropEnd ? Math.abs(cropEnd.y - cropStart.y) : 0;
+        if (w > 10 && h > 10) {
+          document.getElementById('img-editor-apply-crop').style.display = '';
+        }
+
+      } else if (editorTool === 'erase' && erasePointerDown) {
+        erasePointerDown = false;
+        editorPushUndo();
+      }
+    }
+
+    function editorPushUndo() {
+      editorUndoStack.push(editorCanvas.toDataURL('image/jpeg', 0.8));
+      if (editorUndoStack.length > 3) editorUndoStack.shift();
+      document.getElementById('img-editor-undo').disabled = false;
+    }
+
+    function editorUndo() {
+      if (!editorUndoStack.length) return;
+      const dataUrl = editorUndoStack.pop();
+      const img = new Image();
+      img.onload = () => {
+        editorCanvas.width  = img.naturalWidth;
+        editorCanvas.height = img.naturalHeight;
+        editorCtx.drawImage(img, 0, 0);
+        updateEditorScale();
+        if (editorTool === 'crop') setEditorTool('crop');
+      };
+      img.src = dataUrl;
+      document.getElementById('img-editor-undo').disabled = editorUndoStack.length === 0;
+    }
+
+    function applyEditorCrop() {
+      if (!cropStart || !cropEnd) return;
+      const x = Math.min(cropStart.x, cropEnd.x);
+      const y = Math.min(cropStart.y, cropEnd.y);
+      const w = Math.abs(cropEnd.x - cropStart.x);
+      const h = Math.abs(cropEnd.y - cropStart.y);
+      if (w < 10 || h < 10) return;
+
+      editorPushUndo();
+
+      const tmp = document.createElement('canvas');
+      tmp.width = w; tmp.height = h;
+      tmp.getContext('2d').drawImage(editorSnapshot, x, y, w, h, 0, 0, w, h);
+
+      editorCanvas.width  = w;
+      editorCanvas.height = h;
+      editorCtx.drawImage(tmp, 0, 0);
+      updateEditorScale();
+      document.getElementById('img-editor-apply-crop').style.display = 'none';
+      cropStart = null; cropEnd = null;
+      setEditorTool('crop');
+    }
+
+    function editorRotate(dir) {
+      editorPushUndo();
+
+      const sw = editorCanvas.width, sh = editorCanvas.height;
+      const tmp = document.createElement('canvas');
+      tmp.width = sh; tmp.height = sw;
+      const tctx = tmp.getContext('2d');
+      tctx.translate(tmp.width / 2, tmp.height / 2);
+      tctx.rotate((dir === 'cw' ? 90 : -90) * Math.PI / 180);
+      tctx.drawImage(editorCanvas, -sw / 2, -sh / 2);
+
+      editorCanvas.width  = tmp.width;
+      editorCanvas.height = tmp.height;
+      editorCtx.drawImage(tmp, 0, 0);
+      updateEditorScale();
+      if (editorTool === 'crop') setEditorTool('crop');
+    }
+
+    async function saveEditorChanges() {
+      if (editorSaving) return;
+      const fp = getCurrentFloorplanObj();
+      if (!fp) { showToast('Geen plattegrond geselecteerd', 'error'); return; }
+
+      const btnSave = document.getElementById('img-editor-save');
+      btnSave.disabled = true;
+      btnSave.textContent = 'Opslaan...';
+      editorSaving = true;
+
+      try {
+        const newDataUrl = editorCanvas.toDataURL('image/jpeg', 0.8);
+        const W = editorCanvas.width, H = editorCanvas.height;
+        const svgText = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}">\n  <image href="${newDataUrl}" width="${W}" height="${H}"/>\n</svg>`;
+        const svgContent = btoa(unescape(encodeURIComponent(svgText)));
+
+        const fileUrl = CONFIG.svgUploadsUrl + encodeURIComponent(fp.file);
+        const metaResp = await fetch(fileUrl, { headers: ghHeaders(), cache: 'no-store' });
+        if (!metaResp.ok) throw new Error('Kon bestand niet ophalen (' + metaResp.status + ')');
+        const meta = await metaResp.json();
+
+        const updateResp = await fetch(fileUrl, {
+          method: 'PUT',
+          headers: ghHeaders(),
+          cache: 'no-store',
+          body: JSON.stringify({
+            message: 'Afbeelding bewerkt: ' + currentCustomer + ' - ' + currentFloorplan,
+            content: svgContent,
+            sha: meta.sha,
+          }),
+        });
+        if (!updateResp.ok) throw new Error('Opslaan mislukt (' + updateResp.status + ')');
+
+        closeImageEditor();
+        showToast('Afbeelding opgeslagen', 'success');
+        const ci = parseInt(customerSelect.value, 10);
+        const fi = parseInt(floorplanSelect.value, 10);
+        if (!isNaN(ci) && !isNaN(fi)) loadFloorplan(ci, fi);
+
+      } catch (err) {
+        showToast('Fout: ' + err.message, 'error');
+        editorSaving = false;
+        btnSave.disabled = false;
+        btnSave.textContent = '\uD83D\uDCBE Opslaan';
+      }
+    }
+
+    // Editor cancel confirmation popup
+    const editorCancelOverlay = document.getElementById('editor-cancel-overlay');
+    const editorCancelPopup   = document.getElementById('editor-cancel-popup');
+
+    function showEditorCancelConfirm() {
+      editorCancelOverlay.style.display = 'block';
+      editorCancelPopup.style.display   = 'block';
+    }
+    function hideEditorCancelConfirm() {
+      editorCancelOverlay.style.display = 'none';
+      editorCancelPopup.style.display   = 'none';
+    }
+
+    // Event wiring — editor
+    btnEditImage.addEventListener('click', openImageEditor);
+
+    document.getElementById('img-editor-cancel').addEventListener('click', () => {
+      if (editorUndoStack.length > 0) {
+        showEditorCancelConfirm();
+      } else {
+        closeImageEditor();
+      }
+    });
+
+    document.getElementById('editor-cancel-confirm').addEventListener('click', () => {
+      hideEditorCancelConfirm();
+      closeImageEditor();
+    });
+    document.getElementById('editor-cancel-back').addEventListener('click', hideEditorCancelConfirm);
+    editorCancelOverlay.addEventListener('click', hideEditorCancelConfirm);
+
+    document.getElementById('img-editor-undo').addEventListener('click', editorUndo);
+    document.getElementById('img-editor-tool-crop').addEventListener('click', () => setEditorTool('crop'));
+    document.getElementById('img-editor-tool-erase').addEventListener('click', () => setEditorTool('erase'));
+    document.getElementById('img-editor-apply-crop').addEventListener('click', applyEditorCrop);
+    document.getElementById('img-editor-rotate-ccw').addEventListener('click', () => editorRotate('ccw'));
+    document.getElementById('img-editor-rotate-cw').addEventListener('click',  () => editorRotate('cw'));
+    document.getElementById('img-editor-save').addEventListener('click', saveEditorChanges);
+
+    document.getElementById('img-editor-brush-slider').addEventListener('input', (e) => {
+      eraseBrushSize = parseInt(e.target.value, 10);
+      document.getElementById('img-editor-brush-val').textContent = eraseBrushSize;
+    });
+
+    editorCanvas = document.getElementById('img-editor-canvas');
+    editorCanvas.addEventListener('pointerdown',   editorPointerDown,  { passive: false });
+    editorCanvas.addEventListener('pointermove',   editorPointerMove,  { passive: false });
+    editorCanvas.addEventListener('pointerup',     editorPointerUp);
+    editorCanvas.addEventListener('pointercancel', editorPointerUp);
+
+    window.addEventListener('resize', () => {
+      if (document.getElementById('img-editor-overlay').style.display !== 'none') {
+        updateEditorScale();
+      }
+    });
 
     // ============================================================
     // SERVICE WORKER REGISTRATION
