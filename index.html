@@ -15,7 +15,7 @@
 
   <!-- Login screen -->
   <div class="login-screen" id="login-screen">
-    <div style="position:absolute; bottom:12px; left:16px; font-size:12px; color:#aaa;">v1.6.0</div>
+    <div style="position:absolute; bottom:12px; left:16px; font-size:12px; color:#aaa;">v1.6.1</div>
     <div class="login-box">
       <h1>Plattegrond Dashboard</h1>
       <p>Voer het wachtwoord in om door te gaan</p>
@@ -30,7 +30,7 @@
 
   <!-- App (hidden until logged in) -->
   <div id="app-container" style="display:none;">
-  <div style="position:fixed; bottom:12px; left:16px; font-size:12px; color:#aaa; z-index:1000; pointer-events:none;">v1.6.0</div>
+  <div style="position:fixed; bottom:12px; left:16px; font-size:12px; color:#aaa; z-index:1000; pointer-events:none;">v1.6.1</div>
 
   <!-- Toast notification -->
   <div id="toast" style="display:none; position:fixed; top:calc(var(--topbar-h, 52px) + 12px); left:50%; transform:translateX(-50%); padding:14px 28px; border-radius:10px; font-size:16px; font-weight:600; z-index:500; box-shadow:0 4px 16px rgba(0,0,0,0.25); cursor:pointer; max-width:90vw; text-align:center;"></div>
@@ -128,7 +128,12 @@
   </div>
 
   <!-- SVG display area -->
-  <div class="loading" id="loading">Kies een klant en plattegrond om te beginnen.</div>
+  <div class="loading" id="loading"><div class="empty-state">
+    <div class="empty-state-icon"><svg xmlns="http://www.w3.org/2000/svg" width="90" height="90" viewBox="0 0 90 90"><rect x="8" y="32" width="74" height="50" rx="5" fill="#e8f0fe" stroke="#1a73e8" stroke-width="2.5"/><rect x="18" y="44" width="16" height="16" rx="3" fill="#1a73e8" opacity="0.45"/><rect x="56" y="44" width="16" height="16" rx="3" fill="#1a73e8" opacity="0.45"/><rect x="37" y="50" width="16" height="32" rx="3" fill="#1a73e8" opacity="0.65"/><polygon points="45,6 6,32 84,32" fill="#1a73e8" opacity="0.75"/></svg></div>
+    <div class="empty-state-title">Plattegrond Dashboard</div>
+    <div class="empty-state-sub">Kies een klant en plattegrond<br>om te beginnen.</div>
+    <div class="empty-state-hint">Gebruik de dropdowns bovenaan</div>
+  </div></div>
   <div class="svg-container" id="svg-container" style="display:none;"></div>
 
   <!-- Side panel toggle button -->
@@ -190,6 +195,14 @@
       <button id="delete-fp-confirm" style="font-size:16px; padding:10px 24px; border:none; border-radius:8px; background:#d93025; color:white; font-weight:600; cursor:pointer;">Verwijderen</button>
       <button id="delete-fp-cancel" style="font-size:16px; padding:10px 24px; border:none; border-radius:8px; background:#e0e0e0; color:#333; font-weight:600; cursor:pointer;">Annuleren</button>
     </div>
+  </div>
+
+  <!-- Fullscreen image viewer (for upload preview zoom) -->
+  <div id="img-fullscreen-overlay" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.95); z-index:500; overflow:auto; touch-action:auto; -webkit-overflow-scrolling:touch;">
+    <div style="display:flex; justify-content:center; align-items:flex-start; min-height:100%; padding:60px 16px 24px;">
+      <img id="img-fullscreen-img" style="max-width:100%; height:auto; border-radius:6px; touch-action:auto;">
+    </div>
+    <button id="img-fullscreen-close" style="position:fixed; top:12px; right:12px; padding:10px 18px; background:white; border:none; border-radius:8px; font-size:15px; font-weight:600; cursor:pointer; z-index:501; box-shadow:0 2px 8px rgba(0,0,0,0.3);">&#10005; Sluiten</button>
   </div>
 
   </div><!-- /app-container -->

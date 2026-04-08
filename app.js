@@ -1209,16 +1209,20 @@
 
     function showUploadForm() {
       uploadCustomerSelect.innerHTML = '<option value="">-- Kies klant --</option>';
+      const newOpt = document.createElement('option');
+      newOpt.value = '__new__';
+      newOpt.textContent = '➕ Nieuwe klant toevoegen';
+      uploadCustomerSelect.appendChild(newOpt);
+      const sep = document.createElement('option');
+      sep.disabled = true;
+      sep.textContent = '──────────────────';
+      uploadCustomerSelect.appendChild(sep);
       customers.forEach((c, i) => {
         const opt = document.createElement('option');
         opt.value = i;
         opt.textContent = c.customer;
         uploadCustomerSelect.appendChild(opt);
       });
-      const newOpt = document.createElement('option');
-      newOpt.value = '__new__';
-      newOpt.textContent = '+ Nieuwe klant';
-      uploadCustomerSelect.appendChild(newOpt);
 
       uploadNewCustomer.style.display = 'none';
       uploadNewCustomer.value = '';
@@ -1428,6 +1432,7 @@
         // Reload and select new floorplan
         customers = currentCustomers;
         populateCustomerDropdown();
+        uploadSaving = false;
         hideUploadPopup();
         showToast('Plattegrond toegevoegd', 'success');
 
@@ -1448,6 +1453,17 @@
         uploadSaving = false;
       }
     }
+
+    // Fullscreen preview
+    uploadPreviewImg.style.cursor = 'zoom-in';
+    uploadPreviewImg.addEventListener('click', () => {
+      if (!uploadPreviewImg.src) return;
+      document.getElementById('img-fullscreen-img').src = uploadPreviewImg.src;
+      document.getElementById('img-fullscreen-overlay').style.display = 'block';
+    });
+    document.getElementById('img-fullscreen-close').addEventListener('click', () => {
+      document.getElementById('img-fullscreen-overlay').style.display = 'none';
+    });
 
     // Upload button handlers
     document.getElementById('btn-upload').addEventListener('click', showUploadPopup);
@@ -1618,7 +1634,12 @@
       if (idx === '') {
         floorplanSelect.innerHTML = '<option value="">-- Kies plattegrond --</option>';
         floorplanSelect.disabled = true;
-        loadingEl.textContent = 'Kies een klant en plattegrond om te beginnen.';
+        loadingEl.innerHTML = `<div class="empty-state">
+          <div class="empty-state-icon"><svg xmlns="http://www.w3.org/2000/svg" width="90" height="90" viewBox="0 0 90 90"><rect x="8" y="32" width="74" height="50" rx="5" fill="#e8f0fe" stroke="#1a73e8" stroke-width="2.5"/><rect x="18" y="44" width="16" height="16" rx="3" fill="#1a73e8" opacity="0.45"/><rect x="56" y="44" width="16" height="16" rx="3" fill="#1a73e8" opacity="0.45"/><rect x="37" y="50" width="16" height="32" rx="3" fill="#1a73e8" opacity="0.65"/><polygon points="45,6 6,32 84,32" fill="#1a73e8" opacity="0.75"/></svg></div>
+          <div class="empty-state-title">Plattegrond Dashboard</div>
+          <div class="empty-state-sub">Kies een klant en plattegrond<br>om te beginnen.</div>
+          <div class="empty-state-hint">Gebruik de dropdowns bovenaan</div>
+        </div>`;
         loadingEl.classList.remove('hidden');
         return;
       }

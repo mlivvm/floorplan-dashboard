@@ -378,10 +378,47 @@
       height: calc(100dvh - var(--topbar-h, 52px));
       font-size: 18px;
       color: #666;
+      background: linear-gradient(160deg, #e8f0fe 0%, #f4f7ff 55%, #ffffff 100%);
     }
 
     .loading.hidden {
       display: none;
+    }
+
+    .empty-state {
+      text-align: center;
+      padding: 32px 24px;
+      max-width: 360px;
+      animation: fadeInUp 0.4s ease;
+    }
+
+    @keyframes fadeInUp {
+      from { opacity: 0; transform: translateY(16px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    .empty-state-icon {
+      margin-bottom: 20px;
+      line-height: 1;
+    }
+
+    .empty-state-title {
+      font-size: 22px;
+      font-weight: 700;
+      color: #1a73e8;
+      margin-bottom: 12px;
+    }
+
+    .empty-state-sub {
+      font-size: 16px;
+      color: #666;
+      line-height: 1.7;
+    }
+
+    .empty-state-hint {
+      margin-top: 20px;
+      font-size: 13px;
+      color: #999;
     }
 
     /* Login screen */
