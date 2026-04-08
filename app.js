@@ -2114,12 +2114,13 @@
     let editorCanvas, editorCtx, editorScale = 1;
     let editorTool = 'crop';
     let editorUndoStack = [];
-    let cropStart = null, cropEnd = null, cropDragging = false;
+    let cropRect = null, activeCropHandle = null;
     let editorSnapshot = null;
     let editorRafId = null;
     let eraseBrushSize = 30;
     let erasePointerDown = false;
     let editorSaving = false;
+    let rotateSnapshot = null, rotateStartAngle = 0, rotateDeltaAngle = 0, rotateIsDragging = false;
 
     function getCurrentFloorplanObj() {
       const ci = parseInt(customerSelect.value, 10);
@@ -2141,8 +2142,9 @@
       editorCanvas = document.getElementById('img-editor-canvas');
       editorCtx = editorCanvas.getContext('2d');
       editorUndoStack = [];
-      cropStart = null; cropEnd = null; cropDragging = false;
+      cropRect = null; activeCropHandle = null;
       editorSnapshot = null;
+      rotateSnapshot = null; rotateIsDragging = false;
       editorSaving = false;
 
       const img = new Image();
@@ -2174,8 +2176,9 @@
       if (editorRafId) { cancelAnimationFrame(editorRafId); editorRafId = null; }
       document.getElementById('img-editor-overlay').style.display = 'none';
       editorUndoStack = [];
-      cropStart = null; cropEnd = null;
+      cropRect = null; activeCropHandle = null;
       editorSnapshot = null;
+      rotateSnapshot = null; rotateIsDragging = false;
       editorSaving = false;
     }
 
@@ -2185,15 +2188,19 @@
 
       document.getElementById('img-editor-tool-crop').classList.toggle('active', tool === 'crop');
       document.getElementById('img-editor-tool-erase').classList.toggle('active', tool === 'erase');
+      document.getElementById('img-editor-tool-rotate').classList.toggle('active', tool === 'rotate');
       document.getElementById('img-editor-brush-row').style.display = tool === 'erase' ? 'flex' : 'none';
-      document.getElementById('img-editor-apply-crop').style.display = 'none';
+      document.getElementById('img-editor-apply-crop').style.display = tool === 'crop' ? '' : 'none';
+
+      editorCanvas.classList.toggle('editor-rotate-mode', tool === 'rotate');
 
       if (tool === 'crop') {
         editorSnapshot = document.createElement('canvas');
         editorSnapshot.width  = editorCanvas.width;
         editorSnapshot.height = editorCanvas.height;
         editorSnapshot.getContext('2d').drawImage(editorCanvas, 0, 0);
-        cropStart = null; cropEnd = null; cropDragging = false;
+        cropRect = { x: 0, y: 0, w: editorCanvas.width, h: editorCanvas.height };
+        activeCropHandle = null;
         editorRafId = requestAnimationFrame(renderEditorFrame);
       }
     }
@@ -2202,22 +2209,46 @@
       if (editorTool !== 'crop') return;
       editorCtx.drawImage(editorSnapshot, 0, 0);
 
-      if (cropStart && cropEnd) {
-        const x = Math.min(cropStart.x, cropEnd.x);
-        const y = Math.min(cropStart.y, cropEnd.y);
-        const w = Math.abs(cropEnd.x - cropStart.x);
-        const h = Math.abs(cropEnd.y - cropStart.y);
+      const { x, y, w, h } = cropRect;
+      const lw = Math.max(1, 1.5 / editorScale);
+      const hs = Math.max(12, 22 / editorScale); // corner bracket arm length
 
-        editorCtx.fillStyle = 'rgba(0,0,0,0.45)';
-        editorCtx.fillRect(0, 0, editorCanvas.width, y);
-        editorCtx.fillRect(0, y + h, editorCanvas.width, editorCanvas.height - y - h);
-        editorCtx.fillRect(0, y, x, h);
-        editorCtx.fillRect(x + w, y, editorCanvas.width - x - w, h);
+      // dim outside crop area
+      editorCtx.fillStyle = 'rgba(0,0,0,0.5)';
+      editorCtx.fillRect(0, 0, editorCanvas.width, y);
+      editorCtx.fillRect(0, y + h, editorCanvas.width, editorCanvas.height - y - h);
+      editorCtx.fillRect(0, y, x, h);
+      editorCtx.fillRect(x + w, y, editorCanvas.width - x - w, h);
 
-        editorCtx.strokeStyle = '#fff';
-        editorCtx.lineWidth = Math.max(1, Math.round(2 / editorScale));
-        editorCtx.strokeRect(x + 1, y + 1, w - 2, h - 2);
-      }
+      // thin border
+      editorCtx.strokeStyle = 'rgba(255,255,255,0.6)';
+      editorCtx.lineWidth = lw;
+      editorCtx.strokeRect(x, y, w, h);
+
+      // corner brackets
+      editorCtx.strokeStyle = '#fff';
+      editorCtx.lineWidth = Math.max(2, 3.5 / editorScale);
+      editorCtx.lineCap = 'square';
+      const corners = [
+        [x,     y,     hs,  0,  0,  hs],   // tl: right then down
+        [x + w, y,    -hs,  0,  0,  hs],   // tr: left then down
+        [x,     y + h, hs,  0,  0, -hs],   // bl: right then up
+        [x + w, y + h,-hs,  0,  0, -hs],   // br: left then up
+      ];
+      corners.forEach(([cx, cy, dx1, dy1, dx2, dy2]) => {
+        editorCtx.beginPath();
+        editorCtx.moveTo(cx + dx1, cy + dy1);
+        editorCtx.lineTo(cx, cy);
+        editorCtx.lineTo(cx + dx2, cy + dy2);
+        editorCtx.stroke();
+      });
+
+      // edge handles (small filled squares)
+      const es = Math.max(5, 8 / editorScale);
+      editorCtx.fillStyle = 'white';
+      [[x + w/2, y], [x + w/2, y + h], [x, y + h/2], [x + w, y + h/2]].forEach(([hx, hy]) => {
+        editorCtx.fillRect(hx - es/2, hy - es/2, es, es);
+      });
 
       editorRafId = requestAnimationFrame(renderEditorFrame);
     }
@@ -2231,13 +2262,48 @@
       };
     }
 
+    function getCropHandle(pt) {
+      const { x, y, w, h } = cropRect;
+      const r = Math.max(18, 28 / editorScale);
+      const hits = {
+        tl: [x,     y    ], tr: [x + w, y    ],
+        bl: [x,     y + h], br: [x + w, y + h],
+        tm: [x+w/2, y    ], bm: [x+w/2, y + h],
+        lm: [x,     y+h/2], rm: [x + w, y+h/2],
+      };
+      for (const [name, [hx, hy]] of Object.entries(hits)) {
+        if (Math.abs(pt.x - hx) < r && Math.abs(pt.y - hy) < r) return name;
+      }
+      return null;
+    }
+
+    function moveCropHandle(handle, pt) {
+      const MIN = 20;
+      let { x, y, w, h } = cropRect;
+      const cW = editorCanvas.width, cH = editorCanvas.height;
+      if (handle === 'tl' || handle === 'lm' || handle === 'bl') {
+        const nx = Math.max(0, Math.min(pt.x, x + w - MIN));
+        w += x - nx; x = nx;
+      }
+      if (handle === 'tr' || handle === 'rm' || handle === 'br') {
+        w = Math.max(MIN, Math.min(pt.x - x, cW - x));
+      }
+      if (handle === 'tl' || handle === 'tm' || handle === 'tr') {
+        const ny = Math.max(0, Math.min(pt.y, y + h - MIN));
+        h += y - ny; y = ny;
+      }
+      if (handle === 'bl' || handle === 'bm' || handle === 'br') {
+        h = Math.max(MIN, Math.min(pt.y - y, cH - y));
+      }
+      cropRect = { x, y, w, h };
+    }
+
     function editorPointerDown(e) {
       e.preventDefault();
       const pt = editorClientToCanvas(e);
 
       if (editorTool === 'crop') {
-        cropStart = pt; cropEnd = pt; cropDragging = true;
-        document.getElementById('img-editor-apply-crop').style.display = 'none';
+        activeCropHandle = getCropHandle(pt);
 
       } else if (editorTool === 'erase') {
         erasePointerDown = true;
@@ -2245,6 +2311,17 @@
         editorCtx.arc(pt.x, pt.y, eraseBrushSize / 2, 0, 2 * Math.PI);
         editorCtx.fillStyle = 'white';
         editorCtx.fill();
+
+      } else if (editorTool === 'rotate') {
+        const cx = editorCanvas.width / 2, cy = editorCanvas.height / 2;
+        rotateStartAngle = Math.atan2(pt.y - cy, pt.x - cx);
+        rotateDeltaAngle = 0;
+        rotateIsDragging = true;
+        editorCanvas.classList.add('editor-rotate-dragging');
+        rotateSnapshot = document.createElement('canvas');
+        rotateSnapshot.width  = editorCanvas.width;
+        rotateSnapshot.height = editorCanvas.height;
+        rotateSnapshot.getContext('2d').drawImage(editorCanvas, 0, 0);
       }
     }
 
@@ -2252,29 +2329,61 @@
       e.preventDefault();
       const pt = editorClientToCanvas(e);
 
-      if (editorTool === 'crop' && cropDragging) {
-        cropEnd = pt;
+      if (editorTool === 'crop' && activeCropHandle) {
+        moveCropHandle(activeCropHandle, pt);
 
       } else if (editorTool === 'erase' && erasePointerDown) {
         editorCtx.beginPath();
         editorCtx.arc(pt.x, pt.y, eraseBrushSize / 2, 0, 2 * Math.PI);
         editorCtx.fillStyle = 'white';
         editorCtx.fill();
+
+      } else if (editorTool === 'rotate' && rotateIsDragging) {
+        const cx = editorCanvas.width / 2, cy = editorCanvas.height / 2;
+        rotateDeltaAngle = Math.atan2(pt.y - cy, pt.x - cx) - rotateStartAngle;
+        editorCtx.fillStyle = 'white';
+        editorCtx.fillRect(0, 0, editorCanvas.width, editorCanvas.height);
+        editorCtx.save();
+        editorCtx.translate(cx, cy);
+        editorCtx.rotate(rotateDeltaAngle);
+        editorCtx.drawImage(rotateSnapshot, -editorCanvas.width / 2, -editorCanvas.height / 2);
+        editorCtx.restore();
       }
     }
 
     function editorPointerUp(e) {
-      if (editorTool === 'crop' && cropDragging) {
-        cropDragging = false;
-        const w = cropEnd ? Math.abs(cropEnd.x - cropStart.x) : 0;
-        const h = cropEnd ? Math.abs(cropEnd.y - cropStart.y) : 0;
-        if (w > 10 && h > 10) {
-          document.getElementById('img-editor-apply-crop').style.display = '';
-        }
+      if (editorTool === 'crop') {
+        activeCropHandle = null;
 
       } else if (editorTool === 'erase' && erasePointerDown) {
         erasePointerDown = false;
         editorPushUndo();
+
+      } else if (editorTool === 'rotate' && rotateIsDragging) {
+        rotateIsDragging = false;
+        editorCanvas.classList.remove('editor-rotate-dragging');
+        if (Math.abs(rotateDeltaAngle) > 0.01) {
+          // push pre-rotation state to undo
+          editorUndoStack.push(rotateSnapshot.toDataURL('image/jpeg', 0.8));
+          if (editorUndoStack.length > 3) editorUndoStack.shift();
+          document.getElementById('img-editor-undo').disabled = false;
+          // commit: redraw with white bg fill
+          const tmp = document.createElement('canvas');
+          tmp.width = editorCanvas.width; tmp.height = editorCanvas.height;
+          const tctx = tmp.getContext('2d');
+          tctx.fillStyle = 'white';
+          tctx.fillRect(0, 0, tmp.width, tmp.height);
+          tctx.save();
+          tctx.translate(tmp.width / 2, tmp.height / 2);
+          tctx.rotate(rotateDeltaAngle);
+          tctx.drawImage(rotateSnapshot, -editorCanvas.width / 2, -editorCanvas.height / 2);
+          tctx.restore();
+          editorCtx.drawImage(tmp, 0, 0);
+        } else {
+          // revert live preview
+          editorCtx.drawImage(rotateSnapshot, 0, 0);
+        }
+        rotateSnapshot = null;
       }
     }
 
@@ -2300,11 +2409,8 @@
     }
 
     function applyEditorCrop() {
-      if (!cropStart || !cropEnd) return;
-      const x = Math.min(cropStart.x, cropEnd.x);
-      const y = Math.min(cropStart.y, cropEnd.y);
-      const w = Math.abs(cropEnd.x - cropStart.x);
-      const h = Math.abs(cropEnd.y - cropStart.y);
+      if (!cropRect) return;
+      const { x, y, w, h } = cropRect;
       if (w < 10 || h < 10) return;
 
       editorPushUndo();
@@ -2317,27 +2423,7 @@
       editorCanvas.height = h;
       editorCtx.drawImage(tmp, 0, 0);
       updateEditorScale();
-      document.getElementById('img-editor-apply-crop').style.display = 'none';
-      cropStart = null; cropEnd = null;
       setEditorTool('crop');
-    }
-
-    function editorRotate(dir) {
-      editorPushUndo();
-
-      const sw = editorCanvas.width, sh = editorCanvas.height;
-      const tmp = document.createElement('canvas');
-      tmp.width = sh; tmp.height = sw;
-      const tctx = tmp.getContext('2d');
-      tctx.translate(tmp.width / 2, tmp.height / 2);
-      tctx.rotate((dir === 'cw' ? 90 : -90) * Math.PI / 180);
-      tctx.drawImage(editorCanvas, -sw / 2, -sh / 2);
-
-      editorCanvas.width  = tmp.width;
-      editorCanvas.height = tmp.height;
-      editorCtx.drawImage(tmp, 0, 0);
-      updateEditorScale();
-      if (editorTool === 'crop') setEditorTool('crop');
     }
 
     async function saveEditorChanges() {
@@ -2421,10 +2507,18 @@
     document.getElementById('img-editor-undo').addEventListener('click', editorUndo);
     document.getElementById('img-editor-tool-crop').addEventListener('click', () => setEditorTool('crop'));
     document.getElementById('img-editor-tool-erase').addEventListener('click', () => setEditorTool('erase'));
+    document.getElementById('img-editor-tool-rotate').addEventListener('click', () => setEditorTool('rotate'));
     document.getElementById('img-editor-apply-crop').addEventListener('click', applyEditorCrop);
-    document.getElementById('img-editor-rotate-ccw').addEventListener('click', () => editorRotate('ccw'));
-    document.getElementById('img-editor-rotate-cw').addEventListener('click',  () => editorRotate('cw'));
     document.getElementById('img-editor-save').addEventListener('click', saveEditorChanges);
+
+    document.addEventListener('keydown', (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
+        if (document.getElementById('img-editor-overlay').style.display !== 'none') {
+          e.preventDefault();
+          editorUndo();
+        }
+      }
+    });
 
     document.getElementById('img-editor-brush-slider').addEventListener('input', (e) => {
       eraseBrushSize = parseInt(e.target.value, 10);

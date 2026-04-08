@@ -599,8 +599,33 @@
       color: #ffd;
     }
 
+    .img-editor-undo-btn {
+      border-color: #888;
+      background: #2a2a2a;
+      color: #aaa;
+    }
+
+    .img-editor-undo-btn:not(:disabled) {
+      border-color: #aaa;
+      color: #fff;
+    }
+
+    .img-editor-tool:disabled,
+    .img-editor-undo-btn:disabled {
+      opacity: 0.35;
+      cursor: default;
+    }
+
+    .img-editor-canvas-wrap canvas.editor-rotate-mode {
+      cursor: grab;
+    }
+
+    .img-editor-canvas-wrap canvas.editor-rotate-dragging {
+      cursor: grabbing;
+    }
+
     @media (hover: hover) {
-      .img-editor-tool:hover { opacity: 0.85; }
+      .img-editor-tool:hover:not(:disabled) { opacity: 0.85; }
       .img-editor-btn-top:hover:not(:disabled) { opacity: 0.85; }
     }
 
