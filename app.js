@@ -10,7 +10,7 @@
       jotformBaseUrl: 'https://eu.jotform.com/',
       jotformFormId: '250122093908351',
       pollInterval: 30000,
-      offlineCacheVersion: 'fd-v1.8.20',
+      offlineCacheVersion: 'fd-v1.8.22',
     };
 
     const COLORS = {
@@ -1631,9 +1631,9 @@
       const ns = 'http://www.w3.org/2000/svg';
       const currentScale = scale || 1;
       const fontSize = Math.max(5, Math.min(120, 16 / currentScale));
-      const offset = Math.max(3, 8 / currentScale);
       const strokeWidth = Math.max(1, 3 / currentScale);
       const padding = Math.max(1, 3 / currentScale);
+      const labelGap = Math.max(6 / currentScale, strokeWidth + padding + 4 / currentScale);
       const placedBoxes = [];
       const activeDoorId = movingMarker?.doorId || resizingMarker?.doorId || selectedDoor;
       const vb = svgEl.viewBox.baseVal;
@@ -1658,7 +1658,13 @@
         const labelText = m.dataset.doorId;
         const estimatedWidth = labelText.length * fontSize * 0.62;
         const active = labelText === activeDoorId;
-        const markerBoxes = markers
+        const ownMarkerBox = {
+          left: cx - rx - labelGap,
+          right: cx + rx + labelGap,
+          top: cy - ry - labelGap,
+          bottom: cy + ry + labelGap,
+        };
+        const markerBoxes = [ownMarkerBox].concat(markers
           .filter(other => other !== m)
           .map(other => {
             const ox = parseFloat(other.getAttribute('cx')) || 0;
@@ -1672,7 +1678,7 @@
               top: oy - ory - markerPadding,
               bottom: oy + ory + markerPadding,
             };
-          });
+          }));
         const clampY = (value) => labelBounds
           ? Math.max(labelBounds.y + fontSize, Math.min(labelBounds.y + labelBounds.height - fontSize * 0.25, value))
           : value;
@@ -1707,14 +1713,14 @@
           };
         };
         const candidates = [
-          { anchor: 'start', x: cx + rx + offset, y: clampY(cy + fontSize * 0.4) },
-          { anchor: 'end', x: cx - rx - offset, y: clampY(cy + fontSize * 0.4) },
-          { anchor: 'middle', x: cx, y: clampY(cy - ry - offset) },
-          { anchor: 'middle', x: cx, y: clampY(cy + ry + offset + fontSize) },
-          { anchor: 'start', x: cx + rx + offset, y: clampY(cy - ry - offset) },
-          { anchor: 'start', x: cx + rx + offset, y: clampY(cy + ry + offset + fontSize) },
-          { anchor: 'end', x: cx - rx - offset, y: clampY(cy - ry - offset) },
-          { anchor: 'end', x: cx - rx - offset, y: clampY(cy + ry + offset + fontSize) },
+          { anchor: 'start', x: cx + rx + labelGap, y: clampY(cy + fontSize * 0.4) },
+          { anchor: 'end', x: cx - rx - labelGap, y: clampY(cy + fontSize * 0.4) },
+          { anchor: 'middle', x: cx, y: clampY(cy - ry - labelGap) },
+          { anchor: 'middle', x: cx, y: clampY(cy + ry + labelGap + fontSize) },
+          { anchor: 'start', x: cx + rx + labelGap, y: clampY(cy - ry - labelGap) },
+          { anchor: 'start', x: cx + rx + labelGap, y: clampY(cy + ry + labelGap + fontSize) },
+          { anchor: 'end', x: cx - rx - labelGap, y: clampY(cy - ry - labelGap) },
+          { anchor: 'end', x: cx - rx - labelGap, y: clampY(cy + ry + labelGap + fontSize) },
         ].map(fitCandidateToBounds);
         const chosen = candidates.find(c =>
           !placedBoxes.some(box => overlaps(c.box, box)) &&
@@ -3503,6 +3509,54 @@
       return customers[ci]?.floorplans[fi];
     }
 
+    function startCropperWhenEditorLayoutIsReady(cropImage, attempt = 0) {
+      if (!editorCropContext) return;
+      const overlay = document.getElementById('img-editor-overlay');
+      const wrap = document.getElementById('img-editor-canvas-wrap');
+      if (!overlay || !wrap || overlay.style.display === 'none') return;
+
+      const layoutReady = wrap.clientWidth > 0 && wrap.clientHeight > 0 && cropImage.naturalWidth > 0 && cropImage.naturalHeight > 0;
+      if (!layoutReady && attempt < 30) {
+        requestAnimationFrame(() => startCropperWhenEditorLayoutIsReady(cropImage, attempt + 1));
+        return;
+      }
+      if (!layoutReady) {
+        showToast('Crop-tool kon de plattegrond niet openen', 'error');
+        return;
+      }
+
+      if (editorCropper) {
+        editorCropper.destroy();
+        editorCropper = null;
+      }
+      editorCropper = new Cropper(cropImage, {
+        viewMode: 1,
+        autoCropArea: 1,
+        dragMode: 'move',
+        background: false,
+        movable: true,
+        zoomable: true,
+        scalable: false,
+        rotatable: false,
+        responsive: true,
+        restore: false,
+        guides: true,
+        ready() {
+          if (!editorCropper || !editorCropContext) return;
+          const imageData = editorCropper.getImageData();
+          const naturalWidth = imageData.naturalWidth || cropImage.naturalWidth;
+          const naturalHeight = imageData.naturalHeight || cropImage.naturalHeight;
+          if (!naturalWidth || !naturalHeight) return;
+          editorCropper.setData({
+            x: 0,
+            y: 0,
+            width: naturalWidth,
+            height: naturalHeight,
+          });
+        },
+      });
+    }
+
     function openImageEditor() {
       if (isEditMode) { showToast('Sluit eerst de bewerkingsmodus', 'error'); return; }
       if (typeof Cropper === 'undefined') { showToast('Crop-tool kon niet worden geladen', 'error'); return; }
@@ -3543,25 +3597,17 @@
 
       if (editorCropper) { editorCropper.destroy(); editorCropper = null; }
       const cropImage = document.getElementById('img-editor-crop-image');
+      cropImage.onload = null;
+      cropImage.onerror = null;
+      cropImage.removeAttribute('src');
+      cropImage.style.display = 'block';
       cropImage.onload = () => {
-        document.getElementById('img-editor-overlay').style.display = 'flex';
         requestAnimationFrame(() => {
-          editorCropper = new Cropper(cropImage, {
-            viewMode: 1,
-            autoCropArea: 0.92,
-            dragMode: 'move',
-            background: false,
-            movable: true,
-            zoomable: true,
-            scalable: false,
-            rotatable: false,
-            responsive: true,
-            restore: false,
-            guides: true,
-          });
+          requestAnimationFrame(() => startCropperWhenEditorLayoutIsReady(cropImage));
         });
       };
       cropImage.onerror = () => showToast('Afbeelding laden mislukt', 'error');
+      document.getElementById('img-editor-overlay').style.display = 'flex';
       cropImage.src = imageHref;
     }
 
@@ -3657,6 +3703,7 @@
     }
 
     function setEditorTool(tool) {
+      if (editorCropper) return;
       editorTool = tool;
 
       document.getElementById('img-editor-tool-pan').classList.toggle('active', tool === 'pan');
@@ -3826,6 +3873,7 @@
     }
 
     function editorPointerDown(e) {
+      if (editorCropper) return;
       e.preventDefault();
       editorCanvas.setPointerCapture(e.pointerId);
       activeEditorPointers.set(e.pointerId, {x: e.clientX, y: e.clientY});
@@ -3871,6 +3919,7 @@
     }
 
     function editorPointerMove(e) {
+      if (editorCropper) return;
       e.preventDefault();
       activeEditorPointers.set(e.pointerId, {x: e.clientX, y: e.clientY});
 
@@ -3911,6 +3960,7 @@
     }
 
     function editorPointerUp(e) {
+      if (editorCropper) return;
       if (e && editorCanvas.hasPointerCapture(e.pointerId)) {
         editorCanvas.releasePointerCapture(e.pointerId);
       }
@@ -3945,6 +3995,7 @@
     }
 
     function rotateCanvas90(direction) {
+      if (editorCropper) return;
       stopCropPreview({ restoreCanvas: true, clearSnapshot: true });
       editorPushUndo();
       const w = editorCanvas.width, h = editorCanvas.height;
@@ -3962,6 +4013,7 @@
     }
 
     function editorUndo() {
+      if (editorCropper) return;
       if (!editorUndoStack.length) return;
       stopCropPreview({ restoreCanvas: false, clearSnapshot: true });
       erasePointerDown = false;
@@ -3981,6 +4033,7 @@
     }
 
     function applyEditorCrop() {
+      if (editorCropper) return;
       if (!cropRect) return;
       const { x, y, w, h } = cropRect;
       if (w < 10 || h < 10) return;
@@ -4001,6 +4054,21 @@
       showToast('Uitsnede toegepast', 'success');
     }
 
+    function markerFitsInsideCrop(marker, cropX, cropY, cropW, cropH) {
+      const cx = parseFloat(marker.getAttribute('cx'));
+      const cy = parseFloat(marker.getAttribute('cy'));
+      if (!Number.isFinite(cx) || !Number.isFinite(cy)) return false;
+      const r = parseFloat(marker.getAttribute('r'));
+      const rx = parseFloat(marker.getAttribute('rx'));
+      const ry = parseFloat(marker.getAttribute('ry'));
+      const radiusX = Number.isFinite(rx) ? rx : (Number.isFinite(r) ? r : 0);
+      const radiusY = Number.isFinite(ry) ? ry : (Number.isFinite(r) ? r : 0);
+      return cx - radiusX >= cropX &&
+             cx + radiusX <= cropX + cropW &&
+             cy - radiusY >= cropY &&
+             cy + radiusY <= cropY + cropH;
+    }
+
     function getCropSavePlan() {
       if (!editorCropper || !editorCropContext) return null;
       const cropData = editorCropper.getData(true);
@@ -4018,10 +4086,9 @@
       const outsideDoorCodes = [];
 
       svgContainer.querySelectorAll('[data-door-id]').forEach(marker => {
-        const cx = parseFloat(marker.getAttribute('cx')) || 0;
-        const cy = parseFloat(marker.getAttribute('cy')) || 0;
-        const inside = cx >= cropX && cx <= cropX + cropW && cy >= cropY && cy <= cropY + cropH;
-        if (!inside) outsideDoorCodes.push(marker.dataset.doorId || marker.getAttribute('id') || 'Onbekend');
+        if (!markerFitsInsideCrop(marker, cropX, cropY, cropW, cropH)) {
+          outsideDoorCodes.push(marker.dataset.doorId || marker.getAttribute('id') || 'Onbekend');
+        }
       });
 
       return { cropData, cropX, cropY, cropW, cropH, outsideDoorCodes };
@@ -4092,8 +4159,7 @@
           const cx = parseFloat(marker.getAttribute('cx'));
           const cy = parseFloat(marker.getAttribute('cy'));
           if (!Number.isFinite(cx) || !Number.isFinite(cy)) return;
-          const inside = cx >= plan.cropX && cx <= plan.cropX + plan.cropW && cy >= plan.cropY && cy <= plan.cropY + plan.cropH;
-          if (!inside) {
+          if (!markerFitsInsideCrop(marker, plan.cropX, plan.cropY, plan.cropW, plan.cropH)) {
             marker.remove();
             return;
           }
