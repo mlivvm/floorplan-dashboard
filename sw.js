@@ -1,4 +1,4 @@
-const CACHE_NAME = 'fd-v1.8.41';
+const CACHE_NAME = 'fd-v1.8.42';
 
 const STATIC_ASSETS = [
   './',
@@ -10,6 +10,7 @@ const STATIC_ASSETS = [
   'mode-service.js',
   'image-editor-service.js',
   'viewport-service.js',
+  'marker-service.js',
   'app.js',
   'manifest.json',
   'icon-192.png',

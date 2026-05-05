@@ -10,7 +10,7 @@
       jotformBaseUrl: 'https://eu.jotform.com/',
       jotformFormId: '250122093908351',
       pollInterval: 30000,
-      offlineCacheVersion: 'fd-v1.8.41',
+      offlineCacheVersion: 'fd-v1.8.42',
     };
 
     const COLORS = {
@@ -1050,18 +1050,11 @@
 
     function getSliderRange() {
       const svgEl = svgContainer.querySelector('svg');
-      if (!svgEl) return { max: 30, def: 15 };
-      const vb = svgEl.viewBox.baseVal;
-      const shortest = Math.min(vb.width || 1000, vb.height || 1000);
-      const max = Math.max(20, Math.min(150, Math.round(shortest * 0.03)));
-      const def = Math.round(max / 3);
-      return { max, def };
+      return FD.MarkerService.sliderRange(svgEl);
     }
 
     function getMarkerRadius(marker) {
-      const rx = parseFloat(marker.getAttribute('rx')) || parseFloat(marker.getAttribute('r')) || editMarkerSize || 10;
-      const ry = parseFloat(marker.getAttribute('ry')) || parseFloat(marker.getAttribute('r')) || rx;
-      return Math.max(rx, ry);
+      return FD.MarkerService.markerRadius(marker, editMarkerSize || 10);
     }
 
     function getSvgPointFromClient(clientX, clientY) {
@@ -1084,68 +1077,22 @@
 
     function getEditableBounds() {
       const svgEl = svgContainer.querySelector('svg');
-      if (!svgEl) return null;
-
-      const imageBounds = Array.from(svgEl.querySelectorAll('image'))
-        .map(img => {
-          const x = parseFloat(img.getAttribute('x') || '0');
-          const y = parseFloat(img.getAttribute('y') || '0');
-          const width = parseFloat(img.getAttribute('width') || '');
-          const height = parseFloat(img.getAttribute('height') || '');
-          if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) return null;
-          return { x, y, width, height };
-        })
-        .filter(Boolean);
-
-      if (imageBounds.length) {
-        const minX = Math.min(...imageBounds.map(b => b.x));
-        const minY = Math.min(...imageBounds.map(b => b.y));
-        const maxX = Math.max(...imageBounds.map(b => b.x + b.width));
-        const maxY = Math.max(...imageBounds.map(b => b.y + b.height));
-        return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
-      }
-
-      const vb = svgEl.viewBox.baseVal;
-      if (!vb.width || !vb.height) return null;
-      return { x: vb.x, y: vb.y, width: vb.width, height: vb.height };
+      return FD.MarkerService.editableBounds(svgEl);
     }
 
     function clampMarkerPosition(svgX, svgY, radius) {
       const bounds = getEditableBounds();
-      if (!bounds) return { x: svgX, y: svgY };
-      const minX = bounds.x + radius;
-      const minY = bounds.y + radius;
-      const maxX = bounds.x + bounds.width - radius;
-      const maxY = bounds.y + bounds.height - radius;
-      if (minX > maxX || minY > maxY) {
-        return { x: bounds.x + bounds.width / 2, y: bounds.y + bounds.height / 2 };
-      }
-      return {
-        x: Math.max(minX, Math.min(maxX, svgX)),
-        y: Math.max(minY, Math.min(maxY, svgY))
-      };
+      return FD.MarkerService.clampPosition(svgX, svgY, radius, bounds);
     }
 
     function isPointInsideEditableBounds(svgX, svgY) {
       const bounds = getEditableBounds();
-      if (!bounds) return false;
-      return svgX >= bounds.x &&
-             svgY >= bounds.y &&
-             svgX <= bounds.x + bounds.width &&
-             svgY <= bounds.y + bounds.height;
+      return FD.MarkerService.pointInsideBounds(svgX, svgY, bounds);
     }
 
     function getMaxRadiusAtPosition(marker) {
       const bounds = getEditableBounds();
-      if (!bounds) return Infinity;
-      const cx = parseFloat(marker.getAttribute('cx')) || 0;
-      const cy = parseFloat(marker.getAttribute('cy')) || 0;
-      return Math.max(1, Math.floor(Math.min(
-        cx - bounds.x,
-        cy - bounds.y,
-        bounds.x + bounds.width - cx,
-        bounds.y + bounds.height - cy
-      )));
+      return FD.MarkerService.maxRadiusAtPosition(marker, bounds);
     }
 
     function enterEditMode() {
