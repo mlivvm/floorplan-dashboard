@@ -10,7 +10,7 @@
       jotformBaseUrl: 'https://eu.jotform.com/',
       jotformFormId: '250122093908351',
       pollInterval: 30000,
-      offlineCacheVersion: 'fd-v1.8.12',
+      offlineCacheVersion: 'fd-v1.8.13',
     };
 
     const COLORS = {
@@ -1545,33 +1545,69 @@
       const fontSize = Math.max(5, Math.min(120, 16 / currentScale));
       const offset = Math.max(3, 8 / currentScale);
       const strokeWidth = Math.max(1, 3 / currentScale);
-      svgContainer.querySelectorAll('[data-door-id]').forEach(m => {
+      const padding = Math.max(1, 3 / currentScale);
+      const placedBoxes = [];
+      const activeDoorId = movingMarker?.doorId || resizingMarker?.doorId || selectedDoor;
+      const markers = Array.from(svgContainer.querySelectorAll('[data-door-id]'))
+        .sort((a, b) => {
+          const aActive = a.dataset.doorId === activeDoorId ? 1 : 0;
+          const bActive = b.dataset.doorId === activeDoorId ? 1 : 0;
+          return bActive - aActive;
+        });
+      const overlaps = (a, b) => (
+        a.left < b.right &&
+        a.right > b.left &&
+        a.top < b.bottom &&
+        a.bottom > b.top
+      );
+      markers.forEach(m => {
         const cx = parseFloat(m.getAttribute('cx')) || 0;
         const cy = parseFloat(m.getAttribute('cy')) || 0;
         const rx = parseFloat(m.getAttribute('rx')) || 10;
+        const ry = parseFloat(m.getAttribute('ry')) || rx;
         const labelText = m.dataset.doorId;
         const estimatedWidth = labelText.length * fontSize * 0.62;
         const bounds = getEditableBounds();
-        const hasRoomRight = !bounds || (cx + rx + offset + estimatedWidth <= bounds.x + bounds.width);
-        const x = hasRoomRight ? cx + rx + offset : cx - rx - offset;
-        const y = bounds
-          ? Math.max(bounds.y + fontSize, Math.min(bounds.y + bounds.height - fontSize * 0.25, cy + fontSize * 0.4))
-          : cy + fontSize * 0.4;
+        const active = labelText === activeDoorId;
+        const clampY = (value) => bounds
+          ? Math.max(bounds.y + fontSize, Math.min(bounds.y + bounds.height - fontSize * 0.25, value))
+          : value;
+        const candidates = [
+          { anchor: 'start', x: cx + rx + offset, y: clampY(cy + fontSize * 0.4) },
+          { anchor: 'end', x: cx - rx - offset, y: clampY(cy + fontSize * 0.4) },
+          { anchor: 'middle', x: cx, y: clampY(cy - ry - offset) },
+          { anchor: 'middle', x: cx, y: clampY(cy + ry + offset + fontSize) },
+        ].map(c => {
+          const left = c.anchor === 'end' ? c.x - estimatedWidth : c.anchor === 'middle' ? c.x - estimatedWidth / 2 : c.x;
+          const right = left + estimatedWidth;
+          const top = c.y - fontSize;
+          const bottom = c.y + fontSize * 0.25;
+          return { ...c, box: { left: left - padding, right: right + padding, top: top - padding, bottom: bottom + padding } };
+        }).filter(c => {
+          if (!bounds) return true;
+          return c.box.left >= bounds.x &&
+            c.box.right <= bounds.x + bounds.width &&
+            c.box.top >= bounds.y &&
+            c.box.bottom <= bounds.y + bounds.height;
+        });
+        const chosen = candidates.find(c => !placedBoxes.some(box => overlaps(c.box, box))) || (active ? candidates[0] : null);
+        if (!chosen) return;
         const text = document.createElementNS(ns, 'text');
-        text.setAttribute('x', x.toString());
-        text.setAttribute('y', y.toString());
+        text.setAttribute('x', chosen.x.toString());
+        text.setAttribute('y', chosen.y.toString());
         text.setAttribute('font-size', fontSize.toString());
         text.setAttribute('fill', '#222');
         text.setAttribute('stroke', '#fff');
         text.setAttribute('stroke-width', strokeWidth.toString());
         text.setAttribute('paint-order', 'stroke');
-        text.setAttribute('text-anchor', hasRoomRight ? 'start' : 'end');
+        text.setAttribute('text-anchor', chosen.anchor);
         text.setAttribute('data-fd-label', '1');
         text.setAttribute('pointer-events', 'none');
         text.style.userSelect = 'none';
         text.textContent = labelText;
         svgEl.appendChild(text);
         editLabelElements.push(text);
+        placedBoxes.push(chosen.box);
       });
     }
 
