@@ -10,7 +10,7 @@
       jotformBaseUrl: 'https://eu.jotform.com/',
       jotformFormId: '250122093908351',
       pollInterval: 30000,
-      offlineCacheVersion: 'fd-v1.8.22',
+      offlineCacheVersion: 'fd-v1.8.23',
     };
 
     const COLORS = {
@@ -1659,10 +1659,10 @@
         const estimatedWidth = labelText.length * fontSize * 0.62;
         const active = labelText === activeDoorId;
         const ownMarkerBox = {
-          left: cx - rx - labelGap,
-          right: cx + rx + labelGap,
-          top: cy - ry - labelGap,
-          bottom: cy + ry + labelGap,
+          left: cx - rx,
+          right: cx + rx,
+          top: cy - ry,
+          bottom: cy + ry,
         };
         const markerBoxes = [ownMarkerBox].concat(markers
           .filter(other => other !== m)
