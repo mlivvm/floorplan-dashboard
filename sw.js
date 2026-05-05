@@ -1,9 +1,15 @@
-const CACHE_NAME = 'fd-v1.8.25';
+const CACHE_NAME = 'fd-v1.8.41';
 
 const STATIC_ASSETS = [
   './',
   'index.html',
   'app.css',
+  'repository.js',
+  'data-service.js',
+  'status-service.js',
+  'mode-service.js',
+  'image-editor-service.js',
+  'viewport-service.js',
   'app.js',
   'manifest.json',
   'icon-192.png',

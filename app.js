@@ -10,7 +10,7 @@
       jotformBaseUrl: 'https://eu.jotform.com/',
       jotformFormId: '250122093908351',
       pollInterval: 30000,
-      offlineCacheVersion: 'fd-v1.8.25',
+      offlineCacheVersion: 'fd-v1.8.41',
     };
 
     const COLORS = {
@@ -34,6 +34,17 @@
     let currentFloorplan = null;
     let selectedDoor = null;
     let pollTimer = null;
+    let customersLoading = false;
+    const AppModes = FD.ModeService.MODES;
+    const appMode = FD.ModeService.createModeController(AppModes.LOGIN);
+
+    function setDocumentAppMode(mode) {
+      document.documentElement.dataset.appMode = mode;
+      document.body.dataset.appMode = mode;
+    }
+
+    setDocumentAppMode(appMode.current);
+    appMode.onTransition(({ to }) => setDocumentAppMode(to));
 
     // Floorplan load generation counter (guards against race conditions)
     let loadGeneration = 0;
@@ -79,6 +90,7 @@
     const connectionLabel = document.getElementById('connection-label');
     const syncIndicator = document.getElementById('sync-indicator');
     const syncLabel = document.getElementById('sync-label');
+    const topbarMenu = document.getElementById('topbar-menu');
 
     // ============================================================
     // SHARED UI HELPERS
@@ -141,7 +153,7 @@
 
     // Warn before closing with unsaved edit mode changes
     window.addEventListener('beforeunload', (e) => {
-      if (isEditMode) {
+      if (isEditMode || appMode.isBusy()) {
         e.preventDefault();
         e.returnValue = '';
       }
@@ -202,30 +214,11 @@
     const CUSTOMERS_CACHE_KEY = 'fd_customers_cache';
 
     function getGitHubToken() {
-      return localStorage.getItem('fd_github_token') || sessionStorage.getItem('fd_github_token') || '';
+      return FD.Repository.getToken();
     }
 
     function ghHeaders(accept) {
-      return {
-        'Authorization': 'token ' + getGitHubToken(),
-        'Accept': accept || 'application/vnd.github.v3+json',
-      };
-    }
-
-    function decodeBase64UTF8(base64) {
-      const binary = atob(base64.replace(/\n/g, ''));
-      const bytes = new Uint8Array(binary.length);
-      for (let i = 0; i < binary.length; i++) {
-        bytes[i] = binary.charCodeAt(i);
-      }
-      return new TextDecoder('utf-8').decode(bytes);
-    }
-
-    async function fetchGitHubJSON(url) {
-      const response = await fetch(url, { headers: ghHeaders(), cache: 'no-store' });
-      if (!response.ok) throw new Error('GitHub fetch failed: ' + response.status);
-      const data = await response.json();
-      return JSON.parse(decodeBase64UTF8(data.content));
+      return FD.Repository.headers(accept);
     }
 
     function readCachedCustomers() {
@@ -246,27 +239,7 @@
     }
 
     async function fetchGitHubSVG(fileUrl) {
-      // Step 1: get file metadata (sha)
-      const metaResp = await fetch(fileUrl, {
-        headers: ghHeaders(),
-        cache: 'no-store',
-      });
-      if (!metaResp.ok) throw new Error('Bestand niet gevonden');
-      const meta = await metaResp.json();
-
-      // Step 2: fetch blob by SHA (works for any file size, stays on api.github.com)
-      const repoMatch = fileUrl.match(/repos\/([^/]+\/[^/]+)\//);
-      const repo = repoMatch ? repoMatch[1] : 'mlivvm/gallery';
-      const blobUrl = `https://api.github.com/repos/${repo}/git/blobs/${meta.sha}`;
-      const blobResp = await fetch(blobUrl, {
-        headers: ghHeaders(),
-        cache: 'no-store',
-      });
-      if (!blobResp.ok) throw new Error('Kon blob niet laden');
-      const blob = await blobResp.json();
-
-      // Step 3: decode base64 to UTF-8 text
-      return decodeBase64UTF8(blob.content);
+      return FD.DataService.loadFloorplanSVG(fileUrl);
     }
 
     async function fetchGitHubSVGCacheFirst(fileUrl) {
@@ -276,13 +249,12 @@
         const cachedMetaResp = await cache.match(fileUrl, { ignoreVary: true });
         if (cachedMetaResp) {
           const meta = await cachedMetaResp.clone().json();
-          const repoMatch = fileUrl.match(/repos\/([^/]+\/[^/]+)\//);
-          const repo = repoMatch ? repoMatch[1] : 'mlivvm/gallery';
-          const blobUrl = `https://api.github.com/repos/${repo}/git/blobs/${meta.sha}`;
+          const repo = FD.Repository.repoFromContentsUrl(fileUrl, 'mlivvm/gallery');
+          const blobUrl = FD.Repository.blobUrl(repo, meta.sha);
           const cachedBlobResp = await cache.match(blobUrl, { ignoreVary: true });
           if (cachedBlobResp) {
             const blob = await cachedBlobResp.clone().json();
-            const svgText = decodeBase64UTF8(blob.content);
+            const svgText = FD.Repository.blobJSONToText(blob);
             const revalidate = revalidateSVGInBackground(fileUrl, meta.sha);
             return { svgText, revalidate };
           }
@@ -295,36 +267,25 @@
 
     async function revalidateSVGInBackground(fileUrl, cachedSha) {
       try {
-        const metaResp = await fetch(fileUrl, { headers: ghHeaders(), cache: 'no-store' });
-        if (!metaResp.ok) return null;
-        const meta = await metaResp.json();
-        if (meta.sha === cachedSha) return null;
-        const repoMatch = fileUrl.match(/repos\/([^/]+\/[^/]+)\//);
-        const repo = repoMatch ? repoMatch[1] : 'mlivvm/gallery';
-        const blobUrl = `https://api.github.com/repos/${repo}/git/blobs/${meta.sha}`;
-        const blobResp = await fetch(blobUrl, { headers: ghHeaders(), cache: 'no-store' });
-        if (!blobResp.ok) return null;
-        const blob = await blobResp.json();
-        return decodeBase64UTF8(blob.content);
+        return FD.DataService.revalidateFloorplanSVG(fileUrl, cachedSha);
       } catch {
         return null;
       }
     }
 
-    async function updateCachedSVGAfterSave(fileUrl, updateResult, svgBase64) {
+    async function updateCachedSVGAfterSave(fileUrl, updateResult, svgText) {
       if (!('caches' in window) || !updateResult?.content?.sha) return;
       try {
-        const repoMatch = fileUrl.match(/repos\/([^/]+\/[^/]+)\//);
-        const repo = repoMatch ? repoMatch[1] : 'mlivvm/gallery';
+        const repo = FD.Repository.repoFromContentsUrl(fileUrl, 'mlivvm/gallery');
         const sha = updateResult.content.sha;
-        const blobUrl = getGitHubBlobUrl(repo, sha);
+        const blobUrl = FD.Repository.blobUrl(repo, sha);
         const cache = await caches.open(CONFIG.offlineCacheVersion);
 
         await Promise.all([
           cache.put(fileUrl, new Response(JSON.stringify(updateResult.content), {
             headers: { 'Content-Type': 'application/json' }
           })),
-          cache.put(blobUrl, new Response(JSON.stringify({ content: svgBase64 }), {
+          cache.put(blobUrl, new Response(JSON.stringify(FD.Repository.textBlobJSON(svgText)), {
             headers: { 'Content-Type': 'application/json' }
           }))
         ]);
@@ -353,22 +314,8 @@
       return baseUrl + encodeURIComponent(getFloorplanPath(fp));
     }
 
-    async function warmGitHubSVGCache(fileUrl) {
-      const metaResp = await fetch(fileUrl, {
-        headers: ghHeaders(),
-        cache: 'no-store',
-      });
-      if (!metaResp.ok) throw new Error('Metadata cache mislukt: ' + metaResp.status);
-      const meta = await metaResp.json();
-
-      const repoMatch = fileUrl.match(/repos\/([^/]+\/[^/]+)\//);
-      const repo = repoMatch ? repoMatch[1] : 'mlivvm/gallery';
-      const blobUrl = `https://api.github.com/repos/${repo}/git/blobs/${meta.sha}`;
-      const blobResp = await fetch(blobUrl, {
-        headers: ghHeaders(),
-        cache: 'no-store',
-      });
-      if (!blobResp.ok) throw new Error('Blob cache mislukt: ' + blobResp.status);
+    async function warmGitHubSVGCache(fileUrl, signal) {
+      await FD.DataService.warmFloorplanSVG(fileUrl, { signal });
     }
 
     const FLOORPLAN_CACHE_MANIFEST_KEY = 'fd_floorplan_cache_manifest';
@@ -403,7 +350,7 @@
     }
 
     function getGitHubBlobUrl(repo, sha) {
-      return `https://api.github.com/repos/${repo}/git/blobs/${sha}`;
+      return FD.Repository.blobUrl(repo, sha);
     }
 
     function getGitHubGetRequest(url) {
@@ -427,59 +374,18 @@
       }
     }
 
-    async function fetchRepoDefaultBranch(repo) {
-      const resp = await fetch(`https://api.github.com/repos/${repo}`, {
-        headers: ghHeaders(),
-        cache: 'no-store',
-      });
-      if (!resp.ok) throw new Error('Repo metadata fetch mislukt: ' + repo + ' ' + resp.status);
-      const data = await resp.json();
-      return data.default_branch || 'main';
-    }
-
-    async function fetchRepoTreeMap(repo) {
-      const refs = [];
-      let lastErr = null;
-
-      try {
-        refs.push(await fetchRepoDefaultBranch(repo));
-      } catch (err) {
-        lastErr = err;
-      }
-      ['main', 'master'].forEach(ref => {
-        if (!refs.includes(ref)) refs.push(ref);
-      });
-
-      for (const ref of refs) {
-        try {
-          const treeUrl = `https://api.github.com/repos/${repo}/git/trees/${ref}?recursive=1`;
-          const resp = await fetch(treeUrl, {
-            headers: ghHeaders(),
-            cache: 'no-store',
-          });
-          if (!resp.ok) {
-            lastErr = new Error('Tree fetch mislukt: ' + repo + '@' + ref + ' ' + resp.status);
-            continue;
-          }
-
-          const data = await resp.json();
-          const map = new Map();
-          (data.tree || []).forEach(item => {
-            if (item.type === 'blob') map.set(item.path, item.sha);
-          });
-          if (data.truncated) {
-            console.warn('GitHub tree is truncated voor repo:', repo);
-          }
-          return map;
-        } catch (err) {
-          lastErr = err;
-        }
-      }
-
-      throw lastErr || new Error('Tree fetch mislukt: ' + repo);
-    }
-
     let floorplanCacheWarmStarted = false;
+    let floorplanCacheWarmGeneration = 0;
+    let floorplanCacheWarmController = null;
+
+    function cancelFloorplanCacheWarmup() {
+      floorplanCacheWarmGeneration++;
+      floorplanCacheWarmStarted = false;
+      if (floorplanCacheWarmController) {
+        floorplanCacheWarmController.abort();
+        floorplanCacheWarmController = null;
+      }
+    }
 
     async function waitForServiceWorkerReady() {
       if (!('serviceWorker' in navigator)) return false;
@@ -498,14 +404,21 @@
     function scheduleFloorplanCacheWarmup() {
       if (floorplanCacheWarmStarted || !customers.length) return;
       floorplanCacheWarmStarted = true;
+      const generation = ++floorplanCacheWarmGeneration;
+      const token = getGitHubToken();
+      floorplanCacheWarmController = new AbortController();
+      const signal = floorplanCacheWarmController.signal;
 
       const run = async () => {
+        if (generation !== floorplanCacheWarmGeneration || !token || getGitHubToken() !== token) return;
         const swReady = await waitForServiceWorkerReady();
+        if (generation !== floorplanCacheWarmGeneration || getGitHubToken() !== token) return;
         if (!swReady) return;
-        await warmFloorplanCache();
+        await warmFloorplanCache(generation, token, signal);
       };
 
       const safeRun = () => run().catch(err => {
+        if (err?.name === 'AbortError') return;
         console.warn('Offline cache warmup mislukt:', err);
       });
 
@@ -516,7 +429,10 @@
       }
     }
 
-    async function warmFloorplanCache() {
+    async function warmFloorplanCache(generation, token, signal) {
+      const shouldCancelWarmup = () => signal?.aborted || generation !== floorplanCacheWarmGeneration || !token || getGitHubToken() !== token;
+      if (shouldCancelWarmup()) return;
+
       const queue = [];
       customers.forEach(c => {
         c.floorplans.forEach(fp => {
@@ -533,23 +449,54 @@
       });
 
       const repoTreeMaps = {};
+      const authSkippedRepos = new Set();
+      const warnedAuthRepos = new Set();
+      const markRepoAuthSkipped = (repo, err) => {
+        authSkippedRepos.add(repo);
+        if (warnedAuthRepos.has(repo)) return;
+        warnedAuthRepos.add(repo);
+        console.warn('Offline cache warmup overgeslagen voor repo zonder toegang:', repo, err);
+      };
+
       await Promise.all(Array.from(new Set(queue.map(item => item.repo))).map(async repo => {
+        if (shouldCancelWarmup()) return;
         try {
-          repoTreeMaps[repo] = await fetchRepoTreeMap(repo);
+          repoTreeMaps[repo] = await FD.DataService.fetchFloorplanTreeMap(repo, { signal });
         } catch (err) {
+          if (err?.name === 'AbortError') return;
           repoTreeMaps[repo] = null;
+          if (err?.status === 401 || err?.status === 403) {
+            markRepoAuthSkipped(repo, err);
+            return;
+          }
           console.warn('GitHub tree niet beschikbaar, warmup valt terug op volledige check:', repo, err);
         }
       }));
 
+      if (shouldCancelWarmup()) return;
+
       const manifest = readFloorplanCacheManifest();
       const warmQueue = [];
       let skipped = 0;
+      let authSkipped = 0;
+      let missing = 0;
+      let transientFailed = 0;
 
       await Promise.all(queue.map(async item => {
+        if (shouldCancelWarmup()) return;
+        if (authSkippedRepos.has(item.repo)) {
+          authSkipped++;
+          return;
+        }
+
         const treeMap = repoTreeMaps[item.repo];
         const sha = treeMap ? treeMap.get(item.path) : null;
         item.sha = sha;
+
+        if (treeMap && !sha) {
+          missing++;
+          return;
+        }
 
         if (sha && manifest.files[item.cacheKey] === sha && await isFloorplanCached(item)) {
           skipped++;
@@ -564,12 +511,31 @@
 
       async function worker() {
         while (next < warmQueue.length) {
+          if (shouldCancelWarmup()) return;
           const item = warmQueue[next++];
+          if (authSkippedRepos.has(item.repo)) {
+            authSkipped++;
+            continue;
+          }
           try {
-            await warmGitHubSVGCache(item.fileUrl);
+            await warmGitHubSVGCache(item.fileUrl, signal);
             if (item.sha) manifest.files[item.cacheKey] = item.sha;
             cached++;
           } catch (err) {
+            if (err?.name === 'AbortError') return;
+            if (err?.status === 401 || err?.status === 403) {
+              markRepoAuthSkipped(item.repo, err);
+              authSkipped++;
+              continue;
+            }
+            if (err?.status === 404) {
+              missing++;
+              continue;
+            }
+            if (err?.status >= 500 && err?.status < 600) {
+              transientFailed++;
+              continue;
+            }
             console.warn('Plattegrond niet in offline cache:', item.fileUrl, err);
           }
           await new Promise(resolve => setTimeout(resolve, 50));
@@ -577,26 +543,45 @@
       }
 
       await Promise.all(Array.from({ length: workerCount }, worker));
+      if (shouldCancelWarmup()) return;
       writeFloorplanCacheManifest(manifest);
-      console.info(`Offline cache warmup klaar: ${cached} vernieuwd, ${skipped} overgeslagen, ${queue.length} totaal.`);
+      const details = [];
+      if (authSkipped) details.push(`${authSkipped} auth overgeslagen`);
+      if (missing) details.push(`${missing} ontbrekend in repo`);
+      if (transientFailed) details.push(`${transientFailed} tijdelijk mislukt`);
+      const detailText = details.length ? `, ${details.join(', ')}` : '';
+      console.info(`Offline cache warmup klaar: ${cached} vernieuwd, ${skipped} overgeslagen, ${queue.length} totaal${detailText}.`);
     }
 
     async function loadCustomers() {
+      customersLoading = true;
+      customerSelect.disabled = true;
+      floorplanSelect.disabled = true;
+      updatePickerButtons();
       try {
-        customers = await fetchGitHubJSON(CONFIG.customersUrl);
+        customers = await FD.DataService.loadCustomers(CONFIG);
         cacheCustomers();
+        customerSelect.disabled = false;
         populateCustomerDropdown();
+        if (activeSelectSheet === 'customer') renderSelectSheetItems();
         scheduleFloorplanCacheWarmup();
       } catch (err) {
         console.error('Kon klanten niet laden:', err);
         const cachedCustomers = readCachedCustomers();
         if (cachedCustomers.length > 0) {
           customers = cachedCustomers;
+          customerSelect.disabled = false;
           populateCustomerDropdown();
+          if (activeSelectSheet === 'customer') renderSelectSheetItems();
           setEmptyState('Offline klantgegevens geladen.<br>Kies een klant en plattegrond.', 'Controleer later online of alles actueel is');
         } else {
           loadingEl.textContent = 'Fout bij laden van klantgegevens.';
         }
+      } finally {
+        customersLoading = false;
+        customerSelect.disabled = customers.length === 0;
+        updatePickerButtons();
+        if (activeSelectSheet === 'customer') renderSelectSheetItems();
       }
     }
 
@@ -610,7 +595,7 @@
       }
 
       try {
-        const remoteStatus = await fetchGitHubJSON(CONFIG.statusUrl);
+        const remoteStatus = await FD.DataService.loadStatus(CONFIG);
         doorStatus = applyQueuedStatusOperations(remoteStatus, queuedOps);
         cacheDoorStatus();
         flushStatusSyncQueue();
@@ -663,9 +648,9 @@
     }
 
     function updatePickerButtons() {
-      customerPickerValue.textContent = getSelectedOptionText(customerSelect, 'Kies klant');
+      customerPickerValue.textContent = customersLoading ? 'Klanten laden...' : getSelectedOptionText(customerSelect, 'Kies klant');
       floorplanPickerValue.textContent = getSelectedOptionText(floorplanSelect, 'Kies plattegrond');
-      customerPickerBtn.disabled = customerSelect.disabled;
+      customerPickerBtn.disabled = customerSelect.disabled || customersLoading;
       floorplanPickerBtn.disabled = floorplanSelect.disabled || !customerSelect.value;
     }
 
@@ -681,9 +666,16 @@
     function renderSelectSheetItems() {
       const query = selectSheetSearch.value.trim().toLowerCase();
       const currentValue = activeSelectSheet === 'customer' ? customerSelect.value : floorplanSelect.value;
+      selectSheetList.innerHTML = '';
+      if (activeSelectSheet === 'customer' && customersLoading) {
+        const loading = document.createElement('div');
+        loading.className = 'select-sheet-empty';
+        loading.textContent = 'Klanten laden...';
+        selectSheetList.appendChild(loading);
+        return;
+      }
       const items = getSelectSheetItems(activeSelectSheet)
         .filter(item => item.label.toLowerCase().includes(query));
-      selectSheetList.innerHTML = '';
       if (!items.length) {
         const empty = document.createElement('div');
         empty.className = 'select-sheet-empty';
@@ -712,6 +704,7 @@
     }
 
     function openSelectSheet(type) {
+      if (type === 'customer' && customersLoading) return;
       if (type === 'floorplan' && floorplanPickerBtn.disabled) return;
       activeSelectSheet = type;
       selectSheetEyebrow.textContent = type === 'customer' ? 'Klant' : 'Plattegrond';
@@ -730,9 +723,11 @@
     }
 
     function resetFloorplanUI() {
+      loadGeneration++;
       stopPolling();
       deselectDoor();
       svgContainer.style.display = 'none';
+      svgContainer.style.visibility = '';
       svgContainer.innerHTML = '';
       btnReset.style.display = 'none';
       infoPanel.style.display = 'none';
@@ -742,6 +737,28 @@
       btnPanelToggle.classList.remove('panel-open');
       sidePanelList.innerHTML = '';
       sidePanelHeader.textContent = 'Deuren';
+    }
+
+    function resetAppToStartScreen() {
+      cancelFloorplanCacheWarmup();
+      if (isEditMode) exitEditMode();
+      closeSelectSheet();
+      customers = [];
+      doorStatus = {};
+      currentCustomer = null;
+      currentFloorplan = null;
+      pendingDoor = null;
+      customerSelect.disabled = false;
+      customerSelect.innerHTML = '<option value="">-- Kies klant --</option>';
+      floorplanSelect.innerHTML = '<option value="">-- Kies plattegrond --</option>';
+      floorplanSelect.disabled = true;
+      resetFloorplanUI();
+      statusCount.textContent = '';
+      topbarMenu.style.display = 'none';
+      updatePickerButtons();
+      updateDeleteButton();
+      setEmptyState('Kies een klant en plattegrond<br>om te beginnen.', 'Gebruik de dropdowns bovenaan');
+      loadingEl.classList.remove('hidden');
     }
 
     // ============================================================
@@ -755,6 +772,10 @@
       currentFloorplan = fp.name;
 
       const thisGeneration = ++loadGeneration;
+      const isCurrentFloorplanSelection = () =>
+        thisGeneration === loadGeneration &&
+        customerSelect.value === String(customerIndex) &&
+        floorplanSelect.value === String(floorplanIndex);
 
       // Non-visual cleanup: stop polling, reset UI chrome, but keep current SVG
       // visible until new content is ready (prevents blank/flash between selections).
@@ -773,7 +794,7 @@
       // Only show loading state after 150ms — hides old SVG then.
       // Fast cache hits swap content before this fires.
       const showLoadingTimer = setTimeout(() => {
-        if (thisGeneration !== loadGeneration) return;
+        if (!isCurrentFloorplanSelection()) return;
         svgContainer.style.display = 'none';
         svgContainer.innerHTML = '';
         setLoadingState();
@@ -786,7 +807,7 @@
         clearTimeout(showLoadingTimer);
 
         // Another floorplan was requested while we were loading — abort
-        if (thisGeneration !== loadGeneration) return;
+        if (!isCurrentFloorplanSelection()) return;
 
         // Atomically swap: hide old, set new content
         svgContainer.style.display = 'none';
@@ -831,7 +852,7 @@
         // Background revalidation: re-render if SVG changed on GitHub
         if (revalidate) {
           revalidate.then(newSvgText => {
-            if (!newSvgText || thisGeneration !== loadGeneration) return;
+            if (!newSvgText || !isCurrentFloorplanSelection()) return;
             svgContainer.style.visibility = 'hidden';
             svgContainer.innerHTML = newSvgText;
             const newSvgEl = svgContainer.querySelector('svg');
@@ -856,7 +877,7 @@
       } catch (err) {
         clearTimeout(showLoadingTimer);
         svgContainer.style.visibility = '';
-        if (thisGeneration !== loadGeneration) return;
+        if (!isCurrentFloorplanSelection()) return;
         svgContainer.style.display = 'none';
         svgContainer.innerHTML = '';
         loadingEl.classList.remove('hidden');
@@ -1048,10 +1069,17 @@
       if (!svgEl) return null;
       const vb = svgEl.viewBox.baseVal;
       const containerRect = svgContainer.getBoundingClientRect();
-      return {
-        x: (vb.x || 0) + ((clientX - containerRect.left - panX) / scale),
-        y: (vb.y || 0) + ((clientY - containerRect.top - panY) / scale),
-      };
+      return FD.ViewportService.clientToSvgPoint({
+        clientX,
+        clientY,
+        containerLeft: containerRect.left,
+        containerTop: containerRect.top,
+        panX,
+        panY,
+        scale,
+        viewBoxX: vb.x || 0,
+        viewBoxY: vb.y || 0,
+      });
     }
 
     function getEditableBounds() {
@@ -1122,6 +1150,12 @@
 
     function enterEditMode() {
       if (!currentFloorplan) return;
+      if (appMode.is(AppModes.EDIT)) return;
+      if (!appMode.isInteractiveView()) {
+        showToast('Sluit eerst het huidige scherm', 'error');
+        return;
+      }
+      appMode.enter(AppModes.EDIT);
       isEditMode = true;
       editChanges = [];
       movingMarker = null;
@@ -1157,6 +1191,7 @@
       if (resizingMarker) applyResize();
       if (movingMarker) cancelMoveMode();
       isEditMode = false;
+      appMode.enter(AppModes.VIEW);
       topbar.classList.remove('edit-mode');
       editBar.style.display = 'none';
       autoNumbering = false;
@@ -1248,26 +1283,12 @@
         const editBaseUrl = fp.repo === 'uploads' ? CONFIG.svgUploadsUrl : CONFIG.svgBaseUrl;
         const fileUrl = editBaseUrl + encodeURIComponent(fp.file);
 
-        // Get current SHA
-        const metaResp = await fetch(fileUrl, { headers: ghHeaders(), cache: 'no-store' });
-        if (!metaResp.ok) throw new Error('Kon bestand niet ophalen');
-        const meta = await metaResp.json();
-
-        // Upload updated SVG
-        const content = btoa(unescape(encodeURIComponent(svgText)));
-        const updateResp = await fetch(fileUrl, {
-          method: 'PUT',
-          headers: ghHeaders(),
-          cache: 'no-store',
-          body: JSON.stringify({
-            message: 'Markers bijgewerkt: ' + currentCustomer + ' - ' + currentFloorplan,
-            content: content,
-            sha: meta.sha,
-          }),
+        const updateResult = await FD.DataService.saveFloorplanSVG(fileUrl, svgText, {
+          message: 'Markers bijgewerkt: ' + currentCustomer + ' - ' + currentFloorplan,
+          fetchErrorMessage: 'Kon bestand niet ophalen',
+          saveErrorMessage: 'Kon niet opslaan',
         });
-        if (!updateResp.ok) throw new Error('Kon niet opslaan');
-        const updateResult = await updateResp.json();
-        await updateCachedSVGAfterSave(fileUrl, updateResult, content);
+        await updateCachedSVGAfterSave(fileUrl, updateResult, svgText);
 
         exitEditMode();
         editChanges = [];
@@ -1479,6 +1500,8 @@
       label.appendChild(valueEl);
 
       const popupSlider = document.createElement('input');
+      popupSlider.id = 'resize-popup-slider';
+      label.htmlFor = popupSlider.id;
       popupSlider.type = 'range';
       popupSlider.min = slider.min;
       popupSlider.max = slider.max;
@@ -1870,104 +1893,58 @@
     // DOOR STATUS UPDATE
     // ============================================================
 
-    const STATUS_CACHE_KEY = 'fd_status_cache';
-    const STATUS_QUEUE_KEY = 'fd_status_sync_queue';
-    const STATUS_CYCLE_STARTED_KEY = '_cycleStartedAt';
     let statusSyncInProgress = false;
     let statusSyncRetryTimer = null;
 
     function getFloorplanStatusBucket(statusData, customer, floorplan, create = false) {
-      if (!statusData[customer]) {
-        if (!create) return null;
-        statusData[customer] = {};
-      }
-      if (!statusData[customer][floorplan]) {
-        if (!create) return null;
-        statusData[customer][floorplan] = {};
-      }
-      return statusData[customer][floorplan];
+      return FD.StatusService.getFloorplanStatusBucket(statusData, customer, floorplan, create);
     }
 
     function getCycleStartedMs(bucket) {
-      if (!bucket) return 0;
-      const started = Date.parse(bucket[STATUS_CYCLE_STARTED_KEY] || '');
-      return Number.isFinite(started) ? started : 0;
+      return FD.StatusService.getCycleStartedMs(bucket);
     }
 
     function setCycleStartedAt(bucket, timestamp) {
-      bucket[STATUS_CYCLE_STARTED_KEY] = new Date(timestamp).toISOString();
+      FD.StatusService.setCycleStartedAt(bucket, timestamp);
     }
 
     function readCachedDoorStatus() {
-      try {
-        return JSON.parse(localStorage.getItem(STATUS_CACHE_KEY) || '{}') || {};
-      } catch {
-        return {};
-      }
+      return FD.StatusService.readCachedDoorStatus();
     }
 
     function cacheDoorStatus() {
-      try {
-        localStorage.setItem(STATUS_CACHE_KEY, JSON.stringify(doorStatus));
-      } catch (err) {
-        console.warn('Status cache kon niet worden opgeslagen:', err);
-      }
+      FD.StatusService.cacheDoorStatus(doorStatus);
     }
 
     function readStatusSyncQueue() {
-      try {
-        const queue = JSON.parse(localStorage.getItem(STATUS_QUEUE_KEY) || '[]');
-        return Array.isArray(queue) ? queue : [];
-      } catch {
-        return [];
-      }
+      return FD.StatusService.readSyncQueue();
     }
 
     function writeStatusSyncQueue(queue) {
-      try {
-        localStorage.setItem(STATUS_QUEUE_KEY, JSON.stringify(queue));
-      } catch (err) {
-        console.warn('Status sync queue kon niet worden opgeslagen:', err);
-      }
+      FD.StatusService.writeSyncQueue(queue);
       updateStatusSyncIndicator();
     }
 
     function applyStatusOperation(statusData, op) {
-      const bucket = getFloorplanStatusBucket(statusData, op.customer, op.floorplan, true);
-
-      if (op.status === 'done') {
-        if (!getCycleStartedMs(bucket)) setCycleStartedAt(bucket, op.ts || Date.now());
-        bucket[op.doorId] = 'done';
-      } else {
-        delete bucket[op.doorId];
-      }
+      FD.StatusService.applyStatusOperation(statusData, op);
     }
 
     function applyQueuedStatusOperations(statusData, queue) {
-      queue.forEach(op => applyStatusOperation(statusData, op));
-      return statusData;
+      return FD.StatusService.applyQueuedStatusOperations(statusData, queue);
     }
 
     function enqueueStatusSync(op) {
-      const queue = readStatusSyncQueue()
-        .filter(existing => !(existing.customer === op.customer &&
-                              existing.floorplan === op.floorplan &&
-                              existing.doorId === op.doorId));
-      queue.push(op);
+      const queue = FD.StatusService.enqueueOperation(readStatusSyncQueue(), op);
       writeStatusSyncQueue(queue);
     }
 
     function isSameStatusOperation(a, b) {
-      return a.customer === b.customer &&
-             a.floorplan === b.floorplan &&
-             a.doorId === b.doorId &&
-             a.status === b.status &&
-             a.ts === b.ts;
+      return FD.StatusService.isSameOperation(a, b);
     }
 
     function removeSyncedStatusOperations(syncedQueue) {
       const latestQueue = readStatusSyncQueue();
-      return latestQueue.filter(op => !syncedQueue.some(synced => isSameStatusOperation(op, synced)));
+      return FD.StatusService.removeSyncedOperations(latestQueue, syncedQueue);
     }
 
     function scheduleStatusSyncRetry() {
@@ -1979,29 +1956,7 @@
     }
 
     async function saveStatusToGitHub(statusData, messageCustomer) {
-      // Get current file SHA (needed for update)
-      const metaResp = await fetch(CONFIG.statusUrl, {
-        headers: ghHeaders(),
-        cache: 'no-store',
-      });
-      if (!metaResp.ok) throw new Error('Kon status.json niet ophalen');
-      const meta = await metaResp.json();
-
-      // Encode updated status as base64
-      const content = btoa(unescape(encodeURIComponent(JSON.stringify(statusData, null, 2))));
-
-      // Update file on GitHub
-      const updateResp = await fetch(CONFIG.statusUrl, {
-        method: 'PUT',
-        headers: ghHeaders(),
-        cache: 'no-store',
-        body: JSON.stringify({
-          message: 'Status update: ' + (messageCustomer || 'offline queue'),
-          content: content,
-          sha: meta.sha,
-        }),
-      });
-      if (!updateResp.ok) throw new Error('Kon status niet opslaan');
+      await FD.DataService.saveStatus(CONFIG, statusData, messageCustomer);
     }
 
     async function flushStatusSyncQueue() {
@@ -2011,7 +1966,7 @@
       statusSyncInProgress = true;
       let shouldFlushAgain = false;
       try {
-        const remoteStatus = await fetchGitHubJSON(CONFIG.statusUrl);
+        const remoteStatus = await FD.DataService.loadStatus(CONFIG);
         const mergedStatus = applyQueuedStatusOperations(remoteStatus, queue);
         await saveStatusToGitHub(mergedStatus, queue[queue.length - 1]?.customer);
         const remainingQueue = removeSyncedStatusOperations(queue);
@@ -2092,13 +2047,16 @@
       const containerRect = svgContainer.getBoundingClientRect();
       // Account for info panel overlay by measuring actual height (0 when hidden)
       const infoPanelHeight = infoPanel.offsetHeight;
-      const availableWidth = containerRect.width;
-      const availableHeight = containerRect.height - infoPanelHeight;
-      const scaleX = availableWidth / svgWidth;
-      const scaleY = availableHeight / svgHeight;
-      scale = Math.min(scaleX, scaleY) * 0.92;
-      panX = (availableWidth - svgWidth * scale) / 2;
-      panY = infoPanelHeight + (availableHeight - svgHeight * scale) / 2;
+      const fit = FD.ViewportService.fitToBounds({
+        containerWidth: containerRect.width,
+        containerHeight: containerRect.height,
+        overlayHeight: infoPanelHeight,
+        contentWidth: svgWidth,
+        contentHeight: svgHeight,
+      });
+      scale = fit.scale;
+      panX = fit.panX;
+      panY = fit.panY;
       // Save initial view for reset
       savedScale = scale;
       savedPanX = panX;
@@ -2130,18 +2088,18 @@
 
       const containerRect = svgContainer.getBoundingClientRect();
       const infoPanelHeight = infoPanel.offsetHeight || 0;
-      const renderedWidth = vb.width * scale;
-      const renderedHeight = vb.height * scale;
-      const minVisibleX = Math.min(160, Math.max(64, containerRect.width * 0.14));
-      const minVisibleY = Math.min(160, Math.max(64, containerRect.height * 0.14));
-
-      const minPanX = minVisibleX - renderedWidth;
-      const maxPanX = containerRect.width - minVisibleX;
-      const minPanY = infoPanelHeight + minVisibleY - renderedHeight;
-      const maxPanY = containerRect.height - minVisibleY;
-
-      panX = Math.max(minPanX, Math.min(maxPanX, panX));
-      panY = Math.max(minPanY, Math.min(maxPanY, panY));
+      const clamped = FD.ViewportService.clampPan({
+        panX,
+        panY,
+        scale,
+        contentWidth: vb.width,
+        contentHeight: vb.height,
+        containerWidth: containerRect.width,
+        containerHeight: containerRect.height,
+        overlayHeight: infoPanelHeight,
+      });
+      panX = clamped.panX;
+      panY = clamped.panY;
     }
 
     function applyTransform() {
@@ -2152,16 +2110,11 @@
     }
 
     function getTouchDist(touches) {
-      const dx = touches[0].clientX - touches[1].clientX;
-      const dy = touches[0].clientY - touches[1].clientY;
-      return Math.sqrt(dx * dx + dy * dy);
+      return FD.ViewportService.touchDistance(touches);
     }
 
     function getTouchCenter(touches) {
-      return {
-        x: (touches[0].clientX + touches[1].clientX) / 2,
-        y: (touches[0].clientY + touches[1].clientY) / 2,
-      };
+      return FD.ViewportService.touchCenter(touches);
     }
 
     // Pan via pointer events
@@ -2293,9 +2246,17 @@
 
         const cx = center.x - containerRect.left;
         const cy = center.y - containerRect.top;
-        panX = cx - (cx - panX) * (clampedScale / scale);
-        panY = cy - (cy - panY) * (clampedScale / scale);
-        scale = clampedScale;
+        const nextView = FD.ViewportService.zoomAtPoint({
+          pointX: cx,
+          pointY: cy,
+          panX,
+          panY,
+          scale,
+          nextScale: clampedScale,
+        });
+        panX = nextView.panX;
+        panY = nextView.panY;
+        scale = nextView.scale;
 
         applyTransform();
         if (showLabels) updateEditLabels();
@@ -2319,9 +2280,17 @@
       const zoomFactor = e.deltaY > 0 ? 0.9 : 1.1;
       const newScale = Math.max(0.02, Math.min(10, scale * zoomFactor));
 
-      panX = cx - (cx - panX) * (newScale / scale);
-      panY = cy - (cy - panY) * (newScale / scale);
-      scale = newScale;
+      const nextView = FD.ViewportService.zoomAtPoint({
+        pointX: cx,
+        pointY: cy,
+        panX,
+        panY,
+        scale,
+        nextScale: newScale,
+      });
+      panX = nextView.panX;
+      panY = nextView.panY;
+      scale = nextView.scale;
 
       applyTransform();
       if (showLabels) updateEditLabels();
@@ -2334,7 +2303,7 @@
     async function pollStatus() {
       if (!currentFloorplan || isEditMode) return;
       try {
-        const remoteStatus = await fetchGitHubJSON(CONFIG.statusUrl);
+        const remoteStatus = await FD.DataService.loadStatus(CONFIG);
         doorStatus = applyQueuedStatusOperations(remoteStatus, readStatusSyncQueue());
         cacheDoorStatus();
         refreshAllDoorColors();
@@ -2443,38 +2412,81 @@
     const uploadPdfInput = document.getElementById('upload-pdf-input');
     const uploadPhotoInput = document.getElementById('upload-photo-input');
     const uploadCustomerSelect = document.getElementById('upload-customer-select');
+    const uploadNewCustomerWrapper = document.getElementById('upload-new-customer-wrapper');
     const uploadNewCustomer = document.getElementById('upload-new-customer');
     const uploadFloorplanName = document.getElementById('upload-floorplan-name');
     const uploadError = document.getElementById('upload-error');
 
-    function showUploadPopup() {
-      if (isEditMode) { showToast('Sluit eerst de bewerkingsmodus', 'error'); return; }
-      topbarMenu.style.display = 'none';
+    function resetUploadPreviewState() {
       uploadImageDataUrl = null;
+      uploadImageWidth = 0;
+      uploadImageHeight = 0;
+      uploadPreviewImg.src = '';
+      uploadPreviewImg.style.display = '';
+      document.querySelector('#upload-step-preview h3').textContent = 'Voorbeeld';
+      document.querySelector('#upload-step-preview .upload-btn-grey').style.display = '';
+      document.querySelector('#upload-step-preview .upload-btn-green').style.display = '';
       uploadStepChoose.style.display = 'block';
       uploadStepPreview.style.display = 'none';
       uploadStepForm.style.display = 'none';
       uploadError.textContent = '';
+    }
+
+    function resetUploadFormState() {
+      uploadCustomerSelect.style.display = '';
+      uploadNewCustomerWrapper.style.display = 'none';
+      uploadNewCustomer.value = '';
+      uploadFloorplanName.value = '';
+    }
+
+    function enterUploadModeUI() {
+      topbarMenu.style.display = 'none';
+      resetUploadPreviewState();
+      resetUploadFormState();
       uploadOverlay.style.display = 'block';
       uploadPopup.style.display = 'block';
+    }
+
+    function exitUploadModeUI() {
+      uploadGeneration++;
+      uploadOverlay.style.display = 'none';
+      uploadPopup.style.display = 'none';
+      uploadPdfInput.value = '';
+      uploadPhotoInput.value = '';
+      resetUploadPreviewState();
+      resetUploadFormState();
+    }
+
+    appMode.setHooks(AppModes.UPLOAD, {
+      enter({ from }) {
+        if (from === AppModes.UPLOAD_SAVING) return;
+        enterUploadModeUI();
+      },
+      exit({ to }) {
+        if (to === AppModes.UPLOAD_SAVING) return;
+        exitUploadModeUI();
+      },
+    });
+
+    appMode.setHooks(AppModes.UPLOAD_SAVING, {
+      exit({ to }) {
+        if (to === AppModes.UPLOAD) return;
+        exitUploadModeUI();
+      },
+    });
+
+    function showUploadPopup() {
+      if (isEditMode) { showToast('Sluit eerst de bewerkingsmodus', 'error'); return; }
+      if (!appMode.isInteractiveView()) { showToast('Sluit eerst het huidige scherm', 'error'); return; }
+      appMode.enter(AppModes.UPLOAD);
     }
 
     let uploadSaving = false;
 
     function hideUploadPopup() {
       if (uploadSaving) return;
-      uploadGeneration++;
-      uploadOverlay.style.display = 'none';
-      uploadPopup.style.display = 'none';
-      uploadPdfInput.value = '';
-      uploadPhotoInput.value = '';
-      uploadImageDataUrl = null;
-      uploadImageWidth = 0;
-      uploadImageHeight = 0;
-      uploadPreviewImg.src = '';
-      uploadCustomerSelect.style.display = '';
-      uploadNewCustomerWrapper.style.display = 'none';
-      uploadNewCustomer.value = '';
+      if (appMode.isAny([AppModes.UPLOAD, AppModes.UPLOAD_SAVING])) appMode.enter(AppModes.VIEW);
+      else exitUploadModeUI();
     }
 
     function showUploadPreview(dataUrl, width, height) {
@@ -2616,8 +2628,6 @@
       }
     });
 
-    const uploadNewCustomerWrapper = document.getElementById('upload-new-customer-wrapper');
-
     function showNewCustomerInput() {
       uploadCustomerSelect.style.display = 'none';
       uploadNewCustomerWrapper.style.display = 'block';
@@ -2695,71 +2705,17 @@
       btnSave.textContent = 'Opslaan...';
       btnSave.disabled = true;
       uploadSaving = true;
+      appMode.enter(AppModes.UPLOAD_SAVING);
       uploadError.textContent = '';
 
-      let uploadedSvgUrl = null;
-      let uploadedSvgSha = null;
-
       try {
-        // Step 1: Upload SVG to floorplan-uploads repo
-        const svgContent = btoa(unescape(encodeURIComponent(svgText)));
-        const uploadUrl = CONFIG.svgUploadsUrl + encodeURIComponent(fileName);
-        uploadedSvgUrl = uploadUrl;
-
-        // Check if file already exists
-        let sha = null;
-        try {
-          const existResp = await fetch(uploadUrl, { headers: ghHeaders(), cache: 'no-store' });
-          if (existResp.ok) {
-            const existData = await existResp.json();
-            sha = existData.sha;
-          }
-        } catch (e) {}
-
-        const uploadBody = {
-          message: 'Upload: ' + customerName + ' - ' + floorplanName,
-          content: svgContent,
-        };
-        if (sha) uploadBody.sha = sha;
-
-        const uploadResp = await fetch(uploadUrl, {
-          method: 'PUT',
-          headers: ghHeaders(),
-          cache: 'no-store',
-          body: JSON.stringify(uploadBody),
+        const { customers: currentCustomers } = await FD.DataService.addUploadedFloorplan(CONFIG, {
+          customerName,
+          floorplanName,
+          fileName,
+          svgText,
+          isNewCustomer,
         });
-        if (!uploadResp.ok) throw new Error('SVG upload mislukt');
-        const uploadData = await uploadResp.json();
-        uploadedSvgSha = uploadData.content?.sha;
-
-        // Step 2: Update customers.json
-        const customersResp = await fetch(CONFIG.customersUrl, { headers: ghHeaders(), cache: 'no-store' });
-        if (!customersResp.ok) throw new Error('Kon customers.json niet ophalen');
-        const customersMeta = await customersResp.json();
-        const currentCustomers = JSON.parse(decodeBase64UTF8(customersMeta.content));
-
-        const newEntry = { name: floorplanName, file: fileName, repo: 'uploads', uploaded: true };
-
-        if (isNewCustomer) {
-          currentCustomers.push({ customer: customerName, floorplans: [newEntry] });
-        } else {
-          const freshCi = currentCustomers.findIndex(c => c.customer === customerName);
-          if (freshCi < 0) throw new Error('Klant niet gevonden in customers.json');
-          currentCustomers[freshCi].floorplans.push(newEntry);
-        }
-
-        const customersContent = btoa(unescape(encodeURIComponent(JSON.stringify(currentCustomers, null, 2))));
-        const customersUpdateResp = await fetch(CONFIG.customersUrl, {
-          method: 'PUT',
-          headers: ghHeaders(),
-          cache: 'no-store',
-          body: JSON.stringify({
-            message: 'Plattegrond toegevoegd: ' + customerName + ' - ' + floorplanName,
-            content: customersContent,
-            sha: customersMeta.sha,
-          }),
-        });
-        if (!customersUpdateResp.ok) throw new Error('Kon customers.json niet bijwerken');
 
         // Reload and select new floorplan
         customers = currentCustomers;
@@ -2781,21 +2737,11 @@
 
       } catch (err) {
         uploadError.textContent = 'Fout: ' + err.message;
-        // Rollback: delete the uploaded SVG if customers.json update failed
-        if (uploadedSvgUrl && uploadedSvgSha) {
-          try {
-            await fetch(uploadedSvgUrl, {
-              method: 'DELETE',
-              headers: ghHeaders(),
-              cache: 'no-store',
-              body: JSON.stringify({ message: 'Rollback: upload mislukt', sha: uploadedSvgSha }),
-            });
-          } catch (e) {}
-        }
       } finally {
         btnSave.textContent = 'Opslaan';
         btnSave.disabled = false;
         uploadSaving = false;
+        if (appMode.is(AppModes.UPLOAD_SAVING)) appMode.enter(AppModes.UPLOAD);
       }
     }
 
@@ -2853,6 +2799,7 @@
 
     function showDeleteConfirm() {
       if (isEditMode) { showToast('Sluit eerst de bewerkingsmodus', 'error'); return; }
+      if (!appMode.isInteractiveView()) { showToast('Sluit eerst het huidige scherm', 'error'); return; }
       topbarMenu.style.display = 'none';
       const ci = parseInt(customerSelect.value, 10);
       const fi = parseInt(floorplanSelect.value, 10);
@@ -2877,73 +2824,10 @@
       hideDeleteConfirm();
 
       try {
-        // Step 1: Update customers.json first (resolve by name, not stale index)
-        const customersResp = await fetch(CONFIG.customersUrl, { headers: ghHeaders(), cache: 'no-store' });
-        if (!customersResp.ok) throw new Error('Kon customers.json niet ophalen');
-        const customersMeta = await customersResp.json();
-        const currentCustomers = JSON.parse(decodeBase64UTF8(customersMeta.content));
-
-        const freshCi = currentCustomers.findIndex(c => c.customer === customerName);
-        if (freshCi >= 0) {
-          const freshFi = currentCustomers[freshCi].floorplans.findIndex(f => f.file === fp.file);
-          if (freshFi >= 0) currentCustomers[freshCi].floorplans.splice(freshFi, 1);
-          if (currentCustomers[freshCi].floorplans.length === 0) currentCustomers.splice(freshCi, 1);
-        }
-
-        const customersContent = btoa(unescape(encodeURIComponent(JSON.stringify(currentCustomers, null, 2))));
-        const updateResp = await fetch(CONFIG.customersUrl, {
-          method: 'PUT',
-          headers: ghHeaders(),
-          cache: 'no-store',
-          body: JSON.stringify({
-            message: 'Plattegrond verwijderd: ' + customerName + ' - ' + fp.name,
-            content: customersContent,
-            sha: customersMeta.sha,
-          }),
+        const { customers: currentCustomers } = await FD.DataService.deleteUploadedFloorplan(CONFIG, {
+          customerName,
+          floorplan: fp,
         });
-        if (!updateResp.ok) throw new Error('Kon customers.json niet bijwerken');
-
-        // Step 2: Delete SVG from uploads repo (after customers.json is updated)
-        const fileUrl = CONFIG.svgUploadsUrl + encodeURIComponent(fp.file);
-        const metaResp = await fetch(fileUrl, { headers: ghHeaders(), cache: 'no-store' });
-        if (!metaResp.ok) throw new Error('Kon bestand niet vinden');
-        const meta = await metaResp.json();
-        const deleteResp = await fetch(fileUrl, {
-          method: 'DELETE',
-          headers: ghHeaders(),
-          cache: 'no-store',
-          body: JSON.stringify({
-            message: 'Verwijderd: ' + customerName + ' - ' + fp.name,
-            sha: meta.sha,
-          }),
-        });
-        if (!deleteResp.ok) {
-          // Rollback: restore customers.json entry
-          try {
-            const rollbackResp = await fetch(CONFIG.customersUrl, { headers: ghHeaders(), cache: 'no-store' });
-            if (rollbackResp.ok) {
-              const rollbackMeta = await rollbackResp.json();
-              const rollbackCustomers = JSON.parse(decodeBase64UTF8(rollbackMeta.content));
-              const rollbackCi = rollbackCustomers.findIndex(c => c.customer === customerName);
-              if (rollbackCi >= 0) {
-                rollbackCustomers[rollbackCi].floorplans.push({ name: fp.name, file: fp.file, repo: 'uploads', uploaded: true });
-              } else {
-                rollbackCustomers.push({ customer: customerName, floorplans: [{ name: fp.name, file: fp.file, repo: 'uploads', uploaded: true }] });
-              }
-              await fetch(CONFIG.customersUrl, {
-                method: 'PUT',
-                headers: ghHeaders(),
-                cache: 'no-store',
-                body: JSON.stringify({
-                  message: 'Rollback: verwijderen mislukt',
-                  content: btoa(unescape(encodeURIComponent(JSON.stringify(rollbackCustomers, null, 2)))),
-                  sha: rollbackMeta.sha,
-                }),
-              });
-            }
-          } catch (e) {}
-          throw new Error('Kon bestand niet verwijderen');
-        }
 
         // Reload
         customers = currentCustomers;
@@ -3260,10 +3144,7 @@
 
     async function validateGitHubTokenForLogin(token) {
       try {
-        const testResp = await fetch(CONFIG.customersUrl, {
-          headers: { 'Authorization': 'token ' + token, 'Accept': 'application/vnd.github.v3+json' },
-          cache: 'no-store',
-        });
+        const testResp = await FD.DataService.validateTokenForCustomers(CONFIG, token);
         if (testResp.ok) return { ok: true, offline: false };
         if (testResp.status === 401 || testResp.status === 403) {
           return { ok: false, message: 'GitHub token is ongeldig of verlopen.' };
@@ -3357,6 +3238,7 @@
     }
 
     function showApp() {
+      appMode.enter(AppModes.VIEW);
       loginScreen.style.display = 'none';
       appContainer.style.display = 'block';
       updateConnectionIndicator();
@@ -3384,6 +3266,8 @@
     }
 
     function logout() {
+      resetAppToStartScreen();
+      appMode.enter(AppModes.LOGIN);
       localStorage.removeItem(LOGIN_CONFIG.tokenKey);
       localStorage.removeItem(LOGIN_CONFIG.tokenTimeKey);
       localStorage.removeItem('fd_github_token');
@@ -3402,7 +3286,6 @@
     }
 
     // Menu toggle
-    const topbarMenu = document.getElementById('topbar-menu');
     document.getElementById('btn-menu').addEventListener('click', (e) => {
       e.stopPropagation();
       topbarMenu.style.display = topbarMenu.style.display === 'none' ? 'block' : 'none';
@@ -3488,6 +3371,8 @@
             localStorage.removeItem(LOGIN_CONFIG.tokenKey);
             localStorage.removeItem(LOGIN_CONFIG.tokenTimeKey);
             localStorage.removeItem('fd_github_token');
+            resetAppToStartScreen();
+            appMode.enter(AppModes.LOGIN);
             appContainer.style.display = 'none';
             loginScreen.style.display = 'flex';
             loginError.textContent = validation.message || 'Sessie verlopen. Log opnieuw in.';
@@ -3584,6 +3469,7 @@
 
     function openImageEditor() {
       if (isEditMode) { showToast('Sluit eerst de bewerkingsmodus', 'error'); return; }
+      if (!appMode.isInteractiveView()) { showToast('Sluit eerst het huidige scherm', 'error'); return; }
       if (typeof Cropper === 'undefined') { showToast('Crop-tool kon niet worden geladen', 'error'); return; }
       if (document.getElementById('img-editor-overlay').style.display !== 'none') return;
       topbarMenu.style.display = 'none';
@@ -3599,7 +3485,6 @@
       if (!imageHref || !imageHref.startsWith('data:image')) {
         showToast('Afbeelding kan niet worden geladen', 'error'); return;
       }
-
       editorStage = document.getElementById('img-editor-stage');
       editorCanvas = document.getElementById('img-editor-canvas');
       editorCtx = editorCanvas.getContext('2d');
@@ -3620,6 +3505,10 @@
         imgH: parseFloat(svgImgEl.getAttribute('height') || String(vb.height)) || vb.height,
       };
 
+      appMode.enter(AppModes.IMAGE_EDITOR, { imageHref });
+    }
+
+    function enterImageEditorModeUI(imageHref) {
       if (editorCropper) { editorCropper.destroy(); editorCropper = null; }
       const cropImage = document.getElementById('img-editor-crop-image');
       cropImage.onload = null;
@@ -3709,11 +3598,15 @@
       }
     }
 
-    function closeImageEditor() {
+    function exitImageEditorModeUI() {
       stopCropPreview({ restoreCanvas: false, clearSnapshot: true });
       if (editorCropper) { editorCropper.destroy(); editorCropper = null; }
       const cropImage = document.getElementById('img-editor-crop-image');
-      if (cropImage) cropImage.removeAttribute('src');
+      if (cropImage) {
+        cropImage.onload = null;
+        cropImage.onerror = null;
+        cropImage.removeAttribute('src');
+      }
       document.getElementById('img-editor-overlay').style.display = 'none';
       editorUndoStack = [];
       cropRect = null; activeCropHandle = null;
@@ -3721,10 +3614,33 @@
       editorCropContext = null;
       pendingCropSave = null;
       editorTool = 'pan';
-      editorCanvas.dataset.tool = 'pan';
+      if (editorCanvas) editorCanvas.dataset.tool = 'pan';
       editorIsPanning = false; editorDragMode = null;
       activeEditorPointers.clear(); editorIsPinching = false; editorPinchDist = null;
       hideCropOutsideConfirm();
+    }
+
+    appMode.setHooks(AppModes.IMAGE_EDITOR, {
+      enter({ from, context }) {
+        if (from === AppModes.IMAGE_EDITOR_SAVING) return;
+        enterImageEditorModeUI(context.imageHref);
+      },
+      exit({ to }) {
+        if (to === AppModes.IMAGE_EDITOR_SAVING) return;
+        exitImageEditorModeUI();
+      },
+    });
+
+    appMode.setHooks(AppModes.IMAGE_EDITOR_SAVING, {
+      exit({ to }) {
+        if (to === AppModes.IMAGE_EDITOR) return;
+        exitImageEditorModeUI();
+      },
+    });
+
+    function closeImageEditor() {
+      if (appMode.isAny([AppModes.IMAGE_EDITOR, AppModes.IMAGE_EDITOR_SAVING])) appMode.enter(AppModes.VIEW);
+      else exitImageEditorModeUI();
     }
 
     function setEditorTool(tool) {
@@ -4079,44 +3995,19 @@
       showToast('Uitsnede toegepast', 'success');
     }
 
-    function markerFitsInsideCrop(marker, cropX, cropY, cropW, cropH) {
-      const cx = parseFloat(marker.getAttribute('cx'));
-      const cy = parseFloat(marker.getAttribute('cy'));
-      if (!Number.isFinite(cx) || !Number.isFinite(cy)) return false;
-      const r = parseFloat(marker.getAttribute('r'));
-      const rx = parseFloat(marker.getAttribute('rx'));
-      const ry = parseFloat(marker.getAttribute('ry'));
-      const radiusX = Number.isFinite(rx) ? rx : (Number.isFinite(r) ? r : 0);
-      const radiusY = Number.isFinite(ry) ? ry : (Number.isFinite(r) ? r : 0);
-      return cx - radiusX >= cropX &&
-             cx + radiusX <= cropX + cropW &&
-             cy - radiusY >= cropY &&
-             cy + radiusY <= cropY + cropH;
-    }
-
     function getCropSavePlan() {
       if (!editorCropper || !editorCropContext) return null;
       const cropData = editorCropper.getData(true);
       const imageData = editorCropper.getImageData();
       const naturalWidth = imageData.naturalWidth || document.getElementById('img-editor-crop-image').naturalWidth;
       const naturalHeight = imageData.naturalHeight || document.getElementById('img-editor-crop-image').naturalHeight;
-      if (!naturalWidth || !naturalHeight || cropData.width < 10 || cropData.height < 10) return null;
-
-      const scaleX = editorCropContext.imgW / naturalWidth;
-      const scaleY = editorCropContext.imgH / naturalHeight;
-      const cropX = editorCropContext.imgX + cropData.x * scaleX;
-      const cropY = editorCropContext.imgY + cropData.y * scaleY;
-      const cropW = cropData.width * scaleX;
-      const cropH = cropData.height * scaleY;
-      const outsideDoorCodes = [];
-
-      svgContainer.querySelectorAll('[data-door-id]').forEach(marker => {
-        if (!markerFitsInsideCrop(marker, cropX, cropY, cropW, cropH)) {
-          outsideDoorCodes.push(marker.dataset.doorId || marker.getAttribute('id') || 'Onbekend');
-        }
+      return FD.ImageEditorService.buildCropSavePlan({
+        cropData,
+        naturalWidth,
+        naturalHeight,
+        cropContext: editorCropContext,
+        markers: svgContainer.querySelectorAll('[data-door-id]'),
       });
-
-      return { cropData, cropX, cropY, cropW, cropH, outsideDoorCodes };
     }
 
     function showCropOutsideConfirm(codes, onConfirm) {
@@ -4149,6 +4040,7 @@
       btnSave.disabled = true;
       btnSave.textContent = 'Opslaan...';
       editorSaving = true;
+      appMode.enter(AppModes.IMAGE_EDITOR_SAVING);
 
       try {
         const outputCanvas = editorCropper.getCroppedCanvas({
@@ -4184,7 +4076,7 @@
           const cx = parseFloat(marker.getAttribute('cx'));
           const cy = parseFloat(marker.getAttribute('cy'));
           if (!Number.isFinite(cx) || !Number.isFinite(cy)) return;
-          if (!markerFitsInsideCrop(marker, plan.cropX, plan.cropY, plan.cropW, plan.cropH)) {
+          if (!FD.ImageEditorService.markerFitsInsideCrop(marker, plan.cropX, plan.cropY, plan.cropW, plan.cropH)) {
             marker.remove();
             return;
           }
@@ -4202,24 +4094,12 @@
         });
 
         const svgText = new XMLSerializer().serializeToString(svgClone);
-        const svgContent = btoa(unescape(encodeURIComponent(svgText)));
-
         const fileUrl = CONFIG.svgUploadsUrl + encodeURIComponent(fp.file);
-        const metaResp = await fetch(fileUrl, { headers: ghHeaders(), cache: 'no-store' });
-        if (!metaResp.ok) throw new Error('Kon bestand niet ophalen (' + metaResp.status + ')');
-        const meta = await metaResp.json();
-
-        const updateResp = await fetch(fileUrl, {
-          method: 'PUT',
-          headers: ghHeaders(),
-          cache: 'no-store',
-          body: JSON.stringify({
-            message: 'Afbeelding bewerkt: ' + currentCustomer + ' - ' + currentFloorplan,
-            content: svgContent,
-            sha: meta.sha,
-          }),
+        await FD.DataService.saveFloorplanSVG(fileUrl, svgText, {
+          message: 'Afbeelding bewerkt: ' + currentCustomer + ' - ' + currentFloorplan,
+          fetchErrorMessage: 'Kon bestand niet ophalen ({status})',
+          saveErrorMessage: 'Opslaan mislukt ({status})',
         });
-        if (!updateResp.ok) throw new Error('Opslaan mislukt (' + updateResp.status + ')');
 
         closeImageEditor();
         showToast('Afbeelding opgeslagen', 'success');
@@ -4230,6 +4110,7 @@
       } catch (err) {
         showToast('Fout: ' + err.message, 'error');
         editorSaving = false;
+        if (appMode.is(AppModes.IMAGE_EDITOR_SAVING)) appMode.enter(AppModes.IMAGE_EDITOR);
         btnSave.disabled = false;
         btnSave.textContent = '\uD83D\uDCBE Opslaan';
       }

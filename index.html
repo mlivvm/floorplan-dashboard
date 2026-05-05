@@ -6,6 +6,7 @@
   <meta name="format-detection" content="telephone=no">
   <title>Plattegrond Dashboard</title>
   <link rel="manifest" href="manifest.json">
+  <link rel="icon" href="icon-192.png">
   <script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js" integrity="sha384-SALc35EccAf6RzGw4iNsyj7kTPr33K7RoGzYu+7heZhT8s0GZouafRiCg1qy44AS" crossorigin="anonymous"></script>
   <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js" integrity="sha384-c9d8RFSL+u3exBOJ4Yp3HUJXS4znl9f+z66d1y54ig+ea249SpqR+w1wyvXz/lk+" crossorigin="anonymous"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js" crossorigin="anonymous"></script>
@@ -23,12 +24,12 @@
 
   <!-- Login screen -->
   <div class="login-screen" id="login-screen" style="display:none;">
-    <div style="position:absolute; bottom:12px; left:16px; font-size:12px; color:#aaa;">v1.8.25</div>
+    <div style="position:absolute; bottom:12px; left:16px; font-size:12px; color:#aaa;">v1.8.41</div>
     <div class="login-box">
       <h1>Plattegrond Dashboard</h1>
       <p>Voer het wachtwoord in om door te gaan</p>
       <input type="password" id="login-password" placeholder="Wachtwoord" autocomplete="off">
-      <label style="display:inline-flex; align-items:center; gap:8px; margin-bottom:16px; font-size:14px; color:#666; cursor:pointer;">
+      <label for="login-remember" style="display:inline-flex; align-items:center; gap:8px; margin-bottom:16px; font-size:14px; color:#666; cursor:pointer;">
         <input type="checkbox" id="login-remember" style="width:18px; height:18px; flex-shrink:0; margin:0;"> <span style="line-height:1;">Wachtwoord onthouden</span>
       </label>
       <button id="login-btn">Inloggen</button>
@@ -38,7 +39,7 @@
 
   <!-- App (hidden until logged in) -->
   <div id="app-container" style="display:none;">
-  <div style="position:fixed; bottom:12px; left:16px; font-size:12px; color:#aaa; z-index:1000; pointer-events:none;">v1.8.25</div>
+  <div style="position:fixed; bottom:12px; left:16px; font-size:12px; color:#aaa; z-index:1000; pointer-events:none;">v1.8.41</div>
 
   <!-- Toast notification -->
   <div id="toast" style="display:none; position:fixed; top:calc(env(safe-area-inset-top) + var(--topbar-h, 52px) + 12px); left:50%; transform:translateX(-50%); padding:14px 28px; border-radius:10px; font-size:16px; font-weight:600; z-index:500; box-shadow:0 4px 16px rgba(0,0,0,0.25); cursor:pointer; max-width:90vw; text-align:center;"></div>
@@ -104,7 +105,7 @@
   <div class="edit-bar" id="edit-bar">
     <span class="edit-label" style="flex:0 0 auto; min-width:100px;">Bewerkingsmodus</span>
     <div style="display:flex; align-items:center; gap:8px; flex:1; justify-content:center;">
-      <label style="font-size:13px; color:#e67700; font-weight:600; white-space:nowrap;">Grootte:</label>
+      <label for="edit-marker-size" style="font-size:13px; color:#e67700; font-weight:600; white-space:nowrap;">Grootte:</label>
       <input type="range" id="edit-marker-size" min="3" max="30" value="15" style="width:140px; height:36px;">
       <span id="edit-size-label" style="font-size:13px; color:#e67700; min-width:24px;">15</span>
     </div>
@@ -116,7 +117,7 @@
       <button class="btn-edit-save" id="btn-edit-save">Opslaan</button>
     </div>
     <div id="auto-number-row" style="display:none; width:100%; align-items:center; gap:8px; flex-wrap:wrap; padding-top:4px; border-top:1px solid #f0c070;">
-      <label style="font-size:13px; color:#e67700; font-weight:600; white-space:nowrap;">Prefix:</label>
+      <label for="auto-prefix-input" style="font-size:13px; color:#e67700; font-weight:600; white-space:nowrap;">Prefix:</label>
       <input type="text" id="auto-prefix-input" placeholder="bijv. D1BA" maxlength="20" autocomplete="off" style="width:110px; padding:6px 10px; border:1px solid #e67700; border-radius:6px; font-size:14px; font-weight:600; text-transform:uppercase;">
       <select id="auto-padding-select" style="padding:6px 8px; border:1px solid #e67700; border-radius:6px; font-size:14px; color:#e67700; font-weight:600; background:white;">
         <option value="2">01</option>
@@ -272,7 +273,7 @@
     </div>
     <!-- Brush size row (gum mode only) -->
     <div id="img-editor-brush-row" class="img-editor-brush-row" style="display:none;">
-      <label class="img-editor-brush-label">Kwast: <span id="img-editor-brush-val">30</span>px</label>
+      <label for="img-editor-brush-slider" class="img-editor-brush-label">Kwast: <span id="img-editor-brush-val">30</span>px</label>
       <input id="img-editor-brush-slider" type="range" min="10" max="120" value="30" class="img-editor-brush-slider">
     </div>
     <!-- Bottom toolbar -->
@@ -317,6 +318,12 @@
 
   </div><!-- /app-container -->
 
+  <script src="repository.js"></script>
+  <script src="data-service.js"></script>
+  <script src="status-service.js"></script>
+  <script src="mode-service.js"></script>
+  <script src="image-editor-service.js"></script>
+  <script src="viewport-service.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
