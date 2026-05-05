@@ -21,7 +21,7 @@
 
   <!-- Login screen -->
   <div class="login-screen" id="login-screen" style="display:none;">
-    <div style="position:absolute; bottom:12px; left:16px; font-size:12px; color:#aaa;">v1.8.16</div>
+    <div style="position:absolute; bottom:12px; left:16px; font-size:12px; color:#aaa;">v1.8.17</div>
     <div class="login-box">
       <h1>Plattegrond Dashboard</h1>
       <p>Voer het wachtwoord in om door te gaan</p>
@@ -36,7 +36,7 @@
 
   <!-- App (hidden until logged in) -->
   <div id="app-container" style="display:none;">
-  <div style="position:fixed; bottom:12px; left:16px; font-size:12px; color:#aaa; z-index:1000; pointer-events:none;">v1.8.16</div>
+  <div style="position:fixed; bottom:12px; left:16px; font-size:12px; color:#aaa; z-index:1000; pointer-events:none;">v1.8.17</div>
 
   <!-- Toast notification -->
   <div id="toast" style="display:none; position:fixed; top:calc(env(safe-area-inset-top) + var(--topbar-h, 52px) + 12px); left:50%; transform:translateX(-50%); padding:14px 28px; border-radius:10px; font-size:16px; font-weight:600; z-index:500; box-shadow:0 4px 16px rgba(0,0,0,0.25); cursor:pointer; max-width:90vw; text-align:center;"></div>
@@ -50,6 +50,16 @@
     <select id="floorplan-select" disabled>
       <option value="">-- Kies plattegrond --</option>
     </select>
+    <div class="selector-pills" id="selector-pills">
+      <button type="button" class="selector-pill" id="customer-picker-btn">
+        <span class="selector-label">Klant</span>
+        <span class="selector-value" id="customer-picker-value">Kies klant</span>
+      </button>
+      <button type="button" class="selector-pill" id="floorplan-picker-btn" disabled>
+        <span class="selector-label">Plattegrond</span>
+        <span class="selector-value" id="floorplan-picker-value">Kies plattegrond</span>
+      </button>
+    </div>
     <span style="flex:1;"></span>
     <div class="connection-indicator" id="connection-indicator" title="Online">
       <span class="connection-dot"></span>
@@ -72,6 +82,20 @@
         <button id="btn-logout" style="display:block; width:100%; padding:14px 20px; border:none; background:white; font-size:16px; font-weight:600; color:#d93025; text-align:left; cursor:pointer;">Uitloggen</button>
       </div>
     </div>
+  </div>
+
+  <!-- Customer/floorplan selector sheet -->
+  <div id="select-sheet-overlay" class="select-sheet-overlay" style="display:none;"></div>
+  <div id="select-sheet" class="select-sheet" style="display:none;" role="dialog" aria-modal="true">
+    <div class="select-sheet-header">
+      <div>
+        <div class="select-sheet-eyebrow" id="select-sheet-eyebrow">Kiezen</div>
+        <h2 id="select-sheet-title">Selecteer</h2>
+      </div>
+      <button type="button" id="select-sheet-close" class="select-sheet-close" aria-label="Sluiten">&times;</button>
+    </div>
+    <input type="search" id="select-sheet-search" class="select-sheet-search" placeholder="Zoeken..." autocomplete="off">
+    <div id="select-sheet-list" class="select-sheet-list"></div>
   </div>
 
   <!-- Edit mode bar -->

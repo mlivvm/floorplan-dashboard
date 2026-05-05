@@ -10,7 +10,7 @@
       jotformBaseUrl: 'https://eu.jotform.com/',
       jotformFormId: '250122093908351',
       pollInterval: 30000,
-      offlineCacheVersion: 'fd-v1.8.16',
+      offlineCacheVersion: 'fd-v1.8.17',
     };
 
     const COLORS = {
@@ -628,6 +628,7 @@
         opt.textContent = c.customer;
         customerSelect.appendChild(opt);
       });
+      updatePickerButtons();
     }
 
     function populateFloorplanDropdown(customerIndex) {
@@ -640,6 +641,91 @@
         opt.textContent = fp.name;
         floorplanSelect.appendChild(opt);
       });
+      updatePickerButtons();
+    }
+
+    const customerPickerBtn = document.getElementById('customer-picker-btn');
+    const floorplanPickerBtn = document.getElementById('floorplan-picker-btn');
+    const customerPickerValue = document.getElementById('customer-picker-value');
+    const floorplanPickerValue = document.getElementById('floorplan-picker-value');
+    const selectSheetOverlay = document.getElementById('select-sheet-overlay');
+    const selectSheet = document.getElementById('select-sheet');
+    const selectSheetEyebrow = document.getElementById('select-sheet-eyebrow');
+    const selectSheetTitle = document.getElementById('select-sheet-title');
+    const selectSheetSearch = document.getElementById('select-sheet-search');
+    const selectSheetList = document.getElementById('select-sheet-list');
+    let activeSelectSheet = null;
+
+    function getSelectedOptionText(selectEl, fallback) {
+      if (!selectEl.value) return fallback;
+      return selectEl.options[selectEl.selectedIndex]?.textContent || fallback;
+    }
+
+    function updatePickerButtons() {
+      customerPickerValue.textContent = getSelectedOptionText(customerSelect, 'Kies klant');
+      floorplanPickerValue.textContent = getSelectedOptionText(floorplanSelect, 'Kies plattegrond');
+      customerPickerBtn.disabled = customerSelect.disabled;
+      floorplanPickerBtn.disabled = floorplanSelect.disabled || !customerSelect.value;
+    }
+
+    function getSelectSheetItems(type) {
+      if (type === 'customer') {
+        return customers.map((c, index) => ({ index, label: c.customer }));
+      }
+      const ci = parseInt(customerSelect.value, 10);
+      if (isNaN(ci) || !customers[ci]) return [];
+      return customers[ci].floorplans.map((fp, index) => ({ index, label: fp.name }));
+    }
+
+    function renderSelectSheetItems() {
+      const query = selectSheetSearch.value.trim().toLowerCase();
+      const currentValue = activeSelectSheet === 'customer' ? customerSelect.value : floorplanSelect.value;
+      const items = getSelectSheetItems(activeSelectSheet)
+        .filter(item => item.label.toLowerCase().includes(query));
+      selectSheetList.innerHTML = '';
+      if (!items.length) {
+        const empty = document.createElement('div');
+        empty.className = 'select-sheet-empty';
+        empty.textContent = 'Geen resultaten';
+        selectSheetList.appendChild(empty);
+        return;
+      }
+      items.forEach(item => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'select-sheet-item';
+        if (String(item.index) === currentValue) btn.classList.add('selected');
+        btn.textContent = item.label;
+        btn.addEventListener('click', () => {
+          if (activeSelectSheet === 'customer') {
+            customerSelect.value = String(item.index);
+            customerSelect.dispatchEvent(new Event('change'));
+          } else {
+            floorplanSelect.value = String(item.index);
+            floorplanSelect.dispatchEvent(new Event('change'));
+          }
+          closeSelectSheet();
+        });
+        selectSheetList.appendChild(btn);
+      });
+    }
+
+    function openSelectSheet(type) {
+      if (type === 'floorplan' && floorplanPickerBtn.disabled) return;
+      activeSelectSheet = type;
+      selectSheetEyebrow.textContent = type === 'customer' ? 'Klant' : 'Plattegrond';
+      selectSheetTitle.textContent = type === 'customer' ? 'Kies klant' : 'Kies plattegrond';
+      selectSheetSearch.value = '';
+      selectSheetOverlay.style.display = 'block';
+      selectSheet.style.display = 'flex';
+      renderSelectSheetItems();
+      setTimeout(() => selectSheetSearch.focus(), 0);
+    }
+
+    function closeSelectSheet() {
+      selectSheetOverlay.style.display = 'none';
+      selectSheet.style.display = 'none';
+      activeSelectSheet = null;
     }
 
     function resetFloorplanUI() {
@@ -1062,6 +1148,7 @@
       btnReset.style.display = 'none';
       customerSelect.disabled = true;
       floorplanSelect.disabled = true;
+      updatePickerButtons();
       requestAnimationFrame(updateTopbarHeight);
     }
 
@@ -1081,6 +1168,7 @@
       btnReset.style.display = 'inline-block';
       customerSelect.disabled = false;
       floorplanSelect.disabled = false;
+      updatePickerButtons();
       closeEditPopup();
       requestAnimationFrame(updateTopbarHeight);
     }
@@ -2656,6 +2744,7 @@
           populateFloorplanDropdown(newCi);
           const newFi = currentCustomers[newCi].floorplans.length - 1;
           floorplanSelect.value = newFi;
+          updatePickerButtons();
           loadFloorplan(newCi, newFi);
         }
 
@@ -2841,6 +2930,7 @@
           customerSelect.value = remainingCi;
           populateFloorplanDropdown(remainingCi);
           floorplanSelect.value = '';
+          updatePickerButtons();
           svgContainer.style.display = 'none';
           svgContainer.innerHTML = '';
           infoPanel.style.display = 'none';
@@ -2870,17 +2960,25 @@
     // EVENT LISTENERS
     // ============================================================
 
+    customerPickerBtn.addEventListener('click', () => openSelectSheet('customer'));
+    floorplanPickerBtn.addEventListener('click', () => openSelectSheet('floorplan'));
+    selectSheetSearch.addEventListener('input', renderSelectSheetItems);
+    document.getElementById('select-sheet-close').addEventListener('click', closeSelectSheet);
+    selectSheetOverlay.addEventListener('click', closeSelectSheet);
+
     customerSelect.addEventListener('change', () => {
       if (isEditMode) exitEditMode();
       resetFloorplanUI();
       currentCustomer = null;
       currentFloorplan = null;
       updateDeleteButton();
+      updatePickerButtons();
 
       const idx = customerSelect.value;
       if (idx === '') {
         floorplanSelect.innerHTML = '<option value="">-- Kies plattegrond --</option>';
         floorplanSelect.disabled = true;
+        updatePickerButtons();
         setEmptyState('Kies een klant en plattegrond<br>om te beginnen.', 'Gebruik de dropdowns bovenaan');
         loadingEl.classList.remove('hidden');
         return;
@@ -2891,6 +2989,7 @@
     });
 
     floorplanSelect.addEventListener('change', () => {
+      updatePickerButtons();
       const ci = parseInt(customerSelect.value, 10);
       const fi = parseInt(floorplanSelect.value, 10);
       if (isNaN(ci) || isNaN(fi)) {

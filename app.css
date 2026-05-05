@@ -53,6 +53,7 @@
     }
 
     .topbar select {
+      display: none;
       font-size: 14px;
       padding: 6px 8px;
       border: none;
@@ -85,6 +86,63 @@
       cursor: pointer;
       font-weight: 600;
       white-space: nowrap;
+    }
+
+    .selector-pills {
+      display: flex;
+      gap: 8px;
+      flex: 1 1 440px;
+      min-width: 0;
+    }
+
+    .selector-pill {
+      flex: 1 1 0;
+      min-width: 150px;
+      min-height: 46px;
+      padding: 6px 10px;
+      border: 1px solid rgba(255,255,255,0.55);
+      border-radius: 8px;
+      background: rgba(255,255,255,0.96);
+      color: #1f2933;
+      text-align: left;
+      cursor: pointer;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.12);
+    }
+
+    .selector-pill:disabled {
+      opacity: 0.55;
+      cursor: default;
+      box-shadow: none;
+    }
+
+    .selector-label {
+      display: block;
+      font-size: 10px;
+      line-height: 1;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+      color: #5f6b76;
+      text-transform: uppercase;
+      margin-bottom: 4px;
+    }
+
+    .selector-value {
+      display: block;
+      max-width: 100%;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-size: 15px;
+      line-height: 1.15;
+      font-weight: 750;
+      color: #1f2933;
+    }
+
+    @media (max-width: 760px) {
+      .selector-pills {
+        order: 2;
+        flex-basis: 100%;
+      }
     }
 
     .connection-indicator {
@@ -914,6 +972,120 @@
     .upload-input:focus {
       outline: none;
       border-color: #1a73e8;
+    }
+
+    .select-sheet-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.38);
+      z-index: 650;
+    }
+
+    .select-sheet {
+      position: fixed;
+      left: 50%;
+      top: 50%;
+      transform: translate(-50%, -50%);
+      width: min(720px, calc(100vw - 28px));
+      max-height: min(760px, calc(100dvh - 36px));
+      background: #fff;
+      border-radius: 12px;
+      box-shadow: 0 18px 50px rgba(0,0,0,0.32);
+      z-index: 651;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .select-sheet-header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 18px 18px 12px;
+      border-bottom: 1px solid #e5e7eb;
+    }
+
+    .select-sheet-eyebrow {
+      font-size: 12px;
+      font-weight: 800;
+      color: #1a73e8;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      margin-bottom: 4px;
+    }
+
+    .select-sheet h2 {
+      font-size: 22px;
+      color: #202124;
+      margin: 0;
+    }
+
+    .select-sheet-close {
+      width: 46px;
+      height: 46px;
+      border: none;
+      border-radius: 8px;
+      background: #f1f3f4;
+      color: #333;
+      font-size: 32px;
+      line-height: 1;
+      cursor: pointer;
+    }
+
+    .select-sheet-search {
+      margin: 14px 18px 10px;
+      padding: 13px 14px;
+      border: 2px solid #d7dbe0;
+      border-radius: 10px;
+      font-size: 17px;
+      font-weight: 600;
+    }
+
+    .select-sheet-search:focus {
+      outline: none;
+      border-color: #1a73e8;
+    }
+
+    .select-sheet-list {
+      flex: 1;
+      min-height: 160px;
+      overflow-y: auto;
+      padding: 4px 10px 12px;
+    }
+
+    .select-sheet-item {
+      width: 100%;
+      min-height: 58px;
+      display: block;
+      padding: 12px 14px;
+      border: none;
+      border-bottom: 1px solid #eef0f2;
+      background: #fff;
+      color: #202124;
+      text-align: left;
+      font-size: 17px;
+      font-weight: 700;
+      line-height: 1.25;
+      cursor: pointer;
+      word-break: break-word;
+    }
+
+    .select-sheet-item:active {
+      background: #e8f0fe;
+    }
+
+    .select-sheet-item.selected {
+      background: #e8f0fe;
+      color: #174ea6;
+    }
+
+    .select-sheet-empty {
+      padding: 28px 18px;
+      color: #666;
+      font-size: 16px;
+      font-weight: 600;
+      text-align: center;
     }
 
     /* Prevent 300ms tap delay on all interactive elements */
