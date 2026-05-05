@@ -9,6 +9,8 @@
   <script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js" integrity="sha384-SALc35EccAf6RzGw4iNsyj7kTPr33K7RoGzYu+7heZhT8s0GZouafRiCg1qy44AS" crossorigin="anonymous"></script>
   <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js" integrity="sha384-c9d8RFSL+u3exBOJ4Yp3HUJXS4znl9f+z66d1y54ig+ea249SpqR+w1wyvXz/lk+" crossorigin="anonymous"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js" crossorigin="anonymous"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.6.2/cropper.min.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.6.2/cropper.min.js"></script>
   <link rel="stylesheet" href="app.css">
 </head>
 <body>
@@ -21,7 +23,7 @@
 
   <!-- Login screen -->
   <div class="login-screen" id="login-screen" style="display:none;">
-    <div style="position:absolute; bottom:12px; left:16px; font-size:12px; color:#aaa;">v1.8.19</div>
+    <div style="position:absolute; bottom:12px; left:16px; font-size:12px; color:#aaa;">v1.8.20</div>
     <div class="login-box">
       <h1>Plattegrond Dashboard</h1>
       <p>Voer het wachtwoord in om door te gaan</p>
@@ -36,7 +38,7 @@
 
   <!-- App (hidden until logged in) -->
   <div id="app-container" style="display:none;">
-  <div style="position:fixed; bottom:12px; left:16px; font-size:12px; color:#aaa; z-index:1000; pointer-events:none;">v1.8.19</div>
+  <div style="position:fixed; bottom:12px; left:16px; font-size:12px; color:#aaa; z-index:1000; pointer-events:none;">v1.8.20</div>
 
   <!-- Toast notification -->
   <div id="toast" style="display:none; position:fixed; top:calc(env(safe-area-inset-top) + var(--topbar-h, 52px) + 12px); left:50%; transform:translateX(-50%); padding:14px 28px; border-radius:10px; font-size:16px; font-weight:600; z-index:500; box-shadow:0 4px 16px rgba(0,0,0,0.25); cursor:pointer; max-width:90vw; text-align:center;"></div>
@@ -258,13 +260,14 @@
     <!-- Top bar -->
     <div class="img-editor-topbar">
       <button id="img-editor-cancel" class="img-editor-btn-top img-editor-btn-cancel">&#8592; Annuleren</button>
-      <span class="img-editor-title">Afbeelding bewerken</span>
+      <span class="img-editor-title">Afbeelding uitsnijden</span>
       <span style="min-width:88px;"></span>
     </div>
     <!-- Canvas area -->
     <div class="img-editor-canvas-wrap" id="img-editor-canvas-wrap">
       <div id="img-editor-stage" class="img-editor-stage">
-        <canvas id="img-editor-canvas"></canvas>
+        <img id="img-editor-crop-image" alt="Plattegrond uitsnijden">
+        <canvas id="img-editor-canvas" style="display:none;"></canvas>
       </div>
     </div>
     <!-- Brush size row (gum mode only) -->
@@ -274,13 +277,13 @@
     </div>
     <!-- Bottom toolbar -->
     <div class="img-editor-toolbar">
-      <button id="img-editor-tool-pan"    class="img-editor-tool active">&#9995; Verplaatsen</button>
-      <button id="img-editor-tool-crop"   class="img-editor-tool">&#9986; Uitsnijden</button>
-      <button id="img-editor-tool-erase"  class="img-editor-tool">&#9676; Wissen</button>
-      <button id="img-editor-tool-rotate-left"  class="img-editor-tool">&#8630; 90° links</button>
-      <button id="img-editor-tool-rotate-right" class="img-editor-tool">&#8631; 90° rechts</button>
-      <button id="img-editor-apply-crop"  class="img-editor-tool img-editor-apply">&#10003; Toepassen</button>
-      <button id="img-editor-undo"        class="img-editor-tool img-editor-undo-btn" disabled>&#8617; Ongedaan</button>
+      <button id="img-editor-tool-pan"    class="img-editor-tool active" style="display:none;">&#9995; Verplaatsen</button>
+      <button id="img-editor-tool-crop"   class="img-editor-tool active">&#9986; Uitsnede aanpassen</button>
+      <button id="img-editor-tool-erase"  class="img-editor-tool" style="display:none;">&#9676; Wissen</button>
+      <button id="img-editor-tool-rotate-left"  class="img-editor-tool" style="display:none;">&#8630; 90° links</button>
+      <button id="img-editor-tool-rotate-right" class="img-editor-tool" style="display:none;">&#8631; 90° rechts</button>
+      <button id="img-editor-apply-crop"  class="img-editor-tool img-editor-apply" style="display:none;">&#10003; Toepassen</button>
+      <button id="img-editor-undo"        class="img-editor-tool img-editor-undo-btn" disabled style="display:none;">&#8617; Ongedaan</button>
       <button id="img-editor-save"        class="img-editor-tool img-editor-save">&#128190; Opslaan</button>
     </div>
   </div>
@@ -291,6 +294,16 @@
     <div style="display:flex; gap:8px; justify-content:center;">
       <button id="editor-cancel-confirm" style="font-size:16px; padding:10px 24px; border:none; border-radius:8px; background:#d93025; color:white; font-weight:600; cursor:pointer;">Ja, annuleren</button>
       <button id="editor-cancel-back"    style="font-size:16px; padding:10px 24px; border:none; border-radius:8px; background:#e0e0e0; color:#333; font-weight:600; cursor:pointer;">Terug</button>
+    </div>
+  </div>
+  <div id="crop-outside-overlay" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.5); z-index:522;"></div>
+  <div id="crop-outside-popup" style="display:none; position:fixed; top:50%; left:50%; transform:translate(-50%,-50%); background:white; padding:24px; border-radius:12px; box-shadow:0 8px 32px rgba(0,0,0,0.3); z-index:523; text-align:left; width:min(420px, calc(100vw - 32px));">
+    <h3 style="font-size:18px; color:#333; margin-bottom:12px;">Deuren buiten uitsnede</h3>
+    <p style="font-size:15px; color:#555; line-height:1.5; margin-bottom:12px;">Deze deurcodes vallen buiten de nieuwe uitsnede en worden verwijderd als je doorgaat:</p>
+    <div id="crop-outside-codes" style="max-height:180px; overflow:auto; padding:10px 12px; background:#f5f5f5; border-radius:8px; font-size:15px; font-weight:700; color:#333; margin-bottom:18px;"></div>
+    <div style="display:flex; gap:8px; justify-content:flex-end;">
+      <button id="crop-outside-cancel" style="font-size:16px; padding:10px 22px; border:none; border-radius:8px; background:#e0e0e0; color:#333; font-weight:600; cursor:pointer;">Annuleren</button>
+      <button id="crop-outside-confirm" style="font-size:16px; padding:10px 22px; border:none; border-radius:8px; background:#d93025; color:white; font-weight:600; cursor:pointer;">Doorgaan</button>
     </div>
   </div>
 

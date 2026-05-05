@@ -10,7 +10,7 @@
       jotformBaseUrl: 'https://eu.jotform.com/',
       jotformFormId: '250122093908351',
       pollInterval: 30000,
-      offlineCacheVersion: 'fd-v1.8.19',
+      offlineCacheVersion: 'fd-v1.8.20',
     };
 
     const COLORS = {
@@ -3493,6 +3493,9 @@
     let editorSaving = false;
     let editorIsPanning = false, editorDragMode = null;
     let activeEditorPointers = new Map(), editorIsPinching = false, editorPinchDist = null, editorPinchMidX = 0, editorPinchMidY = 0;
+    let editorCropper = null;
+    let editorCropContext = null;
+    let pendingCropSave = null;
 
     function getCurrentFloorplanObj() {
       const ci = parseInt(customerSelect.value, 10);
@@ -3502,6 +3505,8 @@
 
     function openImageEditor() {
       if (isEditMode) { showToast('Sluit eerst de bewerkingsmodus', 'error'); return; }
+      if (typeof Cropper === 'undefined') { showToast('Crop-tool kon niet worden geladen', 'error'); return; }
+      if (document.getElementById('img-editor-overlay').style.display !== 'none') return;
       topbarMenu.style.display = 'none';
 
       const svgEl = svgContainer.querySelector('svg');
@@ -3515,43 +3520,49 @@
       if (!imageHref || !imageHref.startsWith('data:image')) {
         showToast('Afbeelding kan niet worden geladen', 'error'); return;
       }
-      const imgX = svgImgEl.getAttribute('x') || '0';
-      const imgY = svgImgEl.getAttribute('y') || '0';
-      const imgW = svgImgEl.getAttribute('width') || String(vb.width);
-      const imgH = svgImgEl.getAttribute('height') || String(vb.height);
 
       editorStage = document.getElementById('img-editor-stage');
       editorCanvas = document.getElementById('img-editor-canvas');
       editorCtx = editorCanvas.getContext('2d');
       editorUndoStack = [];
-      editorBaseScale = 0;
-      editorPanX = 0; editorPanY = 0;
-      cropRect = null; activeCropHandle = null;
-      editorSnapshot = null;
       editorSaving = false;
+      pendingCropSave = null;
+      document.getElementById('img-editor-save').disabled = false;
+      document.getElementById('img-editor-save').textContent = '\uD83D\uDCBE Opslaan';
 
-      const img = new Image();
-      img.onload = () => {
-        editorCanvas.width  = Math.round(vb.width);
-        editorCanvas.height = Math.round(vb.height);
-        const drawX = (parseFloat(imgX) || 0) - (vb.x || 0);
-        const drawY = (parseFloat(imgY) || 0) - (vb.y || 0);
-        const drawW = parseFloat(imgW) || vb.width;
-        const drawH = parseFloat(imgH) || vb.height;
-        editorCtx.clearRect(0, 0, editorCanvas.width, editorCanvas.height);
-        editorCtx.fillStyle = '#fff';
-        editorCtx.fillRect(0, 0, editorCanvas.width, editorCanvas.height);
-        editorCtx.drawImage(img, drawX, drawY, drawW, drawH);
-        document.getElementById('img-editor-undo').disabled = true;
-        document.getElementById('img-editor-save').disabled = false;
-        document.getElementById('img-editor-save').textContent = '\uD83D\uDCBE Opslaan';
+      editorCropContext = {
+        svgEl,
+        svgImgEl,
+        imageHref,
+        vb: { x: vb.x || 0, y: vb.y || 0, width: vb.width, height: vb.height },
+        imgX: parseFloat(svgImgEl.getAttribute('x') || '0') || 0,
+        imgY: parseFloat(svgImgEl.getAttribute('y') || '0') || 0,
+        imgW: parseFloat(svgImgEl.getAttribute('width') || String(vb.width)) || vb.width,
+        imgH: parseFloat(svgImgEl.getAttribute('height') || String(vb.height)) || vb.height,
+      };
+
+      if (editorCropper) { editorCropper.destroy(); editorCropper = null; }
+      const cropImage = document.getElementById('img-editor-crop-image');
+      cropImage.onload = () => {
         document.getElementById('img-editor-overlay').style.display = 'flex';
-        waitForEditorLayoutAndFit();
+        requestAnimationFrame(() => {
+          editorCropper = new Cropper(cropImage, {
+            viewMode: 1,
+            autoCropArea: 0.92,
+            dragMode: 'move',
+            background: false,
+            movable: true,
+            zoomable: true,
+            scalable: false,
+            rotatable: false,
+            responsive: true,
+            restore: false,
+            guides: true,
+          });
+        });
       };
-      img.onerror = () => {
-        showToast('Afbeelding laden mislukt', 'error');
-      };
-      img.src = imageHref;
+      cropImage.onerror = () => showToast('Afbeelding laden mislukt', 'error');
+      cropImage.src = imageHref;
     }
 
     function waitForEditorLayoutAndFit(attempt = 0) {
@@ -3629,14 +3640,20 @@
 
     function closeImageEditor() {
       stopCropPreview({ restoreCanvas: false, clearSnapshot: true });
+      if (editorCropper) { editorCropper.destroy(); editorCropper = null; }
+      const cropImage = document.getElementById('img-editor-crop-image');
+      if (cropImage) cropImage.removeAttribute('src');
       document.getElementById('img-editor-overlay').style.display = 'none';
       editorUndoStack = [];
       cropRect = null; activeCropHandle = null;
       editorSaving = false;
+      editorCropContext = null;
+      pendingCropSave = null;
       editorTool = 'pan';
       editorCanvas.dataset.tool = 'pan';
       editorIsPanning = false; editorDragMode = null;
       activeEditorPointers.clear(); editorIsPinching = false; editorPinchDist = null;
+      hideCropOutsideConfirm();
     }
 
     function setEditorTool(tool) {
@@ -3984,23 +4001,116 @@
       showToast('Uitsnede toegepast', 'success');
     }
 
-    async function saveEditorChanges() {
+    function getCropSavePlan() {
+      if (!editorCropper || !editorCropContext) return null;
+      const cropData = editorCropper.getData(true);
+      const imageData = editorCropper.getImageData();
+      const naturalWidth = imageData.naturalWidth || document.getElementById('img-editor-crop-image').naturalWidth;
+      const naturalHeight = imageData.naturalHeight || document.getElementById('img-editor-crop-image').naturalHeight;
+      if (!naturalWidth || !naturalHeight || cropData.width < 10 || cropData.height < 10) return null;
+
+      const scaleX = editorCropContext.imgW / naturalWidth;
+      const scaleY = editorCropContext.imgH / naturalHeight;
+      const cropX = editorCropContext.imgX + cropData.x * scaleX;
+      const cropY = editorCropContext.imgY + cropData.y * scaleY;
+      const cropW = cropData.width * scaleX;
+      const cropH = cropData.height * scaleY;
+      const outsideDoorCodes = [];
+
+      svgContainer.querySelectorAll('[data-door-id]').forEach(marker => {
+        const cx = parseFloat(marker.getAttribute('cx')) || 0;
+        const cy = parseFloat(marker.getAttribute('cy')) || 0;
+        const inside = cx >= cropX && cx <= cropX + cropW && cy >= cropY && cy <= cropY + cropH;
+        if (!inside) outsideDoorCodes.push(marker.dataset.doorId || marker.getAttribute('id') || 'Onbekend');
+      });
+
+      return { cropData, cropX, cropY, cropW, cropH, outsideDoorCodes };
+    }
+
+    function showCropOutsideConfirm(codes, onConfirm) {
+      pendingCropSave = onConfirm;
+      document.getElementById('crop-outside-codes').textContent = codes.join(', ');
+      document.getElementById('crop-outside-overlay').style.display = 'block';
+      document.getElementById('crop-outside-popup').style.display = 'block';
+    }
+
+    function hideCropOutsideConfirm() {
+      const overlay = document.getElementById('crop-outside-overlay');
+      const popup = document.getElementById('crop-outside-popup');
+      if (overlay) overlay.style.display = 'none';
+      if (popup) popup.style.display = 'none';
+      pendingCropSave = null;
+    }
+
+    async function saveEditorChanges({ confirmedOutsideDoors = false } = {}) {
       if (editorSaving) return;
       const fp = getCurrentFloorplanObj();
       if (!fp) { showToast('Geen plattegrond geselecteerd', 'error'); return; }
+      const plan = getCropSavePlan();
+      if (!plan) { showToast('Geen geldige uitsnede', 'error'); return; }
+      if (plan.outsideDoorCodes.length && !confirmedOutsideDoors) {
+        showCropOutsideConfirm(plan.outsideDoorCodes, () => saveEditorChanges({ confirmedOutsideDoors: true }));
+        return;
+      }
 
       const btnSave = document.getElementById('img-editor-save');
       btnSave.disabled = true;
       btnSave.textContent = 'Opslaan...';
       editorSaving = true;
-      const shouldResumeCrop = editorTool === 'crop' && !!editorSnapshot;
-      const savedCropRect = cropRect ? { ...cropRect } : null;
 
       try {
-        if (editorSnapshot) stopCropPreview({ restoreCanvas: true, clearSnapshot: false });
-        const newDataUrl = editorCanvas.toDataURL('image/jpeg', 0.8);
-        const W = editorCanvas.width, H = editorCanvas.height;
-        const svgText = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}">\n  <image href="${newDataUrl}" width="${W}" height="${H}"/>\n</svg>`;
+        const outputCanvas = editorCropper.getCroppedCanvas({
+          width: Math.max(1, Math.round(plan.cropW)),
+          height: Math.max(1, Math.round(plan.cropH)),
+          fillColor: '#fff',
+          imageSmoothingEnabled: true,
+          imageSmoothingQuality: 'high',
+        });
+        let quality = 0.86;
+        let newDataUrl;
+        do { newDataUrl = outputCanvas.toDataURL('image/jpeg', quality); quality -= 0.08; }
+        while (newDataUrl.length > 1040000 && quality > 0.38);
+        if (newDataUrl.length > 1040000) {
+          throw new Error('Uitsnede is te groot. Maak de uitsnede kleiner.');
+        }
+
+        const svgClone = editorCropContext.svgEl.cloneNode(true);
+        svgClone.setAttribute('viewBox', `0 0 ${Math.round(plan.cropW)} ${Math.round(plan.cropH)}`);
+        svgClone.setAttribute('width', Math.round(plan.cropW).toString());
+        svgClone.setAttribute('height', Math.round(plan.cropH).toString());
+        const cloneImage = svgClone.querySelector('image');
+        cloneImage.setAttribute('href', newDataUrl);
+        cloneImage.removeAttributeNS('http://www.w3.org/1999/xlink', 'href');
+        cloneImage.setAttribute('x', '0');
+        cloneImage.setAttribute('y', '0');
+        cloneImage.setAttribute('width', Math.round(plan.cropW).toString());
+        cloneImage.setAttribute('height', Math.round(plan.cropH).toString());
+
+        svgClone.querySelectorAll('[data-fd-label]').forEach(el => el.remove());
+        svgClone.querySelectorAll('[data-door-id]').forEach(marker => {
+          if (marker.getAttribute('data-fd-label')) return;
+          const cx = parseFloat(marker.getAttribute('cx'));
+          const cy = parseFloat(marker.getAttribute('cy'));
+          if (!Number.isFinite(cx) || !Number.isFinite(cy)) return;
+          const inside = cx >= plan.cropX && cx <= plan.cropX + plan.cropW && cy >= plan.cropY && cy <= plan.cropY + plan.cropH;
+          if (!inside) {
+            marker.remove();
+            return;
+          }
+          marker.setAttribute('cx', Math.round(cx - plan.cropX).toString());
+          marker.setAttribute('cy', Math.round(cy - plan.cropY).toString());
+          marker.style.fill = '';
+          marker.style.opacity = '';
+          marker.style.cursor = '';
+          marker.style.pointerEvents = '';
+          marker.style.transition = '';
+          marker.style.stroke = '';
+          marker.style.strokeWidth = '';
+          marker.style.filter = '';
+          marker.removeAttribute('data-door-id');
+        });
+
+        const svgText = new XMLSerializer().serializeToString(svgClone);
         const svgContent = btoa(unescape(encodeURIComponent(svgText)));
 
         const fileUrl = CONFIG.svgUploadsUrl + encodeURIComponent(fp.file);
@@ -4027,10 +4137,6 @@
         if (!isNaN(ci) && !isNaN(fi)) loadFloorplan(ci, fi);
 
       } catch (err) {
-        if (shouldResumeCrop && document.getElementById('img-editor-overlay').style.display !== 'none') {
-          setEditorTool('crop');
-          if (savedCropRect) cropRect = savedCropRect;
-        }
         showToast('Fout: ' + err.message, 'error');
         editorSaving = false;
         btnSave.disabled = false;
@@ -4068,10 +4174,17 @@
     });
     document.getElementById('editor-cancel-back').addEventListener('click', hideEditorCancelConfirm);
     editorCancelOverlay.addEventListener('click', hideEditorCancelConfirm);
+    document.getElementById('crop-outside-cancel').addEventListener('click', hideCropOutsideConfirm);
+    document.getElementById('crop-outside-overlay').addEventListener('click', hideCropOutsideConfirm);
+    document.getElementById('crop-outside-confirm').addEventListener('click', () => {
+      const next = pendingCropSave;
+      hideCropOutsideConfirm();
+      if (next) next();
+    });
 
     document.getElementById('img-editor-undo').addEventListener('click', editorUndo);
     document.getElementById('img-editor-tool-pan').addEventListener('click', () => setEditorTool('pan'));
-    document.getElementById('img-editor-tool-crop').addEventListener('click', () => setEditorTool('crop'));
+    document.getElementById('img-editor-tool-crop').addEventListener('click', () => showToast('Sleep de hoeken om de uitsnede aan te passen', 'success'));
     document.getElementById('img-editor-tool-erase').addEventListener('click', () => setEditorTool('erase'));
     document.getElementById('img-editor-tool-rotate-left').addEventListener('click', () => rotateCanvas90(-1));
     document.getElementById('img-editor-tool-rotate-right').addEventListener('click', () => rotateCanvas90(1));
@@ -4108,6 +4221,7 @@
     });
 
     document.getElementById('img-editor-canvas-wrap').addEventListener('wheel', (e) => {
+      if (editorCropper) return;
       e.preventDefault();
       const factor = e.deltaY > 0 ? 0.9 : 1.1;
       zoomEditorAt(e.clientX, e.clientY, factor);
@@ -4115,6 +4229,7 @@
 
     window.addEventListener('resize', () => {
       if (document.getElementById('img-editor-overlay').style.display !== 'none') {
+        if (editorCropper) return;
         fitEditorToScreen();
       }
     });
