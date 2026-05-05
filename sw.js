@@ -1,4 +1,4 @@
-const CACHE_NAME = 'fd-v1.8.24';
+const CACHE_NAME = 'fd-v1.8.25';
 
 const STATIC_ASSETS = [
   './',

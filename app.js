@@ -10,7 +10,7 @@
       jotformBaseUrl: 'https://eu.jotform.com/',
       jotformFormId: '250122093908351',
       pollInterval: 30000,
-      offlineCacheVersion: 'fd-v1.8.24',
+      offlineCacheVersion: 'fd-v1.8.25',
     };
 
     const COLORS = {
@@ -605,7 +605,6 @@
       const cachedStatus = readCachedDoorStatus();
       if (Object.keys(cachedStatus).length > 0) {
         doorStatus = applyQueuedStatusOperations(cachedStatus, queuedOps);
-        applyStatusCycleRules(doorStatus, true);
         cacheDoorStatus();
         updateStatusBar();
       }
@@ -613,7 +612,6 @@
       try {
         const remoteStatus = await fetchGitHubJSON(CONFIG.statusUrl);
         doorStatus = applyQueuedStatusOperations(remoteStatus, queuedOps);
-        applyStatusCycleRules(doorStatus, true);
         cacheDoorStatus();
         flushStatusSyncQueue();
       } catch (err) {
@@ -1875,8 +1873,6 @@
     const STATUS_CACHE_KEY = 'fd_status_cache';
     const STATUS_QUEUE_KEY = 'fd_status_sync_queue';
     const STATUS_CYCLE_STARTED_KEY = '_cycleStartedAt';
-    const STATUS_CYCLE_RESET_STATUS = 'reset-cycle';
-    const STATUS_CYCLE_DURATION_MS = 30 * 24 * 60 * 60 * 1000;
     let statusSyncInProgress = false;
     let statusSyncRetryTimer = null;
 
@@ -1898,54 +1894,8 @@
       return Number.isFinite(started) ? started : 0;
     }
 
-    function hasDoneStatuses(bucket) {
-      if (!bucket) return false;
-      return Object.entries(bucket).some(([key, value]) => key !== STATUS_CYCLE_STARTED_KEY && value === 'done');
-    }
-
     function setCycleStartedAt(bucket, timestamp) {
       bucket[STATUS_CYCLE_STARTED_KEY] = new Date(timestamp).toISOString();
-    }
-
-    function resetFloorplanCycle(bucket, timestamp) {
-      Object.keys(bucket).forEach(key => delete bucket[key]);
-      setCycleStartedAt(bucket, timestamp);
-    }
-
-    function normalizeStatusCycles(statusData, timestamp = Date.now()) {
-      const resetOps = [];
-      let changed = false;
-
-      Object.entries(statusData || {}).forEach(([customer, floorplans]) => {
-        if (!floorplans || typeof floorplans !== 'object') return;
-        Object.entries(floorplans).forEach(([floorplan, bucket]) => {
-          if (!bucket || typeof bucket !== 'object') return;
-          const startedMs = getCycleStartedMs(bucket);
-          const hasDone = hasDoneStatuses(bucket);
-
-          if (!startedMs) {
-            if (hasDone) {
-              setCycleStartedAt(bucket, timestamp);
-              changed = true;
-            }
-            return;
-          }
-
-          if (timestamp - startedMs >= STATUS_CYCLE_DURATION_MS) {
-            resetFloorplanCycle(bucket, timestamp);
-            resetOps.push({ customer, floorplan, doorId: '', status: STATUS_CYCLE_RESET_STATUS, ts: timestamp });
-            changed = true;
-          }
-        });
-      });
-
-      return { changed, resetOps };
-    }
-
-    function applyStatusCycleRules(statusData, queueResets = false, timestamp = Date.now()) {
-      const result = normalizeStatusCycles(statusData, timestamp);
-      if (queueResets) result.resetOps.forEach(op => enqueueStatusSync(op));
-      return result.changed;
     }
 
     function readCachedDoorStatus() {
@@ -1984,11 +1934,6 @@
 
     function applyStatusOperation(statusData, op) {
       const bucket = getFloorplanStatusBucket(statusData, op.customer, op.floorplan, true);
-
-      if (op.status === STATUS_CYCLE_RESET_STATUS) {
-        resetFloorplanCycle(bucket, op.ts || Date.now());
-        return;
-      }
 
       if (op.status === 'done') {
         if (!getCycleStartedMs(bucket)) setCycleStartedAt(bucket, op.ts || Date.now());
@@ -2090,7 +2035,6 @@
       if (!selectedDoor || !currentCustomer || !currentFloorplan) return;
 
       const now = Date.now();
-      applyStatusCycleRules(doorStatus, true, now);
       const customer = currentCustomer;
       const floorplan = currentFloorplan;
       const doorId = selectedDoor;
@@ -2392,7 +2336,6 @@
       try {
         const remoteStatus = await fetchGitHubJSON(CONFIG.statusUrl);
         doorStatus = applyQueuedStatusOperations(remoteStatus, readStatusSyncQueue());
-        applyStatusCycleRules(doorStatus, true);
         cacheDoorStatus();
         refreshAllDoorColors();
         flushStatusSyncQueue();
