@@ -10,7 +10,7 @@
       jotformBaseUrl: 'https://eu.jotform.com/',
       jotformFormId: '250122093908351',
       pollInterval: 30000,
-      offlineCacheVersion: 'fd-v1.8.11',
+      offlineCacheVersion: 'fd-v1.8.10',
     };
 
     const COLORS = {
