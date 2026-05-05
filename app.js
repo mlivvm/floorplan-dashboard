@@ -10,7 +10,7 @@
       jotformBaseUrl: 'https://eu.jotform.com/',
       jotformFormId: '250122093908351',
       pollInterval: 30000,
-      offlineCacheVersion: 'fd-v1.8.18',
+      offlineCacheVersion: 'fd-v1.8.19',
     };
 
     const COLORS = {
@@ -3519,8 +3519,6 @@
       const imgY = svgImgEl.getAttribute('y') || '0';
       const imgW = svgImgEl.getAttribute('width') || String(vb.width);
       const imgH = svgImgEl.getAttribute('height') || String(vb.height);
-      const tempSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${vb.width} ${vb.height}"><image href="${imageHref}" x="${imgX}" y="${imgY}" width="${imgW}" height="${imgH}"/></svg>`;
-      const editorSourceUrl = URL.createObjectURL(new Blob([tempSvg], { type: 'image/svg+xml;charset=utf-8' }));
 
       editorStage = document.getElementById('img-editor-stage');
       editorCanvas = document.getElementById('img-editor-canvas');
@@ -3536,9 +3534,14 @@
       img.onload = () => {
         editorCanvas.width  = Math.round(vb.width);
         editorCanvas.height = Math.round(vb.height);
+        const drawX = (parseFloat(imgX) || 0) - (vb.x || 0);
+        const drawY = (parseFloat(imgY) || 0) - (vb.y || 0);
+        const drawW = parseFloat(imgW) || vb.width;
+        const drawH = parseFloat(imgH) || vb.height;
         editorCtx.clearRect(0, 0, editorCanvas.width, editorCanvas.height);
-        editorCtx.drawImage(img, 0, 0, editorCanvas.width, editorCanvas.height);
-        URL.revokeObjectURL(editorSourceUrl);
+        editorCtx.fillStyle = '#fff';
+        editorCtx.fillRect(0, 0, editorCanvas.width, editorCanvas.height);
+        editorCtx.drawImage(img, drawX, drawY, drawW, drawH);
         document.getElementById('img-editor-undo').disabled = true;
         document.getElementById('img-editor-save').disabled = false;
         document.getElementById('img-editor-save').textContent = '\uD83D\uDCBE Opslaan';
@@ -3546,10 +3549,9 @@
         waitForEditorLayoutAndFit();
       };
       img.onerror = () => {
-        URL.revokeObjectURL(editorSourceUrl);
         showToast('Afbeelding laden mislukt', 'error');
       };
-      img.src = editorSourceUrl;
+      img.src = imageHref;
     }
 
     function waitForEditorLayoutAndFit(attempt = 0) {
