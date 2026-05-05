@@ -734,6 +734,151 @@
       max-height: 100%;
     }
 
+    .img-editor-canvas-wrap .cropper-container {
+      --cropper-hit-size: 34px;
+      --cropper-hit-offset: -17px;
+      --cropper-grip-size: 15px;
+      --cropper-edge-size: 28px;
+      --cropper-edge-offset: -14px;
+      --cropper-edge-line: 4px;
+      --cropper-edge-line-offset: 12px;
+    }
+
+    @media (pointer: coarse) {
+      .img-editor-canvas-wrap .cropper-container {
+        --cropper-hit-size: 44px;
+        --cropper-hit-offset: -22px;
+        --cropper-grip-size: 18px;
+        --cropper-edge-size: 38px;
+        --cropper-edge-offset: -19px;
+        --cropper-edge-line: 5px;
+        --cropper-edge-line-offset: 16.5px;
+      }
+    }
+
+    .img-editor-canvas-wrap .cropper-view-box {
+      outline: 3px solid rgba(255, 140, 0, 0.95);
+      outline-color: rgba(255, 140, 0, 0.95);
+    }
+
+    .img-editor-canvas-wrap .cropper-line {
+      background: transparent !important;
+      opacity: 1 !important;
+      touch-action: none;
+    }
+
+    .img-editor-canvas-wrap .cropper-line::after {
+      content: "";
+      position: absolute;
+      background: rgba(255, 140, 0, 0.9);
+      border-radius: 999px;
+      box-shadow: 0 0 0 1px rgba(255,255,255,0.85), 0 2px 10px rgba(0,0,0,0.35);
+      pointer-events: none;
+    }
+
+    .img-editor-canvas-wrap .cropper-line.line-e,
+    .img-editor-canvas-wrap .cropper-line.line-w {
+      width: var(--cropper-edge-size) !important;
+    }
+
+    .img-editor-canvas-wrap .cropper-line.line-e {
+      right: var(--cropper-edge-offset) !important;
+    }
+
+    .img-editor-canvas-wrap .cropper-line.line-w {
+      left: var(--cropper-edge-offset) !important;
+    }
+
+    .img-editor-canvas-wrap .cropper-line.line-e::after,
+    .img-editor-canvas-wrap .cropper-line.line-w::after {
+      top: 0;
+      bottom: 0;
+      left: var(--cropper-edge-line-offset);
+      width: var(--cropper-edge-line);
+    }
+
+    .img-editor-canvas-wrap .cropper-line.line-n,
+    .img-editor-canvas-wrap .cropper-line.line-s {
+      height: var(--cropper-edge-size) !important;
+    }
+
+    .img-editor-canvas-wrap .cropper-line.line-n {
+      top: var(--cropper-edge-offset) !important;
+    }
+
+    .img-editor-canvas-wrap .cropper-line.line-s {
+      bottom: var(--cropper-edge-offset) !important;
+    }
+
+    .img-editor-canvas-wrap .cropper-line.line-n::after,
+    .img-editor-canvas-wrap .cropper-line.line-s::after {
+      left: 0;
+      right: 0;
+      top: var(--cropper-edge-line-offset);
+      height: var(--cropper-edge-line);
+    }
+
+    .img-editor-canvas-wrap .cropper-point {
+      width: var(--cropper-hit-size) !important;
+      height: var(--cropper-hit-size) !important;
+      background: transparent !important;
+      opacity: 1 !important;
+      touch-action: none;
+    }
+
+    .img-editor-canvas-wrap .cropper-point::before {
+      display: none !important;
+    }
+
+    .img-editor-canvas-wrap .cropper-point::after {
+      content: "";
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      width: var(--cropper-grip-size);
+      height: var(--cropper-grip-size);
+      transform: translate(-50%, -50%);
+      border-radius: 50%;
+      background: #ff8c00;
+      border: 3px solid #fff;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.45);
+      pointer-events: none;
+    }
+
+    .img-editor-canvas-wrap .cropper-point.point-n,
+    .img-editor-canvas-wrap .cropper-point.point-s {
+      margin-left: var(--cropper-hit-offset) !important;
+    }
+
+    .img-editor-canvas-wrap .cropper-point.point-e,
+    .img-editor-canvas-wrap .cropper-point.point-w {
+      margin-top: var(--cropper-hit-offset) !important;
+    }
+
+    .img-editor-canvas-wrap .cropper-point.point-n,
+    .img-editor-canvas-wrap .cropper-point.point-ne,
+    .img-editor-canvas-wrap .cropper-point.point-nw {
+      top: var(--cropper-hit-offset) !important;
+    }
+
+    .img-editor-canvas-wrap .cropper-point.point-s,
+    .img-editor-canvas-wrap .cropper-point.point-se,
+    .img-editor-canvas-wrap .cropper-point.point-sw {
+      bottom: var(--cropper-hit-offset) !important;
+    }
+
+    .img-editor-canvas-wrap .cropper-point.point-e,
+    .img-editor-canvas-wrap .cropper-point.point-ne,
+    .img-editor-canvas-wrap .cropper-point.point-se {
+      right: var(--cropper-hit-offset) !important;
+    }
+
+    .img-editor-canvas-wrap .cropper-point.point-w,
+    .img-editor-canvas-wrap .cropper-point.point-nw,
+    .img-editor-canvas-wrap .cropper-point.point-sw {
+      left: var(--cropper-hit-offset) !important;
+    }
+
     .img-editor-canvas-wrap canvas {
       display: block;
       touch-action: none;
