@@ -10,7 +10,7 @@
       jotformBaseUrl: 'https://eu.jotform.com/',
       jotformFormId: '250122093908351',
       pollInterval: 30000,
-      offlineCacheVersion: 'fd-v1.8.7',
+      offlineCacheVersion: 'fd-v1.8.8',
     };
 
     const COLORS = {
@@ -107,6 +107,12 @@
     // LAYOUT — measure topbar, handle resize/orientation
     // ============================================================
 
+    function updateViewportMetrics() {
+      const viewport = window.visualViewport;
+      const height = viewport ? viewport.height : window.innerHeight;
+      document.documentElement.style.setProperty('--app-height', Math.round(height) + 'px');
+    }
+
     function updateTopbarHeight() {
       const topbar = document.querySelector('.topbar');
       if (!topbar) return;
@@ -115,6 +121,7 @@
     }
 
     function handleResize() {
+      updateViewportMetrics();
       updateTopbarHeight();
       const svgEl = svgContainer.querySelector('svg');
       if (svgEl) {
@@ -126,6 +133,11 @@
     }
 
     window.addEventListener('resize', handleResize);
+    if (window.visualViewport) {
+      window.visualViewport.addEventListener('resize', handleResize);
+      window.visualViewport.addEventListener('scroll', handleResize);
+    }
+    updateViewportMetrics();
 
     // Warn before closing with unsaved edit mode changes
     window.addEventListener('beforeunload', (e) => {
@@ -909,7 +921,7 @@
     let editMarkerSize = 15;
     let qrScanner = null;
 
-    let movingMarker = null;    // { marker, doorId, origCx, origCy }
+    let movingMarker = null;    // { marker, doorId, origCx, origCy, dragOffsetX, dragOffsetY }
     let isDraggingMove = false;
     let autoNumbering = false;
     let autoPrefix = '';
@@ -1451,7 +1463,7 @@
     // ============================================================
 
     function startMoveMode(marker, doorId, origCx, origCy) {
-      movingMarker = { marker, doorId, origCx, origCy };
+      movingMarker = { marker, doorId, origCx, origCy, dragOffsetX: 0, dragOffsetY: 0 };
       marker.style.opacity = '1';
       marker.style.filter = 'drop-shadow(0 0 6px #7b1fa2) drop-shadow(0 0 3px #7b1fa2)';
       document.querySelector('.edit-label').textContent = doorId;
@@ -1938,6 +1950,13 @@
       if (e.pointerType === 'touch' && e.isPrimary === false) return;
 
       if (movingMarker && pendingDoor === movingMarker.doorId) {
+        const svgPoint = getSvgPointFromClient(e.clientX, e.clientY);
+        if (svgPoint) {
+          const cx = parseFloat(movingMarker.marker.getAttribute('cx')) || 0;
+          const cy = parseFloat(movingMarker.marker.getAttribute('cy')) || 0;
+          movingMarker.dragOffsetX = cx - svgPoint.x;
+          movingMarker.dragOffsetY = cy - svgPoint.y;
+        }
         isDraggingMove = true;
         isPanning = false;
         hasMoved = false;
@@ -1964,7 +1983,11 @@
         hasMoved = true;
         const svgPoint = getSvgPointFromClient(e.clientX, e.clientY);
         if (!svgPoint) return;
-        const pos = clampMarkerPosition(svgPoint.x, svgPoint.y, getMarkerRadius(movingMarker.marker));
+        const pos = clampMarkerPosition(
+          svgPoint.x + movingMarker.dragOffsetX,
+          svgPoint.y + movingMarker.dragOffsetY,
+          getMarkerRadius(movingMarker.marker)
+        );
         movingMarker.marker.setAttribute('cx', Math.round(pos.x).toString());
         movingMarker.marker.setAttribute('cy', Math.round(pos.y).toString());
         return;
