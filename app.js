@@ -10,7 +10,7 @@
       jotformBaseUrl: 'https://eu.jotform.com/',
       jotformFormId: '250122093908351',
       pollInterval: 30000,
-      offlineCacheVersion: 'fd-v1.8.14',
+      offlineCacheVersion: 'fd-v1.8.15',
     };
 
     const COLORS = {
@@ -1548,6 +1548,8 @@
       const padding = Math.max(1, 3 / currentScale);
       const placedBoxes = [];
       const activeDoorId = movingMarker?.doorId || resizingMarker?.doorId || selectedDoor;
+      const vb = svgEl.viewBox.baseVal;
+      const labelBounds = (vb.width && vb.height) ? { x: vb.x, y: vb.y, width: vb.width, height: vb.height } : getEditableBounds();
       const markers = Array.from(svgContainer.querySelectorAll('[data-door-id]'))
         .sort((a, b) => {
           const aActive = a.dataset.doorId === activeDoorId ? 1 : 0;
@@ -1567,7 +1569,6 @@
         const ry = parseFloat(m.getAttribute('ry')) || rx;
         const labelText = m.dataset.doorId;
         const estimatedWidth = labelText.length * fontSize * 0.62;
-        const bounds = getEditableBounds();
         const active = labelText === activeDoorId;
         const markerBoxes = markers
           .filter(other => other !== m)
@@ -1584,27 +1585,49 @@
               bottom: oy + ory + markerPadding,
             };
           });
-        const clampY = (value) => bounds
-          ? Math.max(bounds.y + fontSize, Math.min(bounds.y + bounds.height - fontSize * 0.25, value))
+        const clampY = (value) => labelBounds
+          ? Math.max(labelBounds.y + fontSize, Math.min(labelBounds.y + labelBounds.height - fontSize * 0.25, value))
           : value;
+        const fitCandidateToBounds = (candidate) => {
+          const left = candidate.anchor === 'end' ? candidate.x - estimatedWidth : candidate.anchor === 'middle' ? candidate.x - estimatedWidth / 2 : candidate.x;
+          const right = left + estimatedWidth;
+          const top = candidate.y - fontSize;
+          const bottom = candidate.y + fontSize * 0.25;
+          const fitted = {
+            ...candidate,
+            box: { left: left - padding, right: right + padding, top: top - padding, bottom: bottom + padding }
+          };
+          if (!labelBounds) return fitted;
+
+          let dx = 0;
+          let dy = 0;
+          if (fitted.box.left < labelBounds.x) dx = labelBounds.x - fitted.box.left;
+          if (fitted.box.right + dx > labelBounds.x + labelBounds.width) dx = labelBounds.x + labelBounds.width - fitted.box.right;
+          if (fitted.box.top < labelBounds.y) dy = labelBounds.y - fitted.box.top;
+          if (fitted.box.bottom + dy > labelBounds.y + labelBounds.height) dy = labelBounds.y + labelBounds.height - fitted.box.bottom;
+          if (!dx && !dy) return fitted;
+          return {
+            ...fitted,
+            x: fitted.x + dx,
+            y: fitted.y + dy,
+            box: {
+              left: fitted.box.left + dx,
+              right: fitted.box.right + dx,
+              top: fitted.box.top + dy,
+              bottom: fitted.box.bottom + dy,
+            }
+          };
+        };
         const candidates = [
           { anchor: 'start', x: cx + rx + offset, y: clampY(cy + fontSize * 0.4) },
           { anchor: 'end', x: cx - rx - offset, y: clampY(cy + fontSize * 0.4) },
           { anchor: 'middle', x: cx, y: clampY(cy - ry - offset) },
           { anchor: 'middle', x: cx, y: clampY(cy + ry + offset + fontSize) },
-        ].map(c => {
-          const left = c.anchor === 'end' ? c.x - estimatedWidth : c.anchor === 'middle' ? c.x - estimatedWidth / 2 : c.x;
-          const right = left + estimatedWidth;
-          const top = c.y - fontSize;
-          const bottom = c.y + fontSize * 0.25;
-          return { ...c, box: { left: left - padding, right: right + padding, top: top - padding, bottom: bottom + padding } };
-        }).filter(c => {
-          if (!bounds) return true;
-          return c.box.left >= bounds.x &&
-            c.box.right <= bounds.x + bounds.width &&
-            c.box.top >= bounds.y &&
-            c.box.bottom <= bounds.y + bounds.height;
-        });
+          { anchor: 'start', x: cx + rx + offset, y: clampY(cy - ry - offset) },
+          { anchor: 'start', x: cx + rx + offset, y: clampY(cy + ry + offset + fontSize) },
+          { anchor: 'end', x: cx - rx - offset, y: clampY(cy - ry - offset) },
+          { anchor: 'end', x: cx - rx - offset, y: clampY(cy + ry + offset + fontSize) },
+        ].map(fitCandidateToBounds);
         const chosen = candidates.find(c =>
           !placedBoxes.some(box => overlaps(c.box, box)) &&
           !markerBoxes.some(box => overlaps(c.box, box))
