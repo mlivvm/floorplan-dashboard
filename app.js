@@ -10,7 +10,7 @@
       jotformBaseUrl: 'https://eu.jotform.com/',
       jotformFormId: '250122093908351',
       pollInterval: 30000,
-      offlineCacheVersion: 'fd-v1.8.17',
+      offlineCacheVersion: 'fd-v1.8.18',
     };
 
     const COLORS = {
@@ -1045,12 +1045,12 @@
     function getSvgPointFromClient(clientX, clientY) {
       const svgEl = svgContainer.querySelector('svg');
       if (!svgEl) return null;
-      const matrix = svgEl.getScreenCTM();
-      if (!matrix) return null;
-      const point = svgEl.createSVGPoint();
-      point.x = clientX;
-      point.y = clientY;
-      return point.matrixTransform(matrix.inverse());
+      const vb = svgEl.viewBox.baseVal;
+      const containerRect = svgContainer.getBoundingClientRect();
+      return {
+        x: (vb.x || 0) + ((clientX - containerRect.left - panX) / scale),
+        y: (vb.y || 0) + ((clientY - containerRect.top - panY) / scale),
+      };
     }
 
     function getEditableBounds() {
