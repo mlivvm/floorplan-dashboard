@@ -10,11 +10,11 @@
       jotformBaseUrl: 'https://eu.jotform.com/',
       jotformFormId: '250122093908351',
       pollInterval: 30000,
-      offlineCacheVersion: 'fd-v1.8.9',
+      offlineCacheVersion: 'fd-v1.8.10',
     };
 
     const COLORS = {
-      todo: '#304A5E',
+      todo: '#1a73e8',
       done: '#34a853',
     };
 
@@ -1265,7 +1265,7 @@
       ellipse.setAttribute('cy', Math.round(pos.y));
       ellipse.setAttribute('rx', editMarkerSize.toString());
       ellipse.setAttribute('ry', editMarkerSize.toString());
-      ellipse.style.fill = '#304A5E';
+      ellipse.style.fill = '#1a73e8';
       ellipse.style.opacity = '0.7';
 
       svgEl.appendChild(ellipse);
