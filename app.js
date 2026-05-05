@@ -10,7 +10,7 @@
       jotformBaseUrl: 'https://eu.jotform.com/',
       jotformFormId: '250122093908351',
       pollInterval: 30000,
-      offlineCacheVersion: 'fd-v1.8.13',
+      offlineCacheVersion: 'fd-v1.8.14',
     };
 
     const COLORS = {
@@ -1569,6 +1569,21 @@
         const estimatedWidth = labelText.length * fontSize * 0.62;
         const bounds = getEditableBounds();
         const active = labelText === activeDoorId;
+        const markerBoxes = markers
+          .filter(other => other !== m)
+          .map(other => {
+            const ox = parseFloat(other.getAttribute('cx')) || 0;
+            const oy = parseFloat(other.getAttribute('cy')) || 0;
+            const orx = parseFloat(other.getAttribute('rx')) || parseFloat(other.getAttribute('r')) || 10;
+            const ory = parseFloat(other.getAttribute('ry')) || parseFloat(other.getAttribute('r')) || orx;
+            const markerPadding = Math.max(padding * 2, 6 / currentScale);
+            return {
+              left: ox - orx - markerPadding,
+              right: ox + orx + markerPadding,
+              top: oy - ory - markerPadding,
+              bottom: oy + ory + markerPadding,
+            };
+          });
         const clampY = (value) => bounds
           ? Math.max(bounds.y + fontSize, Math.min(bounds.y + bounds.height - fontSize * 0.25, value))
           : value;
@@ -1590,7 +1605,10 @@
             c.box.top >= bounds.y &&
             c.box.bottom <= bounds.y + bounds.height;
         });
-        const chosen = candidates.find(c => !placedBoxes.some(box => overlaps(c.box, box))) || (active ? candidates[0] : null);
+        const chosen = candidates.find(c =>
+          !placedBoxes.some(box => overlaps(c.box, box)) &&
+          !markerBoxes.some(box => overlaps(c.box, box))
+        ) || (active ? candidates.find(c => !markerBoxes.some(box => overlaps(c.box, box))) : null);
         if (!chosen) return;
         const text = document.createElementNS(ns, 'text');
         text.setAttribute('x', chosen.x.toString());
