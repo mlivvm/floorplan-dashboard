@@ -15,13 +15,13 @@
 
   <!-- Splash screen (shown until JS determines login state) -->
   <div id="splash-screen" style="position:fixed;inset:0;background:#f5f5f5;display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:9999;">
-    <div style="width:48px;height:48px;border:4px solid #ddd;border-top-color:#304A5E;border-radius:50%;animation:splash-spin 0.8s linear infinite;"></div>
+    <div style="width:48px;height:48px;border:4px solid #ddd;border-top-color:#1a73e8;border-radius:50%;animation:splash-spin 0.8s linear infinite;"></div>
   </div>
   <style>@keyframes splash-spin{to{transform:rotate(360deg)}}</style>
 
   <!-- Login screen -->
   <div class="login-screen" id="login-screen" style="display:none;">
-    <div style="position:absolute; bottom:12px; left:16px; font-size:12px; color:#aaa;">v1.8.10</div>
+    <div style="position:absolute; bottom:12px; left:16px; font-size:12px; color:#aaa;">v1.8.12</div>
     <div class="login-box">
       <h1>Plattegrond Dashboard</h1>
       <p>Voer het wachtwoord in om door te gaan</p>
@@ -36,7 +36,7 @@
 
   <!-- App (hidden until logged in) -->
   <div id="app-container" style="display:none;">
-  <div style="position:fixed; bottom:12px; left:16px; font-size:12px; color:#aaa; z-index:1000; pointer-events:none;">v1.8.10</div>
+  <div style="position:fixed; bottom:12px; left:16px; font-size:12px; color:#aaa; z-index:1000; pointer-events:none;">v1.8.12</div>
 
   <!-- Toast notification -->
   <div id="toast" style="display:none; position:fixed; top:calc(env(safe-area-inset-top) + var(--topbar-h, 52px) + 12px); left:50%; transform:translateX(-50%); padding:14px 28px; border-radius:10px; font-size:16px; font-weight:600; z-index:500; box-shadow:0 4px 16px rgba(0,0,0,0.25); cursor:pointer; max-width:90vw; text-align:center;"></div>
@@ -66,7 +66,7 @@
       <div id="topbar-menu" style="display:none; position:absolute; right:0; top:100%; margin-top:4px; background:white; border-radius:8px; box-shadow:0 4px 16px rgba(0,0,0,0.2); min-width:160px; z-index:200; overflow:hidden;">
         <button id="btn-upload" style="display:block; width:100%; padding:14px 20px; border:none; background:white; font-size:16px; font-weight:600; color:#333; text-align:left; cursor:pointer;">Plattegrond toevoegen</button>
         <button id="btn-menu-labels" style="display:block; width:100%; padding:14px 20px; border:none; background:white; font-size:16px; font-weight:600; color:#333; text-align:left; cursor:pointer;">Labels tonen</button>
-        <button id="btn-edit-image" style="display:none; width:100%; padding:14px 20px; border:none; background:white; font-size:16px; font-weight:600; color:#304A5E; text-align:left; cursor:pointer;">Afbeelding bewerken</button>
+        <button id="btn-edit-image" style="display:none; width:100%; padding:14px 20px; border:none; background:white; font-size:16px; font-weight:600; color:#1a73e8; text-align:left; cursor:pointer;">Afbeelding bewerken</button>
         <button id="btn-delete-fp" style="display:none; width:100%; padding:14px 20px; border:none; background:white; font-size:16px; font-weight:600; color:#d93025; text-align:left; cursor:pointer;">Plattegrond verwijderen</button>
         <div style="border-top:1px solid #eee;"></div>
         <button id="btn-logout" style="display:block; width:100%; padding:14px 20px; border:none; background:white; font-size:16px; font-weight:600; color:#d93025; text-align:left; cursor:pointer;">Uitloggen</button>
@@ -126,7 +126,7 @@
     <h3 id="edit-popup-title">Nieuwe deur</h3>
     <div id="edit-popup-input-row" style="display:flex; gap:8px; margin-bottom:16px;">
       <input type="text" id="edit-popup-input" placeholder="Deurcode" maxlength="20" autocomplete="off" style="flex:1; margin-bottom:0;">
-      <button id="btn-scan-qr" style="padding:8px 14px; border:none; border-radius:8px; background:#304A5E; color:white; font-size:16px; font-weight:600; cursor:pointer; white-space:nowrap;">&#128247; Scan</button>
+      <button id="btn-scan-qr" style="padding:8px 14px; border:none; border-radius:8px; background:#1a73e8; color:white; font-size:16px; font-weight:600; cursor:pointer; white-space:nowrap;">&#128247; Scan</button>
     </div>
     <div id="edit-popup-custom"></div>
     <div id="edit-popup-error" style="color:#d93025; font-size:14px; font-weight:600; margin-bottom:12px; min-height:20px;"></div>
@@ -158,7 +158,7 @@
 
   <!-- SVG display area -->
   <div class="loading" id="loading"><div class="empty-state">
-    <div class="empty-state-icon"><svg xmlns="http://www.w3.org/2000/svg" width="90" height="90" viewBox="0 0 90 90"><rect x="8" y="32" width="74" height="50" rx="5" fill="#E5E8E8" stroke="#304A5E" stroke-width="2.5"/><rect x="18" y="44" width="16" height="16" rx="3" fill="#304A5E" opacity="0.45"/><rect x="56" y="44" width="16" height="16" rx="3" fill="#304A5E" opacity="0.45"/><rect x="37" y="50" width="16" height="32" rx="3" fill="#304A5E" opacity="0.65"/><polygon points="45,6 6,32 84,32" fill="#304A5E" opacity="0.75"/></svg></div>
+    <div class="empty-state-icon"><svg xmlns="http://www.w3.org/2000/svg" width="90" height="90" viewBox="0 0 90 90"><rect x="8" y="32" width="74" height="50" rx="5" fill="#e8f0fe" stroke="#1a73e8" stroke-width="2.5"/><rect x="18" y="44" width="16" height="16" rx="3" fill="#1a73e8" opacity="0.45"/><rect x="56" y="44" width="16" height="16" rx="3" fill="#1a73e8" opacity="0.45"/><rect x="37" y="50" width="16" height="32" rx="3" fill="#1a73e8" opacity="0.65"/><polygon points="45,6 6,32 84,32" fill="#1a73e8" opacity="0.75"/></svg></div>
     <div class="empty-state-title">Plattegrond Dashboard</div>
     <div class="empty-state-sub">Kies een klant en plattegrond<br>om te beginnen.</div>
     <div class="empty-state-hint">Gebruik de dropdowns bovenaan</div>
@@ -206,7 +206,7 @@
         <select id="upload-customer-select" class="upload-input"></select>
         <div id="upload-new-customer-wrapper" style="display:none;">
           <input type="text" id="upload-new-customer" placeholder="Naam nieuwe klant" class="upload-input" style="width:100%;">
-          <button type="button" id="btn-back-to-select" style="background:none; border:none; color:#304A5E; font-size:13px; padding:4px 2px; cursor:pointer; text-decoration:underline; display:inline-block; margin-top:4px;">← Kies bestaande klant</button>
+          <button type="button" id="btn-back-to-select" style="background:none; border:none; color:#1a73e8; font-size:13px; padding:4px 2px; cursor:pointer; text-decoration:underline; display:inline-block; margin-top:4px;">← Kies bestaande klant</button>
         </div>
         <input type="text" id="upload-floorplan-name" placeholder="bv. Locatie - Verdieping" class="upload-input">
         <p style="font-size:13px; color:#888; margin:-4px 0 0 0;">Suggestie: Locatie - Verdieping</p>

@@ -10,7 +10,7 @@
       jotformBaseUrl: 'https://eu.jotform.com/',
       jotformFormId: '250122093908351',
       pollInterval: 30000,
-      offlineCacheVersion: 'fd-v1.8.10',
+      offlineCacheVersion: 'fd-v1.8.12',
     };
 
     const COLORS = {
@@ -84,7 +84,7 @@
     // SHARED UI HELPERS
     // ============================================================
 
-    const BUILDING_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="90" height="90" viewBox="0 0 90 90"><rect x="8" y="32" width="74" height="50" rx="5" fill="#E5E8E8" stroke="#304A5E" stroke-width="2.5"/><rect x="18" y="44" width="16" height="16" rx="3" fill="#304A5E" opacity="0.45"/><rect x="56" y="44" width="16" height="16" rx="3" fill="#304A5E" opacity="0.45"/><rect x="37" y="50" width="16" height="32" rx="3" fill="#304A5E" opacity="0.65"/><polygon points="45,6 6,32 84,32" fill="#304A5E" opacity="0.75"/></svg>`;
+    const BUILDING_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="90" height="90" viewBox="0 0 90 90"><rect x="8" y="32" width="74" height="50" rx="5" fill="#e8f0fe" stroke="#1a73e8" stroke-width="2.5"/><rect x="18" y="44" width="16" height="16" rx="3" fill="#1a73e8" opacity="0.45"/><rect x="56" y="44" width="16" height="16" rx="3" fill="#1a73e8" opacity="0.45"/><rect x="37" y="50" width="16" height="32" rx="3" fill="#1a73e8" opacity="0.65"/><polygon points="45,6 6,32 84,32" fill="#1a73e8" opacity="0.75"/></svg>`;
 
     function setEmptyState(subtitle, hint) {
       loadingEl.innerHTML = `<div class="empty-state">
@@ -1212,7 +1212,7 @@
       buttons.forEach(btn => {
         const el = document.createElement('button');
         el.textContent = btn.text;
-        el.style.background = btn.color || '#304A5E';
+        el.style.background = btn.color || '#1a73e8';
         el.style.color = btn.textColor || 'white';
         el.addEventListener('click', btn.action);
         editPopupButtons.appendChild(el);
@@ -1658,7 +1658,7 @@
           }
         },
         {
-          text: 'Code wijzigen', color: '#304A5E',
+          text: 'Code wijzigen', color: '#1a73e8',
           action: () => {
             closeEditPopup();
             showEditPopup('Code wijzigen', doorId, [
