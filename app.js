@@ -10,7 +10,7 @@
       jotformBaseUrl: 'https://eu.jotform.com/',
       jotformFormId: '250122093908351',
       pollInterval: 30000,
-      offlineCacheVersion: 'fd-v1.8.15',
+      offlineCacheVersion: 'fd-v1.8.16',
     };
 
     const COLORS = {
@@ -2003,9 +2003,32 @@
       applyTransform();
     }
 
+    function clampPanToVisibleMap() {
+      const svgEl = svgContainer.querySelector('svg');
+      if (!svgEl) return;
+      const vb = svgEl.viewBox.baseVal;
+      if (!vb.width || !vb.height) return;
+
+      const containerRect = svgContainer.getBoundingClientRect();
+      const infoPanelHeight = infoPanel.offsetHeight || 0;
+      const renderedWidth = vb.width * scale;
+      const renderedHeight = vb.height * scale;
+      const minVisibleX = Math.min(160, Math.max(64, containerRect.width * 0.14));
+      const minVisibleY = Math.min(160, Math.max(64, containerRect.height * 0.14));
+
+      const minPanX = minVisibleX - renderedWidth;
+      const maxPanX = containerRect.width - minVisibleX;
+      const minPanY = infoPanelHeight + minVisibleY - renderedHeight;
+      const maxPanY = containerRect.height - minVisibleY;
+
+      panX = Math.max(minPanX, Math.min(maxPanX, panX));
+      panY = Math.max(minPanY, Math.min(maxPanY, panY));
+    }
+
     function applyTransform() {
       const svgEl = svgContainer.querySelector('svg');
       if (!svgEl) return;
+      clampPanToVisibleMap();
       svgEl.style.transform = `translate(${panX}px, ${panY}px) scale(${scale})`;
     }
 
