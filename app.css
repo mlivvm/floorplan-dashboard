@@ -742,6 +742,8 @@
       --cropper-edge-offset: -14px;
       --cropper-edge-line: 4px;
       --cropper-edge-line-offset: 12px;
+      --cropper-edge-inside-start: 14px;
+      --cropper-edge-inside-end: 10px;
     }
 
     @media (pointer: coarse) {
@@ -753,6 +755,8 @@
         --cropper-edge-offset: -19px;
         --cropper-edge-line: 5px;
         --cropper-edge-line-offset: 16.5px;
+        --cropper-edge-inside-start: 19px;
+        --cropper-edge-inside-end: 14px;
       }
     }
 
@@ -793,8 +797,15 @@
     .img-editor-canvas-wrap .cropper-line.line-w::after {
       top: 0;
       bottom: 0;
-      left: var(--cropper-edge-line-offset);
       width: var(--cropper-edge-line);
+    }
+
+    .img-editor-canvas-wrap .cropper-line.line-e::after {
+      left: var(--cropper-edge-inside-end);
+    }
+
+    .img-editor-canvas-wrap .cropper-line.line-w::after {
+      left: var(--cropper-edge-inside-start);
     }
 
     .img-editor-canvas-wrap .cropper-line.line-n,
@@ -814,8 +825,15 @@
     .img-editor-canvas-wrap .cropper-line.line-s::after {
       left: 0;
       right: 0;
-      top: var(--cropper-edge-line-offset);
       height: var(--cropper-edge-line);
+    }
+
+    .img-editor-canvas-wrap .cropper-line.line-n::after {
+      top: var(--cropper-edge-inside-start);
+    }
+
+    .img-editor-canvas-wrap .cropper-line.line-s::after {
+      top: var(--cropper-edge-inside-end);
     }
 
     .img-editor-canvas-wrap .cropper-point {
@@ -843,6 +861,38 @@
       border: 3px solid #fff;
       box-shadow: 0 2px 12px rgba(0,0,0,0.45);
       pointer-events: none;
+    }
+
+    .img-editor-canvas-wrap .cropper-point.point-n::after {
+      transform: translate(-50%, 0);
+    }
+
+    .img-editor-canvas-wrap .cropper-point.point-s::after {
+      transform: translate(-50%, -100%);
+    }
+
+    .img-editor-canvas-wrap .cropper-point.point-e::after {
+      transform: translate(-100%, -50%);
+    }
+
+    .img-editor-canvas-wrap .cropper-point.point-w::after {
+      transform: translate(0, -50%);
+    }
+
+    .img-editor-canvas-wrap .cropper-point.point-ne::after {
+      transform: translate(-100%, 0);
+    }
+
+    .img-editor-canvas-wrap .cropper-point.point-nw::after {
+      transform: translate(0, 0);
+    }
+
+    .img-editor-canvas-wrap .cropper-point.point-se::after {
+      transform: translate(-100%, -100%);
+    }
+
+    .img-editor-canvas-wrap .cropper-point.point-sw::after {
+      transform: translate(0, -100%);
     }
 
     .img-editor-canvas-wrap .cropper-point.point-n,
