@@ -10,6 +10,7 @@
       jotformBaseUrl: 'https://eu.jotform.com/',
       jotformFormId: '250122093908351',
       pollInterval: 30000,
+      offlineCacheVersion: 'fd-v1.8.7',
     };
 
     const COLORS = {
@@ -74,6 +75,10 @@
     const sidePanel = document.getElementById('side-panel');
     const sidePanelList = document.getElementById('side-panel-list');
     const sidePanelHeader = document.getElementById('side-panel-header');
+    const connectionIndicator = document.getElementById('connection-indicator');
+    const connectionLabel = document.getElementById('connection-label');
+    const syncIndicator = document.getElementById('sync-indicator');
+    const syncLabel = document.getElementById('sync-label');
 
     // ============================================================
     // SHARED UI HELPERS
@@ -151,12 +156,41 @@
       if (toastTimer) clearTimeout(toastTimer);
     });
 
+    function updateConnectionIndicator() {
+      const isOnline = navigator.onLine;
+      connectionIndicator.classList.toggle('offline', !isOnline);
+      connectionLabel.textContent = isOnline ? 'Online' : 'Offline';
+      connectionIndicator.title = isOnline ? 'Online' : 'Offline';
+      requestAnimationFrame(updateTopbarHeight);
+    }
+
+    function updateStatusSyncIndicator() {
+      const count = readStatusSyncQueue().length;
+      syncIndicator.style.display = count > 0 ? 'inline-flex' : 'none';
+      syncLabel.textContent = 'Sync ' + count;
+      syncIndicator.title = count === 1 ? '1 statuswijziging wacht op sync' : count + ' statuswijzigingen wachten op sync';
+      requestAnimationFrame(updateTopbarHeight);
+    }
+
+    window.addEventListener('online', () => {
+      updateConnectionIndicator();
+      showToast('Je bent weer online', 'success');
+      flushStatusSyncQueue();
+    });
+
+    window.addEventListener('offline', () => {
+      updateConnectionIndicator();
+      showToast('Offline modus', 'error');
+    });
+
     // ============================================================
     // DATA LOADING
     // ============================================================
 
+    const CUSTOMERS_CACHE_KEY = 'fd_customers_cache';
+
     function getGitHubToken() {
-      return sessionStorage.getItem('fd_github_token') || '';
+      return localStorage.getItem('fd_github_token') || sessionStorage.getItem('fd_github_token') || '';
     }
 
     function ghHeaders(accept) {
@@ -180,6 +214,23 @@
       if (!response.ok) throw new Error('GitHub fetch failed: ' + response.status);
       const data = await response.json();
       return JSON.parse(decodeBase64UTF8(data.content));
+    }
+
+    function readCachedCustomers() {
+      try {
+        const cached = JSON.parse(localStorage.getItem(CUSTOMERS_CACHE_KEY) || '[]');
+        return Array.isArray(cached) ? cached : [];
+      } catch {
+        return [];
+      }
+    }
+
+    function cacheCustomers() {
+      try {
+        localStorage.setItem(CUSTOMERS_CACHE_KEY, JSON.stringify(customers));
+      } catch (err) {
+        console.warn('Klanten cache kon niet worden opgeslagen:', err);
+      }
     }
 
     async function fetchGitHubSVG(fileUrl) {
@@ -206,22 +257,353 @@
       return decodeBase64UTF8(blob.content);
     }
 
+    async function fetchGitHubSVGCacheFirst(fileUrl) {
+      if (!('caches' in window)) return { svgText: await fetchGitHubSVG(fileUrl), revalidate: null };
+      try {
+        const cache = await caches.open(CONFIG.offlineCacheVersion);
+        const cachedMetaResp = await cache.match(fileUrl, { ignoreVary: true });
+        if (cachedMetaResp) {
+          const meta = await cachedMetaResp.clone().json();
+          const repoMatch = fileUrl.match(/repos\/([^/]+\/[^/]+)\//);
+          const repo = repoMatch ? repoMatch[1] : 'mlivvm/gallery';
+          const blobUrl = `https://api.github.com/repos/${repo}/git/blobs/${meta.sha}`;
+          const cachedBlobResp = await cache.match(blobUrl, { ignoreVary: true });
+          if (cachedBlobResp) {
+            const blob = await cachedBlobResp.clone().json();
+            const svgText = decodeBase64UTF8(blob.content);
+            const revalidate = revalidateSVGInBackground(fileUrl, meta.sha);
+            return { svgText, revalidate };
+          }
+        }
+      } catch (err) {
+        console.warn('Cache-first lookup mislukt:', err);
+      }
+      return { svgText: await fetchGitHubSVG(fileUrl), revalidate: null };
+    }
+
+    async function revalidateSVGInBackground(fileUrl, cachedSha) {
+      try {
+        const metaResp = await fetch(fileUrl, { headers: ghHeaders(), cache: 'no-store' });
+        if (!metaResp.ok) return null;
+        const meta = await metaResp.json();
+        if (meta.sha === cachedSha) return null;
+        const repoMatch = fileUrl.match(/repos\/([^/]+\/[^/]+)\//);
+        const repo = repoMatch ? repoMatch[1] : 'mlivvm/gallery';
+        const blobUrl = `https://api.github.com/repos/${repo}/git/blobs/${meta.sha}`;
+        const blobResp = await fetch(blobUrl, { headers: ghHeaders(), cache: 'no-store' });
+        if (!blobResp.ok) return null;
+        const blob = await blobResp.json();
+        return decodeBase64UTF8(blob.content);
+      } catch {
+        return null;
+      }
+    }
+
+    async function updateCachedSVGAfterSave(fileUrl, updateResult, svgBase64) {
+      if (!('caches' in window) || !updateResult?.content?.sha) return;
+      try {
+        const repoMatch = fileUrl.match(/repos\/([^/]+\/[^/]+)\//);
+        const repo = repoMatch ? repoMatch[1] : 'mlivvm/gallery';
+        const sha = updateResult.content.sha;
+        const blobUrl = getGitHubBlobUrl(repo, sha);
+        const cache = await caches.open(CONFIG.offlineCacheVersion);
+
+        await Promise.all([
+          cache.put(fileUrl, new Response(JSON.stringify(updateResult.content), {
+            headers: { 'Content-Type': 'application/json' }
+          })),
+          cache.put(blobUrl, new Response(JSON.stringify({ content: svgBase64 }), {
+            headers: { 'Content-Type': 'application/json' }
+          }))
+        ]);
+
+        const manifest = readFloorplanCacheManifest();
+        const path = decodeURIComponent(fileUrl.split('/contents/')[1] || '');
+        if (path) {
+          manifest.files[getFloorplanCacheKey(repo, path)] = sha;
+          writeFloorplanCacheManifest(manifest);
+        }
+      } catch (err) {
+        console.warn('SVG cache kon niet direct worden bijgewerkt:', err);
+      }
+    }
+
+    function getFloorplanRepo(fp) {
+      return fp.repo === 'uploads' ? 'mlivvm/floorplan-uploads' : 'mlivvm/gallery';
+    }
+
+    function getFloorplanPath(fp) {
+      return fp.file;
+    }
+
+    function getFloorplanApiUrl(fp) {
+      const baseUrl = fp.repo === 'uploads' ? CONFIG.svgUploadsUrl : CONFIG.svgBaseUrl;
+      return baseUrl + encodeURIComponent(getFloorplanPath(fp));
+    }
+
+    async function warmGitHubSVGCache(fileUrl) {
+      const metaResp = await fetch(fileUrl, {
+        headers: ghHeaders(),
+        cache: 'no-store',
+      });
+      if (!metaResp.ok) throw new Error('Metadata cache mislukt: ' + metaResp.status);
+      const meta = await metaResp.json();
+
+      const repoMatch = fileUrl.match(/repos\/([^/]+\/[^/]+)\//);
+      const repo = repoMatch ? repoMatch[1] : 'mlivvm/gallery';
+      const blobUrl = `https://api.github.com/repos/${repo}/git/blobs/${meta.sha}`;
+      const blobResp = await fetch(blobUrl, {
+        headers: ghHeaders(),
+        cache: 'no-store',
+      });
+      if (!blobResp.ok) throw new Error('Blob cache mislukt: ' + blobResp.status);
+    }
+
+    const FLOORPLAN_CACHE_MANIFEST_KEY = 'fd_floorplan_cache_manifest';
+
+    function readFloorplanCacheManifest() {
+      try {
+        const raw = localStorage.getItem(FLOORPLAN_CACHE_MANIFEST_KEY);
+        if (!raw) return { version: CONFIG.offlineCacheVersion, files: {} };
+        const parsed = JSON.parse(raw);
+        if (!parsed || typeof parsed !== 'object' || !parsed.files) {
+          return { version: CONFIG.offlineCacheVersion, files: {} };
+        }
+        if (parsed.version !== CONFIG.offlineCacheVersion) {
+          return { version: CONFIG.offlineCacheVersion, files: {} };
+        }
+        return parsed;
+      } catch {
+        return { version: CONFIG.offlineCacheVersion, files: {} };
+      }
+    }
+
+    function writeFloorplanCacheManifest(manifest) {
+      try {
+        localStorage.setItem(FLOORPLAN_CACHE_MANIFEST_KEY, JSON.stringify(manifest));
+      } catch (err) {
+        console.warn('Offline cache manifest kon niet worden opgeslagen:', err);
+      }
+    }
+
+    function getFloorplanCacheKey(repo, path) {
+      return repo + ':' + path;
+    }
+
+    function getGitHubBlobUrl(repo, sha) {
+      return `https://api.github.com/repos/${repo}/git/blobs/${sha}`;
+    }
+
+    function getGitHubGetRequest(url) {
+      return new Request(url, {
+        headers: ghHeaders(),
+        cache: 'no-store',
+      });
+    }
+
+    async function isFloorplanCached(item) {
+      if (!item.sha || !('caches' in window)) return false;
+      try {
+        const [metaCached, blobCached] = await Promise.all([
+          caches.match(getGitHubGetRequest(item.fileUrl)),
+          caches.match(getGitHubGetRequest(getGitHubBlobUrl(item.repo, item.sha))),
+        ]);
+        return Boolean(metaCached && blobCached);
+      } catch (err) {
+        console.warn('Offline cache controle mislukt:', item.fileUrl, err);
+        return false;
+      }
+    }
+
+    async function fetchRepoDefaultBranch(repo) {
+      const resp = await fetch(`https://api.github.com/repos/${repo}`, {
+        headers: ghHeaders(),
+        cache: 'no-store',
+      });
+      if (!resp.ok) throw new Error('Repo metadata fetch mislukt: ' + repo + ' ' + resp.status);
+      const data = await resp.json();
+      return data.default_branch || 'main';
+    }
+
+    async function fetchRepoTreeMap(repo) {
+      const refs = [];
+      let lastErr = null;
+
+      try {
+        refs.push(await fetchRepoDefaultBranch(repo));
+      } catch (err) {
+        lastErr = err;
+      }
+      ['main', 'master'].forEach(ref => {
+        if (!refs.includes(ref)) refs.push(ref);
+      });
+
+      for (const ref of refs) {
+        try {
+          const treeUrl = `https://api.github.com/repos/${repo}/git/trees/${ref}?recursive=1`;
+          const resp = await fetch(treeUrl, {
+            headers: ghHeaders(),
+            cache: 'no-store',
+          });
+          if (!resp.ok) {
+            lastErr = new Error('Tree fetch mislukt: ' + repo + '@' + ref + ' ' + resp.status);
+            continue;
+          }
+
+          const data = await resp.json();
+          const map = new Map();
+          (data.tree || []).forEach(item => {
+            if (item.type === 'blob') map.set(item.path, item.sha);
+          });
+          if (data.truncated) {
+            console.warn('GitHub tree is truncated voor repo:', repo);
+          }
+          return map;
+        } catch (err) {
+          lastErr = err;
+        }
+      }
+
+      throw lastErr || new Error('Tree fetch mislukt: ' + repo);
+    }
+
+    let floorplanCacheWarmStarted = false;
+
+    async function waitForServiceWorkerReady() {
+      if (!('serviceWorker' in navigator)) return false;
+      try {
+        await Promise.race([
+          navigator.serviceWorker.ready,
+          new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 8000)),
+        ]);
+        return true;
+      } catch (err) {
+        console.warn('Service worker niet klaar voor offline cache warmup:', err);
+        return false;
+      }
+    }
+
+    function scheduleFloorplanCacheWarmup() {
+      if (floorplanCacheWarmStarted || !customers.length) return;
+      floorplanCacheWarmStarted = true;
+
+      const run = async () => {
+        const swReady = await waitForServiceWorkerReady();
+        if (!swReady) return;
+        await warmFloorplanCache();
+      };
+
+      const safeRun = () => run().catch(err => {
+        console.warn('Offline cache warmup mislukt:', err);
+      });
+
+      if ('requestIdleCallback' in window) {
+        requestIdleCallback(safeRun, { timeout: 5000 });
+      } else {
+        setTimeout(safeRun, 1500);
+      }
+    }
+
+    async function warmFloorplanCache() {
+      const queue = [];
+      customers.forEach(c => {
+        c.floorplans.forEach(fp => {
+          if (!fp.file) return;
+          const repo = getFloorplanRepo(fp);
+          const path = getFloorplanPath(fp);
+          queue.push({
+            repo,
+            path,
+            fileUrl: getFloorplanApiUrl(fp),
+            cacheKey: getFloorplanCacheKey(repo, path),
+          });
+        });
+      });
+
+      const repoTreeMaps = {};
+      await Promise.all(Array.from(new Set(queue.map(item => item.repo))).map(async repo => {
+        try {
+          repoTreeMaps[repo] = await fetchRepoTreeMap(repo);
+        } catch (err) {
+          repoTreeMaps[repo] = null;
+          console.warn('GitHub tree niet beschikbaar, warmup valt terug op volledige check:', repo, err);
+        }
+      }));
+
+      const manifest = readFloorplanCacheManifest();
+      const warmQueue = [];
+      let skipped = 0;
+
+      await Promise.all(queue.map(async item => {
+        const treeMap = repoTreeMaps[item.repo];
+        const sha = treeMap ? treeMap.get(item.path) : null;
+        item.sha = sha;
+
+        if (sha && manifest.files[item.cacheKey] === sha && await isFloorplanCached(item)) {
+          skipped++;
+        } else {
+          warmQueue.push(item);
+        }
+      }));
+
+      let next = 0;
+      let cached = 0;
+      const workerCount = Math.min(3, warmQueue.length);
+
+      async function worker() {
+        while (next < warmQueue.length) {
+          const item = warmQueue[next++];
+          try {
+            await warmGitHubSVGCache(item.fileUrl);
+            if (item.sha) manifest.files[item.cacheKey] = item.sha;
+            cached++;
+          } catch (err) {
+            console.warn('Plattegrond niet in offline cache:', item.fileUrl, err);
+          }
+          await new Promise(resolve => setTimeout(resolve, 50));
+        }
+      }
+
+      await Promise.all(Array.from({ length: workerCount }, worker));
+      writeFloorplanCacheManifest(manifest);
+      console.info(`Offline cache warmup klaar: ${cached} vernieuwd, ${skipped} overgeslagen, ${queue.length} totaal.`);
+    }
+
     async function loadCustomers() {
       try {
         customers = await fetchGitHubJSON(CONFIG.customersUrl);
+        cacheCustomers();
         populateCustomerDropdown();
+        scheduleFloorplanCacheWarmup();
       } catch (err) {
         console.error('Kon klanten niet laden:', err);
-        loadingEl.textContent = 'Fout bij laden van klantgegevens.';
+        const cachedCustomers = readCachedCustomers();
+        if (cachedCustomers.length > 0) {
+          customers = cachedCustomers;
+          populateCustomerDropdown();
+          setEmptyState('Offline klantgegevens geladen.<br>Kies een klant en plattegrond.', 'Controleer later online of alles actueel is');
+        } else {
+          loadingEl.textContent = 'Fout bij laden van klantgegevens.';
+        }
       }
     }
 
     async function loadStatus() {
+      const queuedOps = readStatusSyncQueue();
+      const cachedStatus = readCachedDoorStatus();
+      if (Object.keys(cachedStatus).length > 0) {
+        doorStatus = applyQueuedStatusOperations(cachedStatus, queuedOps);
+        updateStatusBar();
+      }
+
       try {
-        doorStatus = await fetchGitHubJSON(CONFIG.statusUrl);
+        const remoteStatus = await fetchGitHubJSON(CONFIG.statusUrl);
+        doorStatus = applyQueuedStatusOperations(remoteStatus, queuedOps);
+        cacheDoorStatus();
+        flushStatusSyncQueue();
       } catch (err) {
         console.error('Kon status niet laden:', err);
-        doorStatus = {};
+        if (Object.keys(cachedStatus).length === 0) doorStatus = {};
       }
       updateStatusBar();
     }
@@ -248,6 +630,21 @@
       });
     }
 
+    function resetFloorplanUI() {
+      stopPolling();
+      deselectDoor();
+      svgContainer.style.display = 'none';
+      svgContainer.innerHTML = '';
+      btnReset.style.display = 'none';
+      infoPanel.style.display = 'none';
+      btnPanelToggle.style.display = 'none';
+      btnEdit.style.display = 'none';
+      sidePanel.classList.remove('open');
+      btnPanelToggle.classList.remove('panel-open');
+      sidePanelList.innerHTML = '';
+      sidePanelHeader.textContent = 'Deuren';
+    }
+
     // ============================================================
     // SVG LOADING & DOOR DETECTION
     // ============================================================
@@ -260,25 +657,48 @@
 
       const thisGeneration = ++loadGeneration;
 
-      setLoadingState();
-      loadingEl.classList.remove('hidden');
-      svgContainer.style.display = 'none';
+      // Non-visual cleanup: stop polling, reset UI chrome, but keep current SVG
+      // visible until new content is ready (prevents blank/flash between selections).
+      stopPolling();
+      deselectDoor();
       btnReset.style.display = 'none';
+      infoPanel.style.display = 'none';
+      btnPanelToggle.style.display = 'none';
+      btnEdit.style.display = 'none';
+      sidePanel.classList.remove('open');
+      btnPanelToggle.classList.remove('panel-open');
+      sidePanelList.innerHTML = '';
+      sidePanelHeader.textContent = 'Deuren';
+      loadingEl.classList.add('hidden');
+
+      // Only show loading state after 150ms — hides old SVG then.
+      // Fast cache hits swap content before this fires.
+      const showLoadingTimer = setTimeout(() => {
+        if (thisGeneration !== loadGeneration) return;
+        svgContainer.style.display = 'none';
+        svgContainer.innerHTML = '';
+        setLoadingState();
+        loadingEl.classList.remove('hidden');
+      }, 150);
 
       try {
-        const baseUrl = fp.repo === 'uploads' ? CONFIG.svgUploadsUrl : CONFIG.svgBaseUrl;
-        const svgUrl = baseUrl + encodeURIComponent(fp.file);
-        const svgText = await fetchGitHubSVG(svgUrl);
+        const svgUrl = getFloorplanApiUrl(fp);
+        const { svgText, revalidate } = await fetchGitHubSVGCacheFirst(svgUrl);
+        clearTimeout(showLoadingTimer);
 
         // Another floorplan was requested while we were loading — abort
         if (thisGeneration !== loadGeneration) return;
 
+        // Atomically swap: hide old, set new content
+        svgContainer.style.display = 'none';
         svgContainer.innerHTML = svgText;
         const svgEl = svgContainer.querySelector('svg');
         if (!svgEl) throw new Error('Geen geldig SVG bestand.');
 
-        // Show container so it has dimensions
+        // Show container invisible so it has layout dimensions for fitToScreen.
+        // Stays hidden until after fitToScreen so SVG never appears unscaled.
         loadingEl.classList.add('hidden');
+        svgContainer.style.visibility = 'hidden';
         svgContainer.style.display = 'block';
         btnReset.style.display = 'inline-block';
 
@@ -296,6 +716,7 @@
         initDoorMarkers(svgEl);
         deselectDoor();
         updateStatusBar();
+        if (showLabels) updateEditLabels();
         infoPanel.style.display = 'flex';
         btnPanelToggle.style.display = 'block';
         btnEdit.style.display = 'inline-block';
@@ -303,11 +724,39 @@
         updateDeleteButton();
         startPolling();
 
-        // Fit SVG after info panel is rendered so offsetHeight is accurate
+        // Fit SVG, then reveal — never visible before this point
         await new Promise(r => requestAnimationFrame(r));
         fitToScreen(vb.width, vb.height);
+        svgContainer.style.visibility = '';
+
+        // Background revalidation: re-render if SVG changed on GitHub
+        if (revalidate) {
+          revalidate.then(newSvgText => {
+            if (!newSvgText || thisGeneration !== loadGeneration) return;
+            svgContainer.style.visibility = 'hidden';
+            svgContainer.innerHTML = newSvgText;
+            const newSvgEl = svgContainer.querySelector('svg');
+            if (!newSvgEl) { svgContainer.style.visibility = ''; return; }
+            const newVb = newSvgEl.viewBox.baseVal;
+            if (!newVb.width || !newVb.height) { svgContainer.style.visibility = ''; return; }
+            newSvgEl.setAttribute('width', newVb.width);
+            newSvgEl.setAttribute('height', newVb.height);
+            newSvgEl.style.width = newVb.width + 'px';
+            newSvgEl.style.height = newVb.height + 'px';
+            initDoorMarkers(newSvgEl);
+            deselectDoor();
+            updateStatusBar();
+            if (showLabels) updateEditLabels();
+            populateSidePanel();
+            fitToScreen(newVb.width, newVb.height);
+            svgContainer.style.visibility = '';
+            showToast('Plattegrond bijgewerkt', 'success');
+          }).catch(() => {});
+        }
 
       } catch (err) {
+        clearTimeout(showLoadingTimer);
+        svgContainer.style.visibility = '';
         if (thisGeneration !== loadGeneration) return;
         svgContainer.style.display = 'none';
         svgContainer.innerHTML = '';
@@ -438,6 +887,10 @@
 
     function openJotForm() {
       if (!selectedDoor) return;
+      if (!navigator.onLine) {
+        showToast('Geen internet — vul later in via JotForm Mobile Forms-app', 'error');
+        return;
+      }
 
       const params = new URLSearchParams();
       params.set('klant', currentCustomer);       // ID 82: Klant - Locatie
@@ -452,9 +905,18 @@
     // ============================================================
 
     let isEditMode = false;
-    let editChanges = []; // track changes for undo on cancel
+    let editChanges = [];
     let editMarkerSize = 15;
     let qrScanner = null;
+
+    let movingMarker = null;    // { marker, doorId, origCx, origCy }
+    let isDraggingMove = false;
+    let autoNumbering = false;
+    let autoPrefix = '';
+    let autoPadding = 3;
+    const LABELS_STORAGE_KEY = 'fd_show_labels';
+    let showLabels = localStorage.getItem(LABELS_STORAGE_KEY) === '1';
+    let editLabelElements = [];
 
     const topbar = document.querySelector('.topbar');
     const editBar = document.getElementById('edit-bar');
@@ -463,6 +925,7 @@
     const editOverlay = document.getElementById('edit-overlay');
     const editPopupTitle = document.getElementById('edit-popup-title');
     const editPopupInput = document.getElementById('edit-popup-input');
+    const editPopupCustom = document.getElementById('edit-popup-custom');
     const editPopupButtons = document.getElementById('edit-popup-buttons');
 
     function getSliderRange() {
@@ -475,15 +938,99 @@
       return { max, def };
     }
 
+    function getMarkerRadius(marker) {
+      const rx = parseFloat(marker.getAttribute('rx')) || parseFloat(marker.getAttribute('r')) || editMarkerSize || 10;
+      const ry = parseFloat(marker.getAttribute('ry')) || parseFloat(marker.getAttribute('r')) || rx;
+      return Math.max(rx, ry);
+    }
+
+    function getSvgPointFromClient(clientX, clientY) {
+      const svgEl = svgContainer.querySelector('svg');
+      if (!svgEl) return null;
+      const matrix = svgEl.getScreenCTM();
+      if (!matrix) return null;
+      const point = svgEl.createSVGPoint();
+      point.x = clientX;
+      point.y = clientY;
+      return point.matrixTransform(matrix.inverse());
+    }
+
+    function getEditableBounds() {
+      const svgEl = svgContainer.querySelector('svg');
+      if (!svgEl) return null;
+
+      const imageBounds = Array.from(svgEl.querySelectorAll('image'))
+        .map(img => {
+          const x = parseFloat(img.getAttribute('x') || '0');
+          const y = parseFloat(img.getAttribute('y') || '0');
+          const width = parseFloat(img.getAttribute('width') || '');
+          const height = parseFloat(img.getAttribute('height') || '');
+          if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) return null;
+          return { x, y, width, height };
+        })
+        .filter(Boolean);
+
+      if (imageBounds.length) {
+        const minX = Math.min(...imageBounds.map(b => b.x));
+        const minY = Math.min(...imageBounds.map(b => b.y));
+        const maxX = Math.max(...imageBounds.map(b => b.x + b.width));
+        const maxY = Math.max(...imageBounds.map(b => b.y + b.height));
+        return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
+      }
+
+      const vb = svgEl.viewBox.baseVal;
+      if (!vb.width || !vb.height) return null;
+      return { x: vb.x, y: vb.y, width: vb.width, height: vb.height };
+    }
+
+    function clampMarkerPosition(svgX, svgY, radius) {
+      const bounds = getEditableBounds();
+      if (!bounds) return { x: svgX, y: svgY };
+      const minX = bounds.x + radius;
+      const minY = bounds.y + radius;
+      const maxX = bounds.x + bounds.width - radius;
+      const maxY = bounds.y + bounds.height - radius;
+      if (minX > maxX || minY > maxY) {
+        return { x: bounds.x + bounds.width / 2, y: bounds.y + bounds.height / 2 };
+      }
+      return {
+        x: Math.max(minX, Math.min(maxX, svgX)),
+        y: Math.max(minY, Math.min(maxY, svgY))
+      };
+    }
+
+    function isPointInsideEditableBounds(svgX, svgY) {
+      const bounds = getEditableBounds();
+      if (!bounds) return false;
+      return svgX >= bounds.x &&
+             svgY >= bounds.y &&
+             svgX <= bounds.x + bounds.width &&
+             svgY <= bounds.y + bounds.height;
+    }
+
+    function getMaxRadiusAtPosition(marker) {
+      const bounds = getEditableBounds();
+      if (!bounds) return Infinity;
+      const cx = parseFloat(marker.getAttribute('cx')) || 0;
+      const cy = parseFloat(marker.getAttribute('cy')) || 0;
+      return Math.max(1, Math.floor(Math.min(
+        cx - bounds.x,
+        cy - bounds.y,
+        bounds.x + bounds.width - cx,
+        bounds.y + bounds.height - cy
+      )));
+    }
+
     function enterEditMode() {
       if (!currentFloorplan) return;
       isEditMode = true;
       editChanges = [];
+      movingMarker = null;
+      isDraggingMove = false;
       topbar.classList.add('edit-mode');
       editBar.style.display = 'flex';
       infoPanel.style.display = 'none';
       deselectDoor();
-      // Reset save button and slider state
       document.getElementById('btn-edit-save').disabled = false;
       document.getElementById('btn-edit-save').textContent = 'Opslaan';
       const range = getSliderRange();
@@ -492,42 +1039,52 @@
       slider.value = range.def;
       editMarkerSize = range.def;
       document.getElementById('edit-size-label').textContent = range.def;
-      // Hide normal UI, disable dropdowns
+      document.getElementById('btn-auto-number').classList.remove('active');
+      document.getElementById('auto-number-row').style.display = 'none';
+      document.getElementById('auto-prefix-input').value = '';
+      document.getElementById('auto-next-preview').textContent = '→ (voer prefix in)';
+      autoNumbering = false;
+      autoPrefix = '';
+      autoPadding = parseInt(document.getElementById('auto-padding-select').value, 10);
       btnEdit.style.display = 'none';
       btnReset.style.display = 'none';
       customerSelect.disabled = true;
       floorplanSelect.disabled = true;
+      requestAnimationFrame(updateTopbarHeight);
     }
 
     function exitEditMode() {
       if (resizingMarker) applyResize();
+      if (movingMarker) cancelMoveMode();
       isEditMode = false;
       topbar.classList.remove('edit-mode');
       editBar.style.display = 'none';
+      autoNumbering = false;
+      autoPrefix = '';
+      document.getElementById('btn-auto-number').classList.remove('active');
+      document.getElementById('auto-number-row').style.display = 'none';
+      if (showLabels) updateEditLabels(); else removeEditLabels();
       infoPanel.style.display = 'flex';
       btnEdit.style.display = 'inline-block';
       btnReset.style.display = 'inline-block';
       customerSelect.disabled = false;
       floorplanSelect.disabled = false;
       closeEditPopup();
+      requestAnimationFrame(updateTopbarHeight);
     }
 
     function cancelEditMode() {
-      // Cancel any active resize
       if (resizingMarker) cancelResize();
-      // Revert all changes
+      if (movingMarker) cancelMoveMode();
       editChanges.reverse().forEach(change => {
         if (change.type === 'add') {
-          // Remove added marker
           const marker = svgContainer.querySelector(`[data-door-id="${change.doorId}"]`);
           if (marker) marker.remove();
         } else if (change.type === 'delete') {
-          // Re-add deleted marker
           const svgEl = svgContainer.querySelector('svg');
           svgEl.appendChild(change.element);
           initSingleMarker(change.element, change.doorId);
         } else if (change.type === 'rename') {
-          // Restore old ID
           const marker = svgContainer.querySelector(`[data-door-id="${change.newId}"]`);
           if (marker) {
             marker.setAttribute('id', change.oldId);
@@ -540,6 +1097,12 @@
             marker.setAttribute('rx', change.oldRx.toString());
             marker.setAttribute('ry', change.oldRx.toString());
           }
+        } else if (change.type === 'move') {
+          const marker = svgContainer.querySelector(`[data-door-id="${change.doorId}"]`);
+          if (marker) {
+            marker.setAttribute('cx', change.oldCx.toString());
+            marker.setAttribute('cy', change.oldCy.toString());
+          }
         }
       });
       exitEditMode();
@@ -547,8 +1110,8 @@
     }
 
     async function saveEditMode() {
-      // Finish any active resize first
       if (resizingMarker) applyResize();
+      if (movingMarker) cancelMoveMode();
 
       if (editChanges.length === 0) {
         exitEditMode();
@@ -571,6 +1134,7 @@
         m.removeAttribute('data-door-id');
       });
 
+      svgClone.querySelectorAll('[data-fd-label]').forEach(el => el.remove());
       const svgText = new XMLSerializer().serializeToString(svgClone);
 
       // Upload to GitHub
@@ -593,6 +1157,7 @@
         const updateResp = await fetch(fileUrl, {
           method: 'PUT',
           headers: ghHeaders(),
+          cache: 'no-store',
           body: JSON.stringify({
             message: 'Markers bijgewerkt: ' + currentCustomer + ' - ' + currentFloorplan,
             content: content,
@@ -600,11 +1165,14 @@
           }),
         });
         if (!updateResp.ok) throw new Error('Kon niet opslaan');
+        const updateResult = await updateResp.json();
+        await updateCachedSVGAfterSave(fileUrl, updateResult, content);
 
         exitEditMode();
+        editChanges = [];
+        refreshAllDoorColors();
+        populateSidePanel();
         showToast('Opgeslagen', 'success');
-        // Reload to get clean state
-        loadFloorplan(parseInt(customerSelect.value, 10), parseInt(floorplanSelect.value, 10));
 
       } catch (err) {
         showToast('Opslaan mislukt: ' + err.message, 'error');
@@ -621,6 +1189,13 @@
       editPopupTitle.textContent = title;
       editPopupError.textContent = '';
       editPopupButtons.innerHTML = '';
+      editPopupCustom.innerHTML = '';
+      editPopupCustom.style.display = 'none';
+      editPopup.style.top = '50%';
+      editPopup.style.left = '50%';
+      editPopup.style.right = '';
+      editPopup.style.bottom = '';
+      editPopup.style.transform = 'translate(-50%, -50%)';
       const primaryAction = buttons.length > 0 ? buttons[0].action : null;
       buttons.forEach(btn => {
         const el = document.createElement('button');
@@ -645,8 +1220,11 @@
     }
 
     function closeEditPopup() {
+      if (resizingMarker) cancelResize();
       editPopup.style.display = 'none';
       editOverlay.style.display = 'none';
+      editPopupCustom.innerHTML = '';
+      editPopupCustom.style.display = 'none';
       if (qrScanner) stopQrScanner();
     }
 
@@ -666,12 +1244,13 @@
       const svgEl = svgContainer.querySelector('svg');
       const ns = 'http://www.w3.org/2000/svg';
       const inkNs = 'http://www.inkscape.org/namespaces/inkscape';
+      const pos = clampMarkerPosition(svgX, svgY, editMarkerSize);
 
       const ellipse = document.createElementNS(ns, 'ellipse');
       ellipse.setAttribute('id', doorId);
       ellipse.setAttributeNS(inkNs, 'inkscape:label', doorId);
-      ellipse.setAttribute('cx', Math.round(svgX));
-      ellipse.setAttribute('cy', Math.round(svgY));
+      ellipse.setAttribute('cx', Math.round(pos.x));
+      ellipse.setAttribute('cy', Math.round(pos.y));
       ellipse.setAttribute('rx', editMarkerSize.toString());
       ellipse.setAttribute('ry', editMarkerSize.toString());
       ellipse.style.fill = '#1a73e8';
@@ -682,6 +1261,7 @@
 
       editChanges.push({ type: 'add', doorId: doorId });
       populateSidePanel();
+      if (showLabels) updateEditLabels();
     }
 
     function deleteMarker(doorId) {
@@ -691,6 +1271,7 @@
       marker.remove();
       deselectDoor();
       populateSidePanel();
+      if (showLabels) updateEditLabels();
     }
 
     function renameMarker(doorId, newId) {
@@ -701,6 +1282,7 @@
       marker.dataset.doorId = newId;
       editChanges.push({ type: 'rename', oldId: doorId, newId: newId });
       populateSidePanel();
+      if (showLabels) updateEditLabels();
     }
 
     let resizingMarker = null;
@@ -724,6 +1306,117 @@
 
       // Change edit bar label
       document.querySelector('.edit-label').textContent = doorId;
+      showResizePopup(marker, doorId);
+    }
+
+    function positionEditPopupAwayFromMarker(marker) {
+      const margin = 14;
+      const horizontalMargin = 28;
+      const markerRect = marker.getBoundingClientRect();
+      const popupRect = editPopup.getBoundingClientRect();
+      const viewportW = window.innerWidth;
+      const viewportH = window.innerHeight;
+      const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
+      const centerX = markerRect.left + markerRect.width / 2;
+      const centerY = markerRect.top + markerRect.height / 2;
+
+      const candidates = [
+        {
+          fits: viewportW - markerRect.right >= popupRect.width + horizontalMargin,
+          left: markerRect.right + horizontalMargin,
+          top: clamp(centerY - popupRect.height / 2, margin, viewportH - popupRect.height - margin)
+        },
+        {
+          fits: markerRect.left >= popupRect.width + horizontalMargin,
+          left: markerRect.left - popupRect.width - horizontalMargin,
+          top: clamp(centerY - popupRect.height / 2, margin, viewportH - popupRect.height - margin)
+        },
+        {
+          fits: viewportH - markerRect.bottom >= popupRect.height + margin,
+          left: clamp(centerX - popupRect.width / 2, margin, viewportW - popupRect.width - margin),
+          top: markerRect.bottom + margin
+        },
+        {
+          fits: markerRect.top >= popupRect.height + margin,
+          left: clamp(centerX - popupRect.width / 2, margin, viewportW - popupRect.width - margin),
+          top: markerRect.top - popupRect.height - margin
+        }
+      ];
+
+      const rooms = [
+        viewportW - markerRect.right,
+        markerRect.left,
+        viewportH - markerRect.bottom,
+        markerRect.top
+      ];
+      const fallbackIndex = rooms.indexOf(Math.max(...rooms));
+      const chosen = candidates.find(c => c.fits) || candidates[fallbackIndex];
+
+      editPopup.style.transform = 'none';
+      editPopup.style.left = Math.round(chosen.left) + 'px';
+      editPopup.style.top = Math.round(chosen.top) + 'px';
+    }
+
+    function showResizePopup(marker, doorId) {
+      const slider = document.getElementById('edit-marker-size');
+      const currentValue = parseInt(slider.value, 10);
+
+      editPopupTitle.textContent = 'Grootte aanpassen';
+      editPopupError.textContent = '';
+      editPopupInputRow.style.display = 'none';
+      editPopupCustom.innerHTML = '';
+      editPopupCustom.style.display = 'block';
+      editPopupButtons.innerHTML = '';
+
+      const control = document.createElement('div');
+      control.className = 'resize-popup-control';
+
+      const label = document.createElement('label');
+      label.textContent = doorId;
+      const valueEl = document.createElement('span');
+      valueEl.textContent = currentValue.toString();
+      label.appendChild(valueEl);
+
+      const popupSlider = document.createElement('input');
+      popupSlider.type = 'range';
+      popupSlider.min = slider.min;
+      popupSlider.max = slider.max;
+      popupSlider.value = currentValue.toString();
+      popupSlider.addEventListener('input', () => {
+        const value = parseInt(popupSlider.value, 10);
+        updateSliderValue(value);
+        popupSlider.value = marker.getAttribute('rx') || value.toString();
+        valueEl.textContent = popupSlider.value;
+        if (showLabels) updateEditLabels();
+      });
+
+      control.appendChild(label);
+      control.appendChild(popupSlider);
+      editPopupCustom.appendChild(control);
+
+      const cancelBtn = document.createElement('button');
+      cancelBtn.textContent = 'Annuleren';
+      cancelBtn.style.background = '#e0e0e0';
+      cancelBtn.style.color = '#333';
+      cancelBtn.addEventListener('click', () => {
+        cancelResize();
+        closeEditPopup();
+      });
+
+      const doneBtn = document.createElement('button');
+      doneBtn.textContent = 'Klaar';
+      doneBtn.style.background = '#34a853';
+      doneBtn.style.color = 'white';
+      doneBtn.addEventListener('click', () => {
+        applyResize();
+        closeEditPopup();
+      });
+
+      editPopupButtons.appendChild(cancelBtn);
+      editPopupButtons.appendChild(doneBtn);
+      editPopup.style.display = 'block';
+      editOverlay.style.display = 'block';
+      requestAnimationFrame(() => positionEditPopupAwayFromMarker(marker));
     }
 
     function clearResizeHighlight(marker) {
@@ -739,6 +1432,7 @@
       resizingMarker = null;
       resizingOldRx = null;
       document.querySelector('.edit-label').textContent = 'Bewerkingsmodus';
+      if (showLabels) updateEditLabels();
     }
 
     function cancelResize() {
@@ -749,24 +1443,166 @@
       resizingMarker = null;
       resizingOldRx = null;
       document.querySelector('.edit-label').textContent = 'Bewerkingsmodus';
+      if (showLabels) updateEditLabels();
+    }
+
+    // ============================================================
+    // MOVE MODE
+    // ============================================================
+
+    function startMoveMode(marker, doorId, origCx, origCy) {
+      movingMarker = { marker, doorId, origCx, origCy };
+      marker.style.opacity = '1';
+      marker.style.filter = 'drop-shadow(0 0 6px #7b1fa2) drop-shadow(0 0 3px #7b1fa2)';
+      document.querySelector('.edit-label').textContent = doorId;
+    }
+
+    function clearMoveHighlight(marker) {
+      marker.style.filter = '';
+    }
+
+    function confirmMove() {
+      if (!movingMarker) return;
+      editChanges.push({ type: 'move', doorId: movingMarker.doorId, oldCx: movingMarker.origCx, oldCy: movingMarker.origCy });
+      clearMoveHighlight(movingMarker.marker);
+      movingMarker = null;
+      document.querySelector('.edit-label').textContent = 'Bewerkingsmodus';
+      if (showLabels) updateEditLabels();
+    }
+
+    function cancelMoveMode() {
+      if (!movingMarker) return;
+      movingMarker.marker.setAttribute('cx', movingMarker.origCx.toString());
+      movingMarker.marker.setAttribute('cy', movingMarker.origCy.toString());
+      clearMoveHighlight(movingMarker.marker);
+      movingMarker = null;
+      isDraggingMove = false;
+      document.querySelector('.edit-label').textContent = 'Bewerkingsmodus';
+    }
+
+    // ============================================================
+    // AUTO-NUMBERING
+    // ============================================================
+
+    function getNextAutoCode() {
+      if (!autoPrefix) return '';
+      const markers = svgContainer.querySelectorAll('[data-door-id]');
+      let max = 0;
+      markers.forEach(m => {
+        const id = m.dataset.doorId;
+        if (id.startsWith(autoPrefix)) {
+          const suffix = id.slice(autoPrefix.length);
+          if (/^\d+$/.test(suffix)) {
+            const n = parseInt(suffix, 10);
+            if (n > max) max = n;
+          }
+        }
+      });
+      return autoPrefix + String(max + 1).padStart(autoPadding, '0');
+    }
+
+    function updateAutoPreview() {
+      const preview = document.getElementById('auto-next-preview');
+      if (!autoPrefix) { preview.textContent = '→ (voer prefix in)'; return; }
+      preview.textContent = '→ ' + getNextAutoCode();
+    }
+
+    function toggleAutoNumbering() {
+      autoNumbering = !autoNumbering;
+      document.getElementById('btn-auto-number').classList.toggle('active', autoNumbering);
+      const row = document.getElementById('auto-number-row');
+      row.style.display = autoNumbering ? 'flex' : 'none';
+      if (autoNumbering) {
+        document.getElementById('auto-prefix-input').focus();
+        updateAutoPreview();
+      }
+      requestAnimationFrame(updateTopbarHeight);
+    }
+
+    // ============================================================
+    // EDIT LABELS
+    // ============================================================
+
+    function updateEditLabels() {
+      removeEditLabels();
+      if (!showLabels) return;
+      const svgEl = svgContainer.querySelector('svg');
+      if (!svgEl) return;
+      const ns = 'http://www.w3.org/2000/svg';
+      const currentScale = scale || 1;
+      const fontSize = Math.max(5, Math.min(120, 16 / currentScale));
+      const offset = Math.max(3, 8 / currentScale);
+      const strokeWidth = Math.max(1, 3 / currentScale);
+      svgContainer.querySelectorAll('[data-door-id]').forEach(m => {
+        const cx = parseFloat(m.getAttribute('cx')) || 0;
+        const cy = parseFloat(m.getAttribute('cy')) || 0;
+        const rx = parseFloat(m.getAttribute('rx')) || 10;
+        const labelText = m.dataset.doorId;
+        const estimatedWidth = labelText.length * fontSize * 0.62;
+        const bounds = getEditableBounds();
+        const hasRoomRight = !bounds || (cx + rx + offset + estimatedWidth <= bounds.x + bounds.width);
+        const x = hasRoomRight ? cx + rx + offset : cx - rx - offset;
+        const y = bounds
+          ? Math.max(bounds.y + fontSize, Math.min(bounds.y + bounds.height - fontSize * 0.25, cy + fontSize * 0.4))
+          : cy + fontSize * 0.4;
+        const text = document.createElementNS(ns, 'text');
+        text.setAttribute('x', x.toString());
+        text.setAttribute('y', y.toString());
+        text.setAttribute('font-size', fontSize.toString());
+        text.setAttribute('fill', '#222');
+        text.setAttribute('stroke', '#fff');
+        text.setAttribute('stroke-width', strokeWidth.toString());
+        text.setAttribute('paint-order', 'stroke');
+        text.setAttribute('text-anchor', hasRoomRight ? 'start' : 'end');
+        text.setAttribute('data-fd-label', '1');
+        text.setAttribute('pointer-events', 'none');
+        text.style.userSelect = 'none';
+        text.textContent = labelText;
+        svgEl.appendChild(text);
+        editLabelElements.push(text);
+      });
+    }
+
+    function removeEditLabels() {
+      editLabelElements.forEach(el => el.remove());
+      editLabelElements = [];
+    }
+
+    function toggleLabels() {
+      showLabels = !showLabels;
+      localStorage.setItem(LABELS_STORAGE_KEY, showLabels ? '1' : '0');
+      updateLabelsMenuButton();
+      if (showLabels) updateEditLabels(); else removeEditLabels();
+      topbarMenu.style.display = 'none';
+    }
+
+    function updateLabelsMenuButton() {
+      const btn = document.getElementById('btn-menu-labels');
+      if (!btn) return;
+      btn.textContent = showLabels ? 'Labels verbergen' : 'Labels tonen';
+      btn.classList.toggle('active', showLabels);
     }
 
     function handleEditTapOnEmpty(e) {
       if (!isEditMode) return;
+      if (movingMarker) { cancelMoveMode(); return; }
       if (resizingMarker) { applyResize(); return; }
       const svgEl = svgContainer.querySelector('svg');
       if (!svgEl) return;
 
-      // Convert screen coordinates to SVG coordinates
-      const containerRect = svgContainer.getBoundingClientRect();
-      const screenX = e.clientX - containerRect.left;
-      const screenY = e.clientY - containerRect.top;
-      const svgX = (screenX - panX) / scale;
-      const svgY = (screenY - panY) / scale;
+      const svgPoint = getSvgPointFromClient(e.clientX, e.clientY);
+      if (!svgPoint || !isPointInsideEditableBounds(svgPoint.x, svgPoint.y)) return;
 
-      // Check if tap is within SVG viewBox bounds
-      const vb = svgEl.viewBox.baseVal;
-      if (svgX < 0 || svgY < 0 || svgX > vb.width || svgY > vb.height) return;
+      if (autoNumbering) {
+        const code = getNextAutoCode();
+        if (!code) { showToast('Voer eerst een prefix in', 'error'); return; }
+        if ([...svgContainer.querySelectorAll('[data-door-id]')].some(m => m.dataset.doorId === code)) {
+          showToast('Code ' + code + ' bestaat al', 'error'); return;
+        }
+        addMarkerAtPosition(svgPoint.x, svgPoint.y, code);
+        updateAutoPreview();
+        return;
+      }
 
       showEditPopup('Nieuwe deur', '', [
         {
@@ -774,12 +1610,11 @@
           action: () => {
             const code = editPopupInput.value.trim().toUpperCase();
             if (!code) return;
-            // Check for duplicate
             if (svgContainer.querySelector(`[data-door-id="${code}"]`)) {
               editPopupError.textContent = 'Deze code bestaat al op deze plattegrond.';
               return;
             }
-            addMarkerAtPosition(svgX, svgY, code);
+            addMarkerAtPosition(svgPoint.x, svgPoint.y, code);
             closeEditPopup();
           }
         },
@@ -789,9 +1624,19 @@
 
     function handleEditTapOnDoor(doorId) {
       if (!isEditMode) return;
+      if (movingMarker) { cancelMoveMode(); return; }
       if (resizingMarker) { applyResize(); return; }
       const marker = svgContainer.querySelector(`[data-door-id="${doorId}"]`);
       showEditPopup('Deur: ' + doorId, null, [
+        {
+          text: 'Verplaatsen', color: '#7b1fa2',
+          action: () => {
+            closeEditPopup();
+            const origCx = parseFloat(marker.getAttribute('cx')) || 0;
+            const origCy = parseFloat(marker.getAttribute('cy')) || 0;
+            startMoveMode(marker, doorId, origCx, origCy);
+          }
+        },
         {
           text: 'Grootte aanpassen', color: '#e67700',
           action: () => {
@@ -841,7 +1686,92 @@
     // DOOR STATUS UPDATE
     // ============================================================
 
-    async function saveStatusToGitHub() {
+    const STATUS_CACHE_KEY = 'fd_status_cache';
+    const STATUS_QUEUE_KEY = 'fd_status_sync_queue';
+    let statusSyncInProgress = false;
+    let statusSyncRetryTimer = null;
+
+    function readCachedDoorStatus() {
+      try {
+        return JSON.parse(localStorage.getItem(STATUS_CACHE_KEY) || '{}') || {};
+      } catch {
+        return {};
+      }
+    }
+
+    function cacheDoorStatus() {
+      try {
+        localStorage.setItem(STATUS_CACHE_KEY, JSON.stringify(doorStatus));
+      } catch (err) {
+        console.warn('Status cache kon niet worden opgeslagen:', err);
+      }
+    }
+
+    function readStatusSyncQueue() {
+      try {
+        const queue = JSON.parse(localStorage.getItem(STATUS_QUEUE_KEY) || '[]');
+        return Array.isArray(queue) ? queue : [];
+      } catch {
+        return [];
+      }
+    }
+
+    function writeStatusSyncQueue(queue) {
+      try {
+        localStorage.setItem(STATUS_QUEUE_KEY, JSON.stringify(queue));
+      } catch (err) {
+        console.warn('Status sync queue kon niet worden opgeslagen:', err);
+      }
+      updateStatusSyncIndicator();
+    }
+
+    function applyStatusOperation(statusData, op) {
+      if (!statusData[op.customer]) statusData[op.customer] = {};
+      if (!statusData[op.customer][op.floorplan]) statusData[op.customer][op.floorplan] = {};
+
+      if (op.status === 'done') {
+        statusData[op.customer][op.floorplan][op.doorId] = 'done';
+      } else {
+        delete statusData[op.customer][op.floorplan][op.doorId];
+      }
+    }
+
+    function applyQueuedStatusOperations(statusData, queue) {
+      queue.forEach(op => applyStatusOperation(statusData, op));
+      return statusData;
+    }
+
+    function enqueueStatusSync(op) {
+      const queue = readStatusSyncQueue()
+        .filter(existing => !(existing.customer === op.customer &&
+                              existing.floorplan === op.floorplan &&
+                              existing.doorId === op.doorId));
+      queue.push(op);
+      writeStatusSyncQueue(queue);
+    }
+
+    function isSameStatusOperation(a, b) {
+      return a.customer === b.customer &&
+             a.floorplan === b.floorplan &&
+             a.doorId === b.doorId &&
+             a.status === b.status &&
+             a.ts === b.ts;
+    }
+
+    function removeSyncedStatusOperations(syncedQueue) {
+      const latestQueue = readStatusSyncQueue();
+      return latestQueue.filter(op => !syncedQueue.some(synced => isSameStatusOperation(op, synced)));
+    }
+
+    function scheduleStatusSyncRetry() {
+      if (statusSyncRetryTimer) return;
+      statusSyncRetryTimer = setTimeout(() => {
+        statusSyncRetryTimer = null;
+        flushStatusSyncQueue();
+      }, 15000);
+    }
+
+    async function saveStatusToGitHub(statusData, messageCustomer) {
       // Get current file SHA (needed for update)
       const metaResp = await fetch(CONFIG.statusUrl, {
         headers: ghHeaders(),
@@ -851,14 +1781,15 @@
       const meta = await metaResp.json();
 
       // Encode updated status as base64
-      const content = btoa(unescape(encodeURIComponent(JSON.stringify(doorStatus, null, 2))));
+      const content = btoa(unescape(encodeURIComponent(JSON.stringify(statusData, null, 2))));
 
       // Update file on GitHub
       const updateResp = await fetch(CONFIG.statusUrl, {
         method: 'PUT',
         headers: ghHeaders(),
+        cache: 'no-store',
         body: JSON.stringify({
-          message: 'Status update: ' + currentCustomer,
+          message: 'Status update: ' + (messageCustomer || 'offline queue'),
           content: content,
           sha: meta.sha,
         }),
@@ -866,41 +1797,64 @@
       if (!updateResp.ok) throw new Error('Kon status niet opslaan');
     }
 
+    async function flushStatusSyncQueue() {
+      const queue = readStatusSyncQueue();
+      if (statusSyncInProgress || queue.length === 0 || !navigator.onLine) return;
+
+      statusSyncInProgress = true;
+      let shouldFlushAgain = false;
+      try {
+        const remoteStatus = await fetchGitHubJSON(CONFIG.statusUrl);
+        const mergedStatus = applyQueuedStatusOperations(remoteStatus, queue);
+        await saveStatusToGitHub(mergedStatus, queue[queue.length - 1]?.customer);
+        const remainingQueue = removeSyncedStatusOperations(queue);
+        doorStatus = applyQueuedStatusOperations(mergedStatus, remainingQueue);
+        writeStatusSyncQueue(remainingQueue);
+        cacheDoorStatus();
+        refreshAllDoorColors();
+        updateDoneButton();
+        showToast('Status gesynchroniseerd', 'success');
+        shouldFlushAgain = remainingQueue.length > 0;
+      } catch (err) {
+        console.error('Status sync queue mislukt:', err);
+        scheduleStatusSyncRetry();
+      } finally {
+        statusSyncInProgress = false;
+        if (shouldFlushAgain) setTimeout(flushStatusSyncQueue, 0);
+      }
+    }
+
     async function toggleDoorStatus() {
       if (!selectedDoor || !currentCustomer || !currentFloorplan) return;
 
-      const isDone = getDoorStatus(selectedDoor);
+      const customer = currentCustomer;
+      const floorplan = currentFloorplan;
+      const doorId = selectedDoor;
+      const isDone = getDoorStatus(doorId);
       const newStatus = isDone ? 'todo' : 'done';
+      const op = { customer, floorplan, doorId, status: newStatus, ts: Date.now() };
 
       // Update local state
-      if (!doorStatus[currentCustomer]) doorStatus[currentCustomer] = {};
-      if (!doorStatus[currentCustomer][currentFloorplan]) doorStatus[currentCustomer][currentFloorplan] = {};
+      if (!doorStatus[customer]) doorStatus[customer] = {};
+      if (!doorStatus[customer][floorplan]) doorStatus[customer][floorplan] = {};
 
       if (newStatus === 'done') {
-        doorStatus[currentCustomer][currentFloorplan][selectedDoor] = 'done';
+        doorStatus[customer][floorplan][doorId] = 'done';
       } else {
-        delete doorStatus[currentCustomer][currentFloorplan][selectedDoor];
+        delete doorStatus[customer][floorplan][doorId];
       }
 
       // Update UI immediately
       refreshAllDoorColors();
       updateDoneButton();
+      cacheDoorStatus();
+      enqueueStatusSync(op);
 
-      // Save to GitHub in background
-      try {
-        await saveStatusToGitHub();
+      if (navigator.onLine) {
+        flushStatusSyncQueue();
         showToast(newStatus === 'done' ? 'Deur afgerond' : 'Deur teruggezet', 'success');
-      } catch (err) {
-        console.error('Opslaan mislukt:', err);
-        showToast('Status kon niet worden opgeslagen. Controleer je internetverbinding.', 'error');
-        // Revert local state
-        if (newStatus === 'done') {
-          delete doorStatus[currentCustomer][currentFloorplan][selectedDoor];
-        } else {
-          doorStatus[currentCustomer][currentFloorplan][selectedDoor] = 'done';
-        }
-        refreshAllDoorColors();
-        updateDoneButton();
+      } else {
+        showToast('Status lokaal opgeslagen — synchroniseert later', 'success');
       }
     }
 
@@ -942,6 +1896,7 @@
       savedPanX = panX;
       savedPanY = panY;
       applyTransform();
+      if (showLabels) updateEditLabels();
     }
 
     function resetZoom() {
@@ -981,6 +1936,17 @@
     // Pan via pointer events
     svgContainer.addEventListener('pointerdown', (e) => {
       if (e.pointerType === 'touch' && e.isPrimary === false) return;
+
+      if (movingMarker && pendingDoor === movingMarker.doorId) {
+        isDraggingMove = true;
+        isPanning = false;
+        hasMoved = false;
+        startX = e.clientX;
+        startY = e.clientY;
+        svgContainer.setPointerCapture(e.pointerId);
+        return;
+      }
+
       isPanning = true;
       hasMoved = false;
       startX = e.clientX;
@@ -991,10 +1957,21 @@
     });
 
     svgContainer.addEventListener('pointermove', (e) => {
+      if (isDraggingMove) {
+        const dx = e.clientX - startX;
+        const dy = e.clientY - startY;
+        if (!hasMoved && Math.abs(dx) < 5 && Math.abs(dy) < 5) return;
+        hasMoved = true;
+        const svgPoint = getSvgPointFromClient(e.clientX, e.clientY);
+        if (!svgPoint) return;
+        const pos = clampMarkerPosition(svgPoint.x, svgPoint.y, getMarkerRadius(movingMarker.marker));
+        movingMarker.marker.setAttribute('cx', Math.round(pos.x).toString());
+        movingMarker.marker.setAttribute('cy', Math.round(pos.y).toString());
+        return;
+      }
       if (!isPanning) return;
       const dx = e.clientX - startX;
       const dy = e.clientY - startY;
-      // Only start panning after moving more than 5px (prevents accidental pan on tap)
       if (!hasMoved && Math.abs(dx) < 5 && Math.abs(dy) < 5) return;
       hasMoved = true;
       panX = lastPanX + dx;
@@ -1008,9 +1985,22 @@
     svgContainer.addEventListener('pointerup', (e) => {
       isPanning = false;
       if (wasMultiTouch) {
+        if (movingMarker) cancelMoveMode();
         pendingDoor = null;
         return;
       }
+
+      if (isDraggingMove) {
+        isDraggingMove = false;
+        if (hasMoved) {
+          confirmMove();
+        } else {
+          cancelMoveMode();
+        }
+        pendingDoor = null;
+        return;
+      }
+
       if (!hasMoved && pendingDoor) {
         if (isEditMode) {
           handleEditTapOnDoor(pendingDoor);
@@ -1020,6 +2010,20 @@
       } else if (!hasMoved && !pendingDoor && isEditMode) {
         handleEditTapOnEmpty(e);
       }
+      pendingDoor = null;
+    });
+
+    svgContainer.addEventListener('pointercancel', () => {
+      isPanning = false;
+      if (movingMarker) cancelMoveMode(); else isDraggingMove = false;
+      hasMoved = false;
+      pendingDoor = null;
+    });
+
+    svgContainer.addEventListener('lostpointercapture', () => {
+      isPanning = false;
+      if (movingMarker) cancelMoveMode(); else isDraggingMove = false;
+      hasMoved = false;
       pendingDoor = null;
     });
 
@@ -1052,6 +2056,7 @@
         scale = clampedScale;
 
         applyTransform();
+        if (showLabels) updateEditLabels();
       }
     }, { passive: false });
 
@@ -1077,6 +2082,7 @@
       scale = newScale;
 
       applyTransform();
+      if (showLabels) updateEditLabels();
     }, { passive: false });
 
     // ============================================================
@@ -1086,8 +2092,11 @@
     async function pollStatus() {
       if (!currentFloorplan || isEditMode) return;
       try {
-        doorStatus = await fetchGitHubJSON(CONFIG.statusUrl);
+        const remoteStatus = await fetchGitHubJSON(CONFIG.statusUrl);
+        doorStatus = applyQueuedStatusOperations(remoteStatus, readStatusSyncQueue());
+        cacheDoorStatus();
         refreshAllDoorColors();
+        flushStatusSyncQueue();
       } catch (err) {
         console.error('Sync fout:', err);
       }
@@ -1181,6 +2190,7 @@
     let uploadImageDataUrl = null;
     let uploadImageWidth = 0;
     let uploadImageHeight = 0;
+    let uploadGeneration = 0;
 
     const uploadOverlay = document.getElementById('upload-overlay');
     const uploadPopup = document.getElementById('upload-popup');
@@ -1211,6 +2221,7 @@
 
     function hideUploadPopup() {
       if (uploadSaving) return;
+      uploadGeneration++;
       uploadOverlay.style.display = 'none';
       uploadPopup.style.display = 'none';
       uploadPdfInput.value = '';
@@ -1286,10 +2297,23 @@
     uploadPhotoInput.addEventListener('change', (e) => {
       const file = e.target.files[0];
       if (!file) return;
+      if (file.size > 20 * 1024 * 1024) {
+        showToast('Bestand is te groot (max 20 MB)', 'error');
+        return;
+      }
+      const gen = ++uploadGeneration;
       const img = new Image();
       img.onload = () => {
+        if (gen !== uploadGeneration) return;
         const result = resizeImageToCanvas(img, 2000);
-        const dataUrl = result.canvas.toDataURL('image/jpeg', 0.8);
+        let quality = 0.8, dataUrl;
+        do { dataUrl = result.canvas.toDataURL('image/jpeg', quality); quality -= 0.1; }
+        while (dataUrl.length > 1040000 && quality > 0.2);
+        if (dataUrl.length > 1040000) {
+          showToast('Afbeelding te groot. Probeer een kleinere foto.', 'error');
+          URL.revokeObjectURL(img.src);
+          return;
+        }
         showUploadPreview(dataUrl, result.width, result.height);
         URL.revokeObjectURL(img.src);
       };
@@ -1300,10 +2324,15 @@
     uploadPdfInput.addEventListener('change', async (e) => {
       const file = e.target.files[0];
       if (!file) return;
+      if (file.size > 20 * 1024 * 1024) {
+        showToast('Bestand is te groot (max 20 MB)', 'error');
+        return;
+      }
       if (!window.pdfjsLib) {
         showToast('PDF library niet geladen. Gebruik een foto.', 'error');
         return;
       }
+      const gen = ++uploadGeneration;
       // Show loading state
       uploadStepChoose.style.display = 'none';
       uploadStepPreview.style.display = 'block';
@@ -1313,20 +2342,32 @@
       document.querySelector('#upload-step-preview .upload-btn-green').style.display = 'none';
       try {
         const arrayBuffer = await file.arrayBuffer();
+        if (gen !== uploadGeneration) return;
         const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+        if (gen !== uploadGeneration) return;
         const page = await pdf.getPage(1);
         const viewport = page.getViewport({ scale: 1.5 });
         const canvas = document.createElement('canvas');
         canvas.width = viewport.width;
         canvas.height = viewport.height;
         await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
-        const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
+        if (gen !== uploadGeneration) return;
+        let quality = 0.8, dataUrl;
+        do { dataUrl = canvas.toDataURL('image/jpeg', quality); quality -= 0.1; }
+        while (dataUrl.length > 1040000 && quality > 0.2);
+        if (dataUrl.length > 1040000) {
+          uploadStepPreview.style.display = 'none';
+          uploadStepChoose.style.display = 'block';
+          showToast('PDF te groot. Probeer een andere pagina of foto.', 'error');
+          return;
+        }
         uploadPreviewImg.style.display = '';
         document.querySelector('#upload-step-preview h3').textContent = 'Voorbeeld';
         document.querySelector('#upload-step-preview .upload-btn-grey').style.display = '';
         document.querySelector('#upload-step-preview .upload-btn-green').style.display = '';
         showUploadPreview(dataUrl, viewport.width, viewport.height);
       } catch (err) {
+        if (gen !== uploadGeneration) return;
         uploadStepPreview.style.display = 'none';
         uploadStepChoose.style.display = 'block';
         showToast('PDF kon niet worden geladen', 'error');
@@ -1414,10 +2455,14 @@
       uploadSaving = true;
       uploadError.textContent = '';
 
+      let uploadedSvgUrl = null;
+      let uploadedSvgSha = null;
+
       try {
         // Step 1: Upload SVG to floorplan-uploads repo
         const svgContent = btoa(unescape(encodeURIComponent(svgText)));
         const uploadUrl = CONFIG.svgUploadsUrl + encodeURIComponent(fileName);
+        uploadedSvgUrl = uploadUrl;
 
         // Check if file already exists
         let sha = null;
@@ -1442,6 +2487,8 @@
           body: JSON.stringify(uploadBody),
         });
         if (!uploadResp.ok) throw new Error('SVG upload mislukt');
+        const uploadData = await uploadResp.json();
+        uploadedSvgSha = uploadData.content?.sha;
 
         // Step 2: Update customers.json
         const customersResp = await fetch(CONFIG.customersUrl, { headers: ghHeaders(), cache: 'no-store' });
@@ -1474,6 +2521,7 @@
 
         // Reload and select new floorplan
         customers = currentCustomers;
+        cacheCustomers();
         populateCustomerDropdown();
         uploadSaving = false;
         hideUploadPopup();
@@ -1490,6 +2538,17 @@
 
       } catch (err) {
         uploadError.textContent = 'Fout: ' + err.message;
+        // Rollback: delete the uploaded SVG if customers.json update failed
+        if (uploadedSvgUrl && uploadedSvgSha) {
+          try {
+            await fetch(uploadedSvgUrl, {
+              method: 'DELETE',
+              headers: ghHeaders(),
+              cache: 'no-store',
+              body: JSON.stringify({ message: 'Rollback: upload mislukt', sha: uploadedSvgSha }),
+            });
+          } catch (e) {}
+        }
       } finally {
         btnSave.textContent = 'Opslaan';
         btnSave.disabled = false;
@@ -1546,6 +2605,7 @@
         btnDeleteFp.style.display  = 'none';
         btnEditImage.style.display = 'none';
       }
+      requestAnimationFrame(updateTopbarHeight);
     }
 
     function showDeleteConfirm() {
@@ -1574,23 +2634,7 @@
       hideDeleteConfirm();
 
       try {
-        // Step 1: Delete SVG from uploads repo
-        const fileUrl = CONFIG.svgUploadsUrl + encodeURIComponent(fp.file);
-        const metaResp = await fetch(fileUrl, { headers: ghHeaders(), cache: 'no-store' });
-        if (!metaResp.ok) throw new Error('Kon bestand niet vinden');
-        const meta = await metaResp.json();
-        const deleteResp = await fetch(fileUrl, {
-          method: 'DELETE',
-          headers: ghHeaders(),
-          cache: 'no-store',
-          body: JSON.stringify({
-            message: 'Verwijderd: ' + customerName + ' - ' + fp.name,
-            sha: meta.sha,
-          }),
-        });
-        if (!deleteResp.ok) throw new Error('Kon bestand niet verwijderen');
-
-        // Step 2: Update customers.json (resolve by name, not stale index)
+        // Step 1: Update customers.json first (resolve by name, not stale index)
         const customersResp = await fetch(CONFIG.customersUrl, { headers: ghHeaders(), cache: 'no-store' });
         if (!customersResp.ok) throw new Error('Kon customers.json niet ophalen');
         const customersMeta = await customersResp.json();
@@ -1616,8 +2660,51 @@
         });
         if (!updateResp.ok) throw new Error('Kon customers.json niet bijwerken');
 
+        // Step 2: Delete SVG from uploads repo (after customers.json is updated)
+        const fileUrl = CONFIG.svgUploadsUrl + encodeURIComponent(fp.file);
+        const metaResp = await fetch(fileUrl, { headers: ghHeaders(), cache: 'no-store' });
+        if (!metaResp.ok) throw new Error('Kon bestand niet vinden');
+        const meta = await metaResp.json();
+        const deleteResp = await fetch(fileUrl, {
+          method: 'DELETE',
+          headers: ghHeaders(),
+          cache: 'no-store',
+          body: JSON.stringify({
+            message: 'Verwijderd: ' + customerName + ' - ' + fp.name,
+            sha: meta.sha,
+          }),
+        });
+        if (!deleteResp.ok) {
+          // Rollback: restore customers.json entry
+          try {
+            const rollbackResp = await fetch(CONFIG.customersUrl, { headers: ghHeaders(), cache: 'no-store' });
+            if (rollbackResp.ok) {
+              const rollbackMeta = await rollbackResp.json();
+              const rollbackCustomers = JSON.parse(decodeBase64UTF8(rollbackMeta.content));
+              const rollbackCi = rollbackCustomers.findIndex(c => c.customer === customerName);
+              if (rollbackCi >= 0) {
+                rollbackCustomers[rollbackCi].floorplans.push({ name: fp.name, file: fp.file, repo: 'uploads', uploaded: true });
+              } else {
+                rollbackCustomers.push({ customer: customerName, floorplans: [{ name: fp.name, file: fp.file, repo: 'uploads', uploaded: true }] });
+              }
+              await fetch(CONFIG.customersUrl, {
+                method: 'PUT',
+                headers: ghHeaders(),
+                cache: 'no-store',
+                body: JSON.stringify({
+                  message: 'Rollback: verwijderen mislukt',
+                  content: btoa(unescape(encodeURIComponent(JSON.stringify(rollbackCustomers, null, 2)))),
+                  sha: rollbackMeta.sha,
+                }),
+              });
+            }
+          } catch (e) {}
+          throw new Error('Kon bestand niet verwijderen');
+        }
+
         // Reload
         customers = currentCustomers;
+        cacheCustomers();
         populateCustomerDropdown();
 
         // Clear stale state
@@ -1661,20 +2748,10 @@
     // ============================================================
 
     customerSelect.addEventListener('change', () => {
-      // Always clear current floorplan when customer changes
-      svgContainer.style.display = 'none';
-      svgContainer.innerHTML = '';
-      btnReset.style.display = 'none';
-      infoPanel.style.display = 'none';
-      btnPanelToggle.style.display = 'none';
-      btnEdit.style.display = 'none';
       if (isEditMode) exitEditMode();
-      sidePanel.classList.remove('open');
-      btnPanelToggle.classList.remove('panel-open');
-      deselectDoor();
+      resetFloorplanUI();
       currentCustomer = null;
       currentFloorplan = null;
-      stopPolling();
       updateDeleteButton();
 
       const idx = customerSelect.value;
@@ -1694,6 +2771,12 @@
       const ci = parseInt(customerSelect.value, 10);
       const fi = parseInt(floorplanSelect.value, 10);
       if (isNaN(ci) || isNaN(fi)) {
+        if (isEditMode) exitEditMode();
+        resetFloorplanUI();
+        currentCustomer = null;
+        currentFloorplan = null;
+        setEmptyState('Kies een plattegrond<br>uit het dropdown menu.');
+        loadingEl.classList.remove('hidden');
         updateDeleteButton();
         return;
       }
@@ -1707,8 +2790,19 @@
     btnPanelToggle.addEventListener('click', toggleSidePanel);
     btnEdit.addEventListener('click', enterEditMode);
     document.getElementById('btn-edit-save').addEventListener('click', saveEditMode);
+    document.getElementById('btn-auto-number').addEventListener('click', toggleAutoNumbering);
+    document.getElementById('auto-prefix-input').addEventListener('input', (e) => {
+      e.target.value = e.target.value.toUpperCase();
+      autoPrefix = e.target.value.trim();
+      updateAutoPreview();
+    });
+    document.getElementById('auto-padding-select').addEventListener('change', (e) => {
+      autoPadding = parseInt(e.target.value, 10);
+      updateAutoPreview();
+    });
+
     document.getElementById('btn-edit-cancel').addEventListener('click', () => {
-      if (editChanges.length === 0 && !resizingMarker) { cancelEditMode(); return; }
+      if (editChanges.length === 0 && !resizingMarker && !movingMarker) { cancelEditMode(); return; }
       // Show confirmation using logout popup pattern
       const overlay = document.getElementById('cancel-edit-overlay');
       const popup = document.getElementById('cancel-edit-popup');
@@ -1729,6 +2823,9 @@
     const markerSlider = document.getElementById('edit-marker-size');
 
     function updateSliderValue(value) {
+      if (resizingMarker) {
+        value = Math.min(value, getMaxRadiusAtPosition(resizingMarker.marker));
+      }
       editMarkerSize = value;
       markerSlider.value = value;
       document.getElementById('edit-size-label').textContent = value;
@@ -1870,6 +2967,8 @@
 
     const loginScreen = document.getElementById('login-screen');
     const appContainer = document.getElementById('app-container');
+    const splashScreen = document.getElementById('splash-screen');
+    function hideSplash() { if (splashScreen) splashScreen.style.display = 'none'; }
     const loginPassword = document.getElementById('login-password');
     const loginBtn = document.getElementById('login-btn');
     const loginError = document.getElementById('login-error');
@@ -1906,6 +3005,22 @@
       return parseInt(localStorage.getItem(LOGIN_CONFIG.attemptsKey) || '0', 10);
     }
 
+    async function validateGitHubTokenForLogin(token) {
+      try {
+        const testResp = await fetch(CONFIG.customersUrl, {
+          headers: { 'Authorization': 'token ' + token, 'Accept': 'application/vnd.github.v3+json' },
+          cache: 'no-store',
+        });
+        if (testResp.ok) return { ok: true, offline: false };
+        if (testResp.status === 401 || testResp.status === 403) {
+          return { ok: false, message: 'GitHub token is ongeldig of verlopen.' };
+        }
+        return { ok: false, message: 'GitHub controle mislukt: ' + testResp.status };
+      } catch {
+        return { ok: true, offline: true };
+      }
+    }
+
     async function handleLogin() {
       if (isLockedOut()) {
         loginError.textContent = `Geblokkeerd. Probeer opnieuw over ${getLockoutMinutes()} minuten.`;
@@ -1935,38 +3050,38 @@
           return;
         }
 
-        // Validate token against GitHub API
-        try {
-          const testResp = await fetch(CONFIG.customersUrl, {
-            headers: { 'Authorization': 'token ' + token, 'Accept': 'application/vnd.github.v3+json' },
-            cache: 'no-store',
-          });
-          if (!testResp.ok) throw new Error();
-        } catch {
+        // Validate token against GitHub API; network failure is allowed for offline use.
+        const validation = await validateGitHubTokenForLogin(token);
+        if (!validation.ok) {
           loginBtn.disabled = false;
           loginBtn.textContent = 'Inloggen';
-          loginError.textContent = 'GitHub token is ongeldig of verlopen.';
+          loginError.textContent = validation.message;
           return;
         }
 
-        sessionStorage.setItem(LOGIN_CONFIG.tokenKey, 'authenticated');
-        sessionStorage.setItem(LOGIN_CONFIG.tokenTimeKey, Date.now().toString());
-        sessionStorage.setItem('fd_github_token', token);
+        localStorage.setItem(LOGIN_CONFIG.tokenKey, 'authenticated');
+        localStorage.setItem(LOGIN_CONFIG.tokenTimeKey, Date.now().toString());
+        localStorage.setItem('fd_github_token', token);
+        sessionStorage.removeItem(LOGIN_CONFIG.tokenKey);
+        sessionStorage.removeItem(LOGIN_CONFIG.tokenTimeKey);
+        sessionStorage.removeItem('fd_github_token');
 
         // Read attempts before clearing
         const priorAttempts = getAttempts();
         localStorage.removeItem(LOGIN_CONFIG.attemptsKey);
         localStorage.removeItem(LOGIN_CONFIG.lockoutKey);
 
-        // Remember password if checkbox is checked
+        // Remember checkbox state (not the password — use browser password manager)
+        localStorage.removeItem('fd_saved_password');
         if (document.getElementById('login-remember').checked) {
-          localStorage.setItem('fd_saved_password', password);
+          localStorage.setItem('fd_remember_pw', '1');
         } else {
-          localStorage.removeItem('fd_saved_password');
+          localStorage.removeItem('fd_remember_pw');
         }
 
         loginBtn.textContent = 'Inloggen';
         sendLoginNotification('Succesvol ingelogd', priorAttempts > 0 ? priorAttempts + ' foute pogingen vooraf' : '0');
+        if (validation.offline) showToast('Offline ingelogd', 'success');
         showApp();
       } else {
         const attempts = getAttempts() + 1;
@@ -1991,6 +3106,8 @@
     function showApp() {
       loginScreen.style.display = 'none';
       appContainer.style.display = 'block';
+      updateConnectionIndicator();
+      updateStatusSyncIndicator();
       requestAnimationFrame(updateTopbarHeight);
       init();
     }
@@ -2014,6 +3131,9 @@
     }
 
     function logout() {
+      localStorage.removeItem(LOGIN_CONFIG.tokenKey);
+      localStorage.removeItem(LOGIN_CONFIG.tokenTimeKey);
+      localStorage.removeItem('fd_github_token');
       sessionStorage.removeItem(LOGIN_CONFIG.tokenKey);
       sessionStorage.removeItem(LOGIN_CONFIG.tokenTimeKey);
       sessionStorage.removeItem('fd_github_token');
@@ -2033,6 +3153,10 @@
     document.getElementById('btn-menu').addEventListener('click', (e) => {
       e.stopPropagation();
       topbarMenu.style.display = topbarMenu.style.display === 'none' ? 'block' : 'none';
+    });
+    document.getElementById('btn-menu-labels').addEventListener('click', (e) => {
+      e.stopPropagation();
+      toggleLabels();
     });
     document.addEventListener('click', () => { topbarMenu.style.display = 'none'; });
 
@@ -2064,63 +3188,89 @@
     // ============================================================
 
     async function init() {
+      updateLabelsMenuButton();
       await Promise.all([loadCustomers(), loadStatus()]);
     }
 
-    // Check if already logged in and session not expired
+    // Check if already logged in. Phase 5 keeps the session until explicit logout.
     function isSessionValid() {
-      const token = sessionStorage.getItem(LOGIN_CONFIG.tokenKey);
-      const time = sessionStorage.getItem(LOGIN_CONFIG.tokenTimeKey);
-      if (token !== 'authenticated' || !time) return false;
+      const legacyToken = sessionStorage.getItem(LOGIN_CONFIG.tokenKey);
+      if (legacyToken === 'authenticated') {
+        localStorage.setItem(LOGIN_CONFIG.tokenKey, 'authenticated');
+        localStorage.setItem(LOGIN_CONFIG.tokenTimeKey, sessionStorage.getItem(LOGIN_CONFIG.tokenTimeKey) || Date.now().toString());
+        const legacyGitHubToken = sessionStorage.getItem('fd_github_token');
+        if (legacyGitHubToken) localStorage.setItem('fd_github_token', legacyGitHubToken);
+        sessionStorage.removeItem(LOGIN_CONFIG.tokenKey);
+        sessionStorage.removeItem(LOGIN_CONFIG.tokenTimeKey);
+        sessionStorage.removeItem('fd_github_token');
+      }
+
+      const token = localStorage.getItem(LOGIN_CONFIG.tokenKey);
+      const githubToken = localStorage.getItem('fd_github_token');
+      if (token !== 'authenticated' || !githubToken) {
+        localStorage.removeItem(LOGIN_CONFIG.tokenKey);
+        localStorage.removeItem(LOGIN_CONFIG.tokenTimeKey);
+        localStorage.removeItem('fd_github_token');
+        return false;
+      }
       return true;
     }
 
     function restoreSavedPassword() {
-      const saved = localStorage.getItem('fd_saved_password');
-      if (saved) {
-        loginPassword.value = saved;
+      if (localStorage.getItem('fd_remember_pw') === '1') {
         document.getElementById('login-remember').checked = true;
       }
     }
 
     restoreSavedPassword();
 
-    if (isSessionValid()) {
-      // Validate token still works before showing app
-      fetch(CONFIG.customersUrl, {
-        headers: { 'Authorization': 'token ' + getGitHubToken(), 'Accept': 'application/vnd.github.v3+json' },
-        cache: 'no-store',
-      }).then(resp => {
-        if (resp.ok) {
-          showApp();
-        } else {
-          sessionStorage.clear();
-          loginError.textContent = 'Sessie verlopen. Log opnieuw in.';
-          checkLockoutState();
-        }
-      }).catch(() => {
-        sessionStorage.clear();
-        loginError.textContent = 'Kon verbinding niet controleren. Log opnieuw in.';
+    try {
+      if (isSessionValid()) {
+        // Show app immediately; validate token silently in background.
+        // Only kick back to login on explicit 401/403 — network errors are fine (offline use).
+        hideSplash();
+        showApp();
+        validateGitHubTokenForLogin(getGitHubToken()).then(validation => {
+          if (!validation.ok && !validation.offline) {
+            localStorage.removeItem(LOGIN_CONFIG.tokenKey);
+            localStorage.removeItem(LOGIN_CONFIG.tokenTimeKey);
+            localStorage.removeItem('fd_github_token');
+            appContainer.style.display = 'none';
+            loginScreen.style.display = 'flex';
+            loginError.textContent = validation.message || 'Sessie verlopen. Log opnieuw in.';
+            checkLockoutState();
+          }
+        }).catch(() => {
+          // Network error — stay in app (offline use allowed)
+        });
+      } else {
+        hideSplash();
+        loginScreen.style.display = 'flex';
         checkLockoutState();
-      });
-    } else {
-      checkLockoutState();
+      }
+    } catch (err) {
+      // Fallback: always hide splash and show login on unexpected error
+      hideSplash();
+      loginScreen.style.display = 'flex';
+      console.error('Startup fout:', err);
     }
 
     // ============================================================
     // IMAGE EDITOR
     // ============================================================
 
-    let editorCanvas, editorCtx, editorScale = 1;
-    let editorTool = 'crop';
+    let editorCanvas, editorCtx, editorStage, editorScale = 1, editorBaseScale = 1, editorSavedScale = 1, editorSavedPanX = 0, editorSavedPanY = 0;
+    let editorPanX = 0, editorPanY = 0, editorStartPanX = 0, editorStartPanY = 0, editorStartX = 0, editorStartY = 0;
+    let editorTool = 'pan';
     let editorUndoStack = [];
     let cropRect = null, activeCropHandle = null;
     let editorSnapshot = null;
     let editorRafId = null;
     let eraseBrushSize = 30;
-    let erasePointerDown = false;
+    let erasePointerDown = false, eraseLastPt = null;
     let editorSaving = false;
-    let rotateSnapshot = null, rotateStartAngle = 0, rotateDeltaAngle = 0, rotateIsDragging = false;
+    let editorIsPanning = false, editorDragMode = null;
+    let activeEditorPointers = new Map(), editorIsPinching = false, editorPinchDist = null, editorPinchMidX = 0, editorPinchMidY = 0;
 
     function getCurrentFloorplanObj() {
       const ci = parseInt(customerSelect.value, 10);
@@ -2132,67 +3282,152 @@
       if (isEditMode) { showToast('Sluit eerst de bewerkingsmodus', 'error'); return; }
       topbarMenu.style.display = 'none';
 
-      const svgImgEl = svgContainer.querySelector('svg image');
+      const svgEl = svgContainer.querySelector('svg');
+      const svgImgEl = svgEl?.querySelector('image');
       if (!svgImgEl) { showToast('Geen afbeelding gevonden in plattegrond', 'error'); return; }
-      const dataUrl = svgImgEl.getAttribute('href');
-      if (!dataUrl || !dataUrl.startsWith('data:image')) {
+      const vb = svgEl?.viewBox?.baseVal;
+      if (!vb || !vb.width || !vb.height) {
+        showToast('Plattegrond heeft geen geldige afmetingen', 'error'); return;
+      }
+      const imageHref = svgImgEl.getAttribute('href') || svgImgEl.getAttributeNS('http://www.w3.org/1999/xlink', 'href');
+      if (!imageHref || !imageHref.startsWith('data:image')) {
         showToast('Afbeelding kan niet worden geladen', 'error'); return;
       }
+      const imgX = svgImgEl.getAttribute('x') || '0';
+      const imgY = svgImgEl.getAttribute('y') || '0';
+      const imgW = svgImgEl.getAttribute('width') || String(vb.width);
+      const imgH = svgImgEl.getAttribute('height') || String(vb.height);
+      const tempSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${vb.width} ${vb.height}"><image href="${imageHref}" x="${imgX}" y="${imgY}" width="${imgW}" height="${imgH}"/></svg>`;
+      const editorSourceUrl = URL.createObjectURL(new Blob([tempSvg], { type: 'image/svg+xml;charset=utf-8' }));
 
+      editorStage = document.getElementById('img-editor-stage');
       editorCanvas = document.getElementById('img-editor-canvas');
       editorCtx = editorCanvas.getContext('2d');
       editorUndoStack = [];
+      editorBaseScale = 0;
+      editorPanX = 0; editorPanY = 0;
       cropRect = null; activeCropHandle = null;
       editorSnapshot = null;
-      rotateSnapshot = null; rotateIsDragging = false;
       editorSaving = false;
 
       const img = new Image();
       img.onload = () => {
-        editorCanvas.width  = img.naturalWidth;
-        editorCanvas.height = img.naturalHeight;
-        editorCtx.drawImage(img, 0, 0);
-        updateEditorScale();
-        setEditorTool('crop');
+        editorCanvas.width  = Math.round(vb.width);
+        editorCanvas.height = Math.round(vb.height);
+        editorCtx.clearRect(0, 0, editorCanvas.width, editorCanvas.height);
+        editorCtx.drawImage(img, 0, 0, editorCanvas.width, editorCanvas.height);
+        URL.revokeObjectURL(editorSourceUrl);
         document.getElementById('img-editor-undo').disabled = true;
         document.getElementById('img-editor-save').disabled = false;
         document.getElementById('img-editor-save').textContent = '\uD83D\uDCBE Opslaan';
         document.getElementById('img-editor-overlay').style.display = 'flex';
+        waitForEditorLayoutAndFit();
       };
-      img.onerror = () => showToast('Afbeelding laden mislukt', 'error');
-      img.src = dataUrl;
+      img.onerror = () => {
+        URL.revokeObjectURL(editorSourceUrl);
+        showToast('Afbeelding laden mislukt', 'error');
+      };
+      img.src = editorSourceUrl;
+    }
+
+    function waitForEditorLayoutAndFit(attempt = 0) {
+      const wrap = document.getElementById('img-editor-canvas-wrap');
+      if (!wrap || !editorCanvas || !editorCanvas.width || !editorCanvas.height) return;
+      if ((!wrap.clientWidth || !wrap.clientHeight) && attempt < 20) {
+        requestAnimationFrame(() => waitForEditorLayoutAndFit(attempt + 1));
+        return;
+      }
+      fitEditorToScreen();
+      setEditorTool('pan');
+      if (attempt === 0) {
+        requestAnimationFrame(() => {
+          if (document.getElementById('img-editor-overlay').style.display !== 'none') {
+            fitEditorToScreen();
+          }
+        });
+        setTimeout(() => {
+          if (document.getElementById('img-editor-overlay').style.display !== 'none') {
+            fitEditorToScreen();
+          }
+        }, 120);
+      }
+    }
+
+    function fitEditorToScreen() {
+      const wrap = document.getElementById('img-editor-canvas-wrap');
+      const wW = wrap.clientWidth, wH = wrap.clientHeight;
+      if (!wW || !wH || !editorCanvas.width || !editorCanvas.height) return;
+      editorBaseScale = Math.min(wW / editorCanvas.width, wH / editorCanvas.height) * 0.92;
+      editorScale = editorBaseScale;
+      editorPanX = (wW - editorCanvas.width * editorScale) / 2;
+      editorPanY = (wH - editorCanvas.height * editorScale) / 2;
+      editorSavedScale = editorScale;
+      editorSavedPanX = editorPanX;
+      editorSavedPanY = editorPanY;
+      applyEditorViewport();
     }
 
     function updateEditorScale() {
-      const wrap = document.getElementById('img-editor-canvas-wrap');
-      const scaleX = wrap.clientWidth  / editorCanvas.width;
-      const scaleY = wrap.clientHeight / editorCanvas.height;
-      editorScale = Math.min(scaleX, scaleY, 1);
-      editorCanvas.style.width  = Math.round(editorCanvas.width  * editorScale) + 'px';
-      editorCanvas.style.height = Math.round(editorCanvas.height * editorScale) + 'px';
+      fitEditorToScreen();
+    }
+
+    function applyEditorViewport() {
+      editorCanvas.style.width = editorCanvas.width + 'px';
+      editorCanvas.style.height = editorCanvas.height + 'px';
+      editorStage.style.width = editorCanvas.width + 'px';
+      editorStage.style.height = editorCanvas.height + 'px';
+      editorStage.style.transform = `translate(${editorPanX}px, ${editorPanY}px) scale(${editorScale})`;
+      editorCanvas.classList.toggle('is-dragging', editorIsPanning && editorTool === 'pan');
+      if (editorTool === 'pan') {
+        editorCanvas.style.cursor = editorIsPanning ? 'grabbing' : 'grab';
+      } else {
+        editorCanvas.style.cursor = 'crosshair';
+      }
+    }
+
+    function restoreEditorSnapshotToCanvas() {
+      if (!editorSnapshot || !editorCanvas || !editorCtx) return false;
+      if (editorSnapshot.width !== editorCanvas.width || editorSnapshot.height !== editorCanvas.height) return false;
+      editorCtx.clearRect(0, 0, editorCanvas.width, editorCanvas.height);
+      editorCtx.drawImage(editorSnapshot, 0, 0);
+      return true;
+    }
+
+    function stopCropPreview({ restoreCanvas = true, clearSnapshot = false } = {}) {
+      if (editorRafId) { cancelAnimationFrame(editorRafId); editorRafId = null; }
+      if (restoreCanvas) restoreEditorSnapshotToCanvas();
+      if (clearSnapshot) {
+        editorSnapshot = null;
+        cropRect = null;
+        activeCropHandle = null;
+      }
     }
 
     function closeImageEditor() {
-      if (editorRafId) { cancelAnimationFrame(editorRafId); editorRafId = null; }
+      stopCropPreview({ restoreCanvas: false, clearSnapshot: true });
       document.getElementById('img-editor-overlay').style.display = 'none';
       editorUndoStack = [];
       cropRect = null; activeCropHandle = null;
-      editorSnapshot = null;
-      rotateSnapshot = null; rotateIsDragging = false;
       editorSaving = false;
+      editorTool = 'pan';
+      editorCanvas.dataset.tool = 'pan';
+      editorIsPanning = false; editorDragMode = null;
+      activeEditorPointers.clear(); editorIsPinching = false; editorPinchDist = null;
     }
 
     function setEditorTool(tool) {
-      if (editorRafId) { cancelAnimationFrame(editorRafId); editorRafId = null; }
       editorTool = tool;
 
+      document.getElementById('img-editor-tool-pan').classList.toggle('active', tool === 'pan');
       document.getElementById('img-editor-tool-crop').classList.toggle('active', tool === 'crop');
       document.getElementById('img-editor-tool-erase').classList.toggle('active', tool === 'erase');
-      document.getElementById('img-editor-tool-rotate').classList.toggle('active', tool === 'rotate');
       document.getElementById('img-editor-brush-row').style.display = tool === 'erase' ? 'flex' : 'none';
       document.getElementById('img-editor-apply-crop').style.display = tool === 'crop' ? '' : 'none';
-
-      editorCanvas.classList.toggle('editor-rotate-mode', tool === 'rotate');
+      stopCropPreview({ restoreCanvas: true, clearSnapshot: true });
+      erasePointerDown = false; eraseLastPt = null;
+      editorIsPanning = false; editorDragMode = null;
+      editorCanvas.dataset.tool = tool;
+      applyEditorViewport();
 
       if (tool === 'crop') {
         editorSnapshot = document.createElement('canvas');
@@ -2206,7 +3441,16 @@
     }
 
     function renderEditorFrame() {
-      if (editorTool !== 'crop') return;
+      if (editorTool !== 'crop' || !editorSnapshot || !cropRect) {
+        editorRafId = null;
+        return;
+      }
+      if (!editorBaseScale) {
+        fitEditorToScreen();
+        editorRafId = requestAnimationFrame(renderEditorFrame);
+        return;
+      }
+      editorCtx.clearRect(0, 0, editorCanvas.width, editorCanvas.height);
       editorCtx.drawImage(editorSnapshot, 0, 0);
 
       const { x, y, w, h } = cropRect;
@@ -2214,26 +3458,30 @@
       const hs = Math.max(12, 22 / editorScale); // corner bracket arm length
 
       // dim outside crop area
-      editorCtx.fillStyle = 'rgba(0,0,0,0.5)';
+      editorCtx.fillStyle = 'rgba(0,0,0,0.45)';
       editorCtx.fillRect(0, 0, editorCanvas.width, y);
       editorCtx.fillRect(0, y + h, editorCanvas.width, editorCanvas.height - y - h);
       editorCtx.fillRect(0, y, x, h);
       editorCtx.fillRect(x + w, y, editorCanvas.width - x - w, h);
 
+      editorCtx.save();
+      editorCtx.shadowColor = 'rgba(0,0,0,0.85)';
+      editorCtx.shadowBlur = Math.max(3, 6 / editorScale);
+
       // thin border
-      editorCtx.strokeStyle = 'rgba(255,255,255,0.6)';
+      editorCtx.strokeStyle = 'rgba(255,140,0,0.9)';
       editorCtx.lineWidth = lw;
       editorCtx.strokeRect(x, y, w, h);
 
       // corner brackets
-      editorCtx.strokeStyle = '#fff';
+      editorCtx.strokeStyle = '#ff8c00';
       editorCtx.lineWidth = Math.max(2, 3.5 / editorScale);
       editorCtx.lineCap = 'square';
       const corners = [
-        [x,     y,     hs,  0,  0,  hs],   // tl: right then down
-        [x + w, y,    -hs,  0,  0,  hs],   // tr: left then down
-        [x,     y + h, hs,  0,  0, -hs],   // bl: right then up
-        [x + w, y + h,-hs,  0,  0, -hs],   // br: left then up
+        [x,     y,     hs,  0,  0,  hs],
+        [x + w, y,    -hs,  0,  0,  hs],
+        [x,     y + h, hs,  0,  0, -hs],
+        [x + w, y + h,-hs,  0,  0, -hs],
       ];
       corners.forEach(([cx, cy, dx1, dy1, dx2, dy2]) => {
         editorCtx.beginPath();
@@ -2245,20 +3493,45 @@
 
       // edge handles (small filled squares)
       const es = Math.max(5, 8 / editorScale);
-      editorCtx.fillStyle = 'white';
+      editorCtx.fillStyle = '#ff8c00';
       [[x + w/2, y], [x + w/2, y + h], [x, y + h/2], [x + w, y + h/2]].forEach(([hx, hy]) => {
         editorCtx.fillRect(hx - es/2, hy - es/2, es, es);
       });
 
+      editorCtx.restore();
       editorRafId = requestAnimationFrame(renderEditorFrame);
+    }
+
+    function zoomEditorAt(clientX, clientY, factor) {
+      if (!editorBaseScale || !editorScale) return;
+      const wrap = document.getElementById('img-editor-canvas-wrap');
+      const rect = wrap.getBoundingClientRect();
+      const cx = clientX - rect.left;
+      const cy = clientY - rect.top;
+      const newScale = Math.max(0.02, Math.min(10, editorScale * factor));
+      editorPanX = cx - (cx - editorPanX) * (newScale / editorScale);
+      editorPanY = cy - (cy - editorPanY) * (newScale / editorScale);
+      editorScale = newScale;
+      applyEditorViewport();
+    }
+
+    function startEditorPan(e) {
+      editorIsPanning = true;
+      editorStartX = e.clientX;
+      editorStartY = e.clientY;
+      editorStartPanX = editorPanX;
+      editorStartPanY = editorPanY;
+      applyEditorViewport();
     }
 
     function editorClientToCanvas(e) {
       const rect = editorCanvas.getBoundingClientRect();
       const src = e.touches ? e.touches[0] : e;
+      const sx = rect.width  > 0 ? editorCanvas.width  / rect.width  : 1;
+      const sy = rect.height > 0 ? editorCanvas.height / rect.height : 1;
       return {
-        x: Math.round((src.clientX - rect.left) / editorScale),
-        y: Math.round((src.clientY - rect.top)  / editorScale),
+        x: Math.round((src.clientX - rect.left) * sx),
+        y: Math.round((src.clientY - rect.top)  * sy),
       };
     }
 
@@ -2298,110 +3571,168 @@
       cropRect = { x, y, w, h };
     }
 
+    function eraseAt(from, to) {
+      editorCtx.save();
+      editorCtx.strokeStyle = 'white';
+      editorCtx.lineWidth = eraseBrushSize;
+      editorCtx.lineCap = 'round';
+      editorCtx.lineJoin = 'round';
+      editorCtx.beginPath();
+      editorCtx.moveTo(from.x, from.y);
+      editorCtx.lineTo(to.x, to.y);
+      editorCtx.stroke();
+      editorCtx.restore();
+    }
+
     function editorPointerDown(e) {
       e.preventDefault();
+      editorCanvas.setPointerCapture(e.pointerId);
+      activeEditorPointers.set(e.pointerId, {x: e.clientX, y: e.clientY});
+
+      if (activeEditorPointers.size >= 2) {
+        // entering pinch mode — cancel any active tool operation
+        editorIsPinching = true;
+        erasePointerDown = false; eraseLastPt = null;
+        activeCropHandle = null;
+        const pts = [...activeEditorPointers.values()];
+        const dx = pts[0].x - pts[1].x, dy = pts[0].y - pts[1].y;
+        editorPinchDist = Math.sqrt(dx * dx + dy * dy);
+        editorPinchMidX = (pts[0].x + pts[1].x) / 2;
+        editorPinchMidY = (pts[0].y + pts[1].y) / 2;
+        return;
+      }
+
+      if (editorIsPinching) return;
+
       const pt = editorClientToCanvas(e);
+      editorDragMode = null;
 
       if (editorTool === 'crop') {
         activeCropHandle = getCropHandle(pt);
+        if (activeCropHandle) {
+          editorDragMode = 'crop';
+        } else {
+          startEditorPan(e);
+          editorDragMode = 'pan';
+        }
 
       } else if (editorTool === 'erase') {
         erasePointerDown = true;
-        editorCtx.beginPath();
-        editorCtx.arc(pt.x, pt.y, eraseBrushSize / 2, 0, 2 * Math.PI);
-        editorCtx.fillStyle = 'white';
-        editorCtx.fill();
+        editorPushUndo();
+        eraseLastPt = pt;
+        eraseAt(pt, pt);
+        editorDragMode = 'erase';
 
-      } else if (editorTool === 'rotate') {
-        const cx = editorCanvas.width / 2, cy = editorCanvas.height / 2;
-        rotateStartAngle = Math.atan2(pt.y - cy, pt.x - cx);
-        rotateDeltaAngle = 0;
-        rotateIsDragging = true;
-        editorCanvas.classList.add('editor-rotate-dragging');
-        rotateSnapshot = document.createElement('canvas');
-        rotateSnapshot.width  = editorCanvas.width;
-        rotateSnapshot.height = editorCanvas.height;
-        rotateSnapshot.getContext('2d').drawImage(editorCanvas, 0, 0);
+      } else {
+        startEditorPan(e);
+        editorDragMode = 'pan';
       }
     }
 
     function editorPointerMove(e) {
       e.preventDefault();
-      const pt = editorClientToCanvas(e);
+      activeEditorPointers.set(e.pointerId, {x: e.clientX, y: e.clientY});
 
-      if (editorTool === 'crop' && activeCropHandle) {
+      if (activeEditorPointers.size >= 2 && editorIsPinching) {
+        const pts = [...activeEditorPointers.values()];
+        const dx = pts[0].x - pts[1].x, dy = pts[0].y - pts[1].y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        const midX = (pts[0].x + pts[1].x) / 2;
+        const midY = (pts[0].y + pts[1].y) / 2;
+        if (editorPinchDist > 0) {
+          zoomEditorAt(midX, midY, dist / editorPinchDist);
+        }
+        editorPinchDist = dist;
+        editorPinchMidX = midX;
+        editorPinchMidY = midY;
+        return;
+      }
+
+      if (editorIsPinching) return;
+
+      if (editorDragMode === 'crop' && activeCropHandle) {
+        const pt = editorClientToCanvas(e);
         moveCropHandle(activeCropHandle, pt);
 
-      } else if (editorTool === 'erase' && erasePointerDown) {
-        editorCtx.beginPath();
-        editorCtx.arc(pt.x, pt.y, eraseBrushSize / 2, 0, 2 * Math.PI);
-        editorCtx.fillStyle = 'white';
-        editorCtx.fill();
+      } else if (editorDragMode === 'erase' && erasePointerDown) {
+        const events = e.getCoalescedEvents ? e.getCoalescedEvents() : [e];
+        for (const ev of events) {
+          const pt = editorClientToCanvas(ev);
+          eraseAt(eraseLastPt, pt);
+          eraseLastPt = pt;
+        }
 
-      } else if (editorTool === 'rotate' && rotateIsDragging) {
-        const cx = editorCanvas.width / 2, cy = editorCanvas.height / 2;
-        rotateDeltaAngle = Math.atan2(pt.y - cy, pt.x - cx) - rotateStartAngle;
-        editorCtx.fillStyle = 'white';
-        editorCtx.fillRect(0, 0, editorCanvas.width, editorCanvas.height);
-        editorCtx.save();
-        editorCtx.translate(cx, cy);
-        editorCtx.rotate(rotateDeltaAngle);
-        editorCtx.drawImage(rotateSnapshot, -editorCanvas.width / 2, -editorCanvas.height / 2);
-        editorCtx.restore();
+      } else if (editorDragMode === 'pan' && editorIsPanning) {
+        editorPanX = editorStartPanX + (e.clientX - editorStartX);
+        editorPanY = editorStartPanY + (e.clientY - editorStartY);
+        applyEditorViewport();
       }
     }
 
     function editorPointerUp(e) {
-      if (editorTool === 'crop') {
+      if (e && editorCanvas.hasPointerCapture(e.pointerId)) {
+        editorCanvas.releasePointerCapture(e.pointerId);
+      }
+      activeEditorPointers.delete(e.pointerId);
+
+      if (editorIsPinching) {
+        if (activeEditorPointers.size === 0) {
+          editorIsPinching = false;
+          editorPinchDist = null;
+        }
+        return;
+      }
+
+      if (editorDragMode === 'crop') {
         activeCropHandle = null;
 
-      } else if (editorTool === 'erase' && erasePointerDown) {
+      } else if (editorDragMode === 'erase' && erasePointerDown) {
         erasePointerDown = false;
-        editorPushUndo();
+        eraseLastPt = null;
 
-      } else if (editorTool === 'rotate' && rotateIsDragging) {
-        rotateIsDragging = false;
-        editorCanvas.classList.remove('editor-rotate-dragging');
-        if (Math.abs(rotateDeltaAngle) > 0.01) {
-          // push pre-rotation state to undo
-          editorUndoStack.push(rotateSnapshot.toDataURL('image/jpeg', 0.8));
-          if (editorUndoStack.length > 3) editorUndoStack.shift();
-          document.getElementById('img-editor-undo').disabled = false;
-          // commit: redraw with white bg fill
-          const tmp = document.createElement('canvas');
-          tmp.width = editorCanvas.width; tmp.height = editorCanvas.height;
-          const tctx = tmp.getContext('2d');
-          tctx.fillStyle = 'white';
-          tctx.fillRect(0, 0, tmp.width, tmp.height);
-          tctx.save();
-          tctx.translate(tmp.width / 2, tmp.height / 2);
-          tctx.rotate(rotateDeltaAngle);
-          tctx.drawImage(rotateSnapshot, -editorCanvas.width / 2, -editorCanvas.height / 2);
-          tctx.restore();
-          editorCtx.drawImage(tmp, 0, 0);
-        } else {
-          // revert live preview
-          editorCtx.drawImage(rotateSnapshot, 0, 0);
-        }
-        rotateSnapshot = null;
       }
+      editorIsPanning = false;
+      editorDragMode = null;
+      applyEditorViewport();
     }
 
     function editorPushUndo() {
-      editorUndoStack.push(editorCanvas.toDataURL('image/jpeg', 0.8));
-      if (editorUndoStack.length > 3) editorUndoStack.shift();
+      const sourceCanvas = editorSnapshot || editorCanvas;
+      editorUndoStack.push(sourceCanvas.toDataURL('image/jpeg', 0.8));
+      if (editorUndoStack.length > 10) editorUndoStack.shift();
       document.getElementById('img-editor-undo').disabled = false;
+    }
+
+    function rotateCanvas90(direction) {
+      stopCropPreview({ restoreCanvas: true, clearSnapshot: true });
+      editorPushUndo();
+      const w = editorCanvas.width, h = editorCanvas.height;
+      const tmp = document.createElement('canvas');
+      tmp.width = h; tmp.height = w;
+      const tctx = tmp.getContext('2d');
+      tctx.translate(h / 2, w / 2);
+      tctx.rotate(direction * Math.PI / 2);
+      tctx.drawImage(editorCanvas, -w / 2, -h / 2);
+      editorCanvas.width = h; editorCanvas.height = w;
+      editorCtx.clearRect(0, 0, editorCanvas.width, editorCanvas.height);
+      editorCtx.drawImage(tmp, 0, 0);
+      fitEditorToScreen();
+      if (editorTool === 'crop') setEditorTool('crop');
     }
 
     function editorUndo() {
       if (!editorUndoStack.length) return;
+      stopCropPreview({ restoreCanvas: false, clearSnapshot: true });
+      erasePointerDown = false;
+      eraseLastPt = null;
       const dataUrl = editorUndoStack.pop();
       const img = new Image();
       img.onload = () => {
         editorCanvas.width  = img.naturalWidth;
         editorCanvas.height = img.naturalHeight;
+        editorCtx.clearRect(0, 0, editorCanvas.width, editorCanvas.height);
         editorCtx.drawImage(img, 0, 0);
-        updateEditorScale();
+        fitEditorToScreen();
         if (editorTool === 'crop') setEditorTool('crop');
       };
       img.src = dataUrl;
@@ -2421,9 +3752,12 @@
 
       editorCanvas.width  = w;
       editorCanvas.height = h;
+      editorCtx.clearRect(0, 0, editorCanvas.width, editorCanvas.height);
       editorCtx.drawImage(tmp, 0, 0);
-      updateEditorScale();
-      setEditorTool('crop');
+      fitEditorToScreen();
+      document.getElementById('img-editor-apply-crop').style.display = 'none';
+      setEditorTool('pan');
+      showToast('Uitsnede toegepast', 'success');
     }
 
     async function saveEditorChanges() {
@@ -2435,8 +3769,11 @@
       btnSave.disabled = true;
       btnSave.textContent = 'Opslaan...';
       editorSaving = true;
+      const shouldResumeCrop = editorTool === 'crop' && !!editorSnapshot;
+      const savedCropRect = cropRect ? { ...cropRect } : null;
 
       try {
+        if (editorSnapshot) stopCropPreview({ restoreCanvas: true, clearSnapshot: false });
         const newDataUrl = editorCanvas.toDataURL('image/jpeg', 0.8);
         const W = editorCanvas.width, H = editorCanvas.height;
         const svgText = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}">\n  <image href="${newDataUrl}" width="${W}" height="${H}"/>\n</svg>`;
@@ -2466,6 +3803,10 @@
         if (!isNaN(ci) && !isNaN(fi)) loadFloorplan(ci, fi);
 
       } catch (err) {
+        if (shouldResumeCrop && document.getElementById('img-editor-overlay').style.display !== 'none') {
+          setEditorTool('crop');
+          if (savedCropRect) cropRect = savedCropRect;
+        }
         showToast('Fout: ' + err.message, 'error');
         editorSaving = false;
         btnSave.disabled = false;
@@ -2505,9 +3846,11 @@
     editorCancelOverlay.addEventListener('click', hideEditorCancelConfirm);
 
     document.getElementById('img-editor-undo').addEventListener('click', editorUndo);
+    document.getElementById('img-editor-tool-pan').addEventListener('click', () => setEditorTool('pan'));
     document.getElementById('img-editor-tool-crop').addEventListener('click', () => setEditorTool('crop'));
     document.getElementById('img-editor-tool-erase').addEventListener('click', () => setEditorTool('erase'));
-    document.getElementById('img-editor-tool-rotate').addEventListener('click', () => setEditorTool('rotate'));
+    document.getElementById('img-editor-tool-rotate-left').addEventListener('click', () => rotateCanvas90(-1));
+    document.getElementById('img-editor-tool-rotate-right').addEventListener('click', () => rotateCanvas90(1));
     document.getElementById('img-editor-apply-crop').addEventListener('click', applyEditorCrop);
     document.getElementById('img-editor-save').addEventListener('click', saveEditorChanges);
 
@@ -2525,15 +3868,30 @@
       document.getElementById('img-editor-brush-val').textContent = eraseBrushSize;
     });
 
+    editorStage = document.getElementById('img-editor-stage');
     editorCanvas = document.getElementById('img-editor-canvas');
     editorCanvas.addEventListener('pointerdown',   editorPointerDown,  { passive: false });
     editorCanvas.addEventListener('pointermove',   editorPointerMove,  { passive: false });
     editorCanvas.addEventListener('pointerup',     editorPointerUp);
     editorCanvas.addEventListener('pointercancel', editorPointerUp);
+    editorCanvas.addEventListener('lostpointercapture', () => {
+      editorIsPanning = false;
+      editorDragMode = null;
+      erasePointerDown = false;
+      eraseLastPt = null;
+      activeCropHandle = null;
+      applyEditorViewport();
+    });
+
+    document.getElementById('img-editor-canvas-wrap').addEventListener('wheel', (e) => {
+      e.preventDefault();
+      const factor = e.deltaY > 0 ? 0.9 : 1.1;
+      zoomEditorAt(e.clientX, e.clientY, factor);
+    }, { passive: false });
 
     window.addEventListener('resize', () => {
       if (document.getElementById('img-editor-overlay').style.display !== 'none') {
-        updateEditorScale();
+        fitEditorToScreen();
       }
     });
 

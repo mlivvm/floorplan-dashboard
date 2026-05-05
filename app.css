@@ -68,6 +68,69 @@
       white-space: nowrap;
     }
 
+    .connection-indicator {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      min-height: 32px;
+      padding: 5px 9px;
+      border: 1px solid rgba(255,255,255,0.65);
+      border-radius: 6px;
+      background: rgba(255,255,255,0.12);
+      color: white;
+      font-size: 12px;
+      font-weight: 700;
+      line-height: 1;
+      white-space: nowrap;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+
+    .connection-dot {
+      width: 9px;
+      height: 9px;
+      border-radius: 50%;
+      background: #34a853;
+      box-shadow: 0 0 0 2px rgba(255,255,255,0.25);
+      flex: 0 0 auto;
+    }
+
+    .connection-indicator.offline {
+      background: rgba(255,255,255,0.18);
+      border-color: rgba(255,255,255,0.5);
+    }
+
+    .connection-indicator.offline .connection-dot {
+      background: #b8c1cc;
+    }
+
+    .sync-indicator {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      min-height: 32px;
+      padding: 5px 9px;
+      border: 1px solid rgba(255,255,255,0.65);
+      border-radius: 6px;
+      background: rgba(255,255,255,0.12);
+      color: white;
+      font-size: 12px;
+      font-weight: 700;
+      line-height: 1;
+      white-space: nowrap;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+
+    .sync-dot {
+      width: 9px;
+      height: 9px;
+      border-radius: 50%;
+      background: #fbbc04;
+      box-shadow: 0 0 0 2px rgba(255,255,255,0.25);
+      flex: 0 0 auto;
+    }
+
     /* Info panel — always visible, overlays the map */
     .info-panel {
       display: flex;
@@ -296,6 +359,23 @@
       color: white;
     }
 
+    .edit-bar .btn-edit-toggle {
+      font-size: 13px;
+      padding: 6px 12px;
+      border: 2px solid #e67700;
+      border-radius: 8px;
+      cursor: pointer;
+      font-weight: 600;
+      background: white;
+      color: #e67700;
+      touch-action: manipulation;
+    }
+
+    .edit-bar .btn-edit-toggle.active {
+      background: #e67700;
+      color: white;
+    }
+
     .edit-popup {
       display: none;
       position: fixed;
@@ -347,6 +427,28 @@
       cursor: pointer;
       font-weight: 600;
       min-width: 90px;
+    }
+
+    .resize-popup-control {
+      margin-bottom: 16px;
+      min-width: 260px;
+    }
+
+    .resize-popup-control label {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 10px;
+      color: #e67700;
+      font-size: 15px;
+      font-weight: 700;
+    }
+
+    .resize-popup-control input[type="range"] {
+      width: 100%;
+      height: 40px;
+      accent-color: #e67700;
     }
 
     .edit-overlay {
@@ -518,20 +620,39 @@
 
     .img-editor-canvas-wrap {
       flex: 1;
-      overflow: auto;
-      display: flex;
-      align-items: center;
-      justify-content: center;
+      overflow: hidden;
+      position: relative;
       background: #111;
       -webkit-overflow-scrolling: touch;
     }
 
+    .img-editor-stage {
+      position: absolute;
+      top: 0;
+      left: 0;
+      transform-origin: 0 0;
+    }
+
     .img-editor-canvas-wrap canvas {
-      max-width: 100%;
-      max-height: 100%;
       display: block;
       touch-action: none;
+      cursor: grab;
+    }
+
+    .img-editor-stage canvas {
+      display: block;
+    }
+
+    .img-editor-canvas-wrap canvas[data-tool="crop"] {
       cursor: crosshair;
+    }
+
+    .img-editor-canvas-wrap canvas[data-tool="erase"] {
+      cursor: crosshair;
+    }
+
+    .img-editor-canvas-wrap canvas.is-dragging {
+      cursor: grabbing;
     }
 
     .img-editor-brush-row {
@@ -587,6 +708,12 @@
       color: #fff;
     }
 
+    #img-editor-tool-pan.active {
+      border-color: #fbbc04;
+      background: #5c4200;
+      color: #ffd54f;
+    }
+
     .img-editor-apply {
       border-color: #34a853;
       background: #1a4a2a;
@@ -614,14 +741,6 @@
     .img-editor-undo-btn:disabled {
       opacity: 0.35;
       cursor: default;
-    }
-
-    .img-editor-canvas-wrap canvas.editor-rotate-mode {
-      cursor: grab;
-    }
-
-    .img-editor-canvas-wrap canvas.editor-rotate-dragging {
-      cursor: grabbing;
     }
 
     @media (hover: hover) {
@@ -732,9 +851,16 @@
     #topbar-menu button:active {
       background: #f5f5f5;
     }
+    #topbar-menu button.active {
+      background: #e8f0fe;
+      color: #1a73e8 !important;
+    }
     @media (hover: hover) {
       #topbar-menu button:hover {
         background: #f5f5f5;
+      }
+      #topbar-menu button.active:hover {
+        background: #dce8ff;
       }
     }
 
@@ -768,4 +894,3 @@
     button, select, input, label, .side-panel-item {
       touch-action: manipulation;
     }
-

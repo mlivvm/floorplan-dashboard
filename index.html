@@ -13,9 +13,15 @@
 </head>
 <body>
 
+  <!-- Splash screen (shown until JS determines login state) -->
+  <div id="splash-screen" style="position:fixed;inset:0;background:#f5f5f5;display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:9999;">
+    <div style="width:48px;height:48px;border:4px solid #ddd;border-top-color:#1a73e8;border-radius:50%;animation:splash-spin 0.8s linear infinite;"></div>
+  </div>
+  <style>@keyframes splash-spin{to{transform:rotate(360deg)}}</style>
+
   <!-- Login screen -->
-  <div class="login-screen" id="login-screen">
-    <div style="position:absolute; bottom:12px; left:16px; font-size:12px; color:#aaa;">v1.7.1</div>
+  <div class="login-screen" id="login-screen" style="display:none;">
+    <div style="position:absolute; bottom:12px; left:16px; font-size:12px; color:#aaa;">v1.8.7</div>
     <div class="login-box">
       <h1>Plattegrond Dashboard</h1>
       <p>Voer het wachtwoord in om door te gaan</p>
@@ -30,7 +36,7 @@
 
   <!-- App (hidden until logged in) -->
   <div id="app-container" style="display:none;">
-  <div style="position:fixed; bottom:12px; left:16px; font-size:12px; color:#aaa; z-index:1000; pointer-events:none;">v1.7.1</div>
+  <div style="position:fixed; bottom:12px; left:16px; font-size:12px; color:#aaa; z-index:1000; pointer-events:none;">v1.8.7</div>
 
   <!-- Toast notification -->
   <div id="toast" style="display:none; position:fixed; top:calc(var(--topbar-h, 52px) + 12px); left:50%; transform:translateX(-50%); padding:14px 28px; border-radius:10px; font-size:16px; font-weight:600; z-index:500; box-shadow:0 4px 16px rgba(0,0,0,0.25); cursor:pointer; max-width:90vw; text-align:center;"></div>
@@ -45,14 +51,23 @@
       <option value="">-- Kies plattegrond --</option>
     </select>
     <span style="flex:1;"></span>
+    <div class="connection-indicator" id="connection-indicator" title="Online">
+      <span class="connection-dot"></span>
+      <span class="connection-label" id="connection-label">Online</span>
+    </div>
+    <div class="sync-indicator" id="sync-indicator" title="Status sync wacht" style="display:none;">
+      <span class="sync-dot"></span>
+      <span id="sync-label">Sync 0</span>
+    </div>
     <button class="btn-reset" id="btn-reset" style="display:none;">Reset zoom</button>
     <button class="btn-reset" id="btn-edit" style="display:none;">&#9998; Bewerken</button>
     <div style="position:relative;">
       <button class="btn-reset" id="btn-menu" style="padding:6px 10px; font-size:18px; line-height:1;">&#9776;</button>
       <div id="topbar-menu" style="display:none; position:absolute; right:0; top:100%; margin-top:4px; background:white; border-radius:8px; box-shadow:0 4px 16px rgba(0,0,0,0.2); min-width:160px; z-index:200; overflow:hidden;">
         <button id="btn-upload" style="display:block; width:100%; padding:14px 20px; border:none; background:white; font-size:16px; font-weight:600; color:#333; text-align:left; cursor:pointer;">Plattegrond toevoegen</button>
-        <button id="btn-delete-fp" style="display:none; width:100%; padding:14px 20px; border:none; background:white; font-size:16px; font-weight:600; color:#d93025; text-align:left; cursor:pointer;">Plattegrond verwijderen</button>
+        <button id="btn-menu-labels" style="display:block; width:100%; padding:14px 20px; border:none; background:white; font-size:16px; font-weight:600; color:#333; text-align:left; cursor:pointer;">Labels tonen</button>
         <button id="btn-edit-image" style="display:none; width:100%; padding:14px 20px; border:none; background:white; font-size:16px; font-weight:600; color:#1a73e8; text-align:left; cursor:pointer;">Afbeelding bewerken</button>
+        <button id="btn-delete-fp" style="display:none; width:100%; padding:14px 20px; border:none; background:white; font-size:16px; font-weight:600; color:#d93025; text-align:left; cursor:pointer;">Plattegrond verwijderen</button>
         <div style="border-top:1px solid #eee;"></div>
         <button id="btn-logout" style="display:block; width:100%; padding:14px 20px; border:none; background:white; font-size:16px; font-weight:600; color:#d93025; text-align:left; cursor:pointer;">Uitloggen</button>
       </div>
@@ -61,15 +76,27 @@
 
   <!-- Edit mode bar -->
   <div class="edit-bar" id="edit-bar">
-    <span class="edit-label" style="flex:0 0 auto; min-width:140px;">Bewerkingsmodus</span>
+    <span class="edit-label" style="flex:0 0 auto; min-width:100px;">Bewerkingsmodus</span>
     <div style="display:flex; align-items:center; gap:8px; flex:1; justify-content:center;">
       <label style="font-size:13px; color:#e67700; font-weight:600; white-space:nowrap;">Grootte:</label>
-      <input type="range" id="edit-marker-size" min="3" max="30" value="15" style="width:180px; height:36px;">
+      <input type="range" id="edit-marker-size" min="3" max="30" value="15" style="width:140px; height:36px;">
       <span id="edit-size-label" style="font-size:13px; color:#e67700; min-width:24px;">15</span>
+    </div>
+    <div style="display:flex; align-items:center; gap:6px; flex:0 0 auto;">
+      <button id="btn-auto-number" class="btn-edit-toggle">Auto #</button>
     </div>
     <div style="flex:0 0 auto;">
       <button class="btn-edit-cancel" id="btn-edit-cancel">Annuleren</button>
       <button class="btn-edit-save" id="btn-edit-save">Opslaan</button>
+    </div>
+    <div id="auto-number-row" style="display:none; width:100%; align-items:center; gap:8px; flex-wrap:wrap; padding-top:4px; border-top:1px solid #f0c070;">
+      <label style="font-size:13px; color:#e67700; font-weight:600; white-space:nowrap;">Prefix:</label>
+      <input type="text" id="auto-prefix-input" placeholder="bijv. D1BA" maxlength="20" autocomplete="off" style="width:110px; padding:6px 10px; border:1px solid #e67700; border-radius:6px; font-size:14px; font-weight:600; text-transform:uppercase;">
+      <select id="auto-padding-select" style="padding:6px 8px; border:1px solid #e67700; border-radius:6px; font-size:14px; color:#e67700; font-weight:600; background:white;">
+        <option value="2">01</option>
+        <option value="3" selected>001</option>
+      </select>
+      <span id="auto-next-preview" style="font-size:14px; color:#555; font-weight:600; white-space:nowrap;">→ (voer prefix in)</span>
     </div>
   </div>
 
@@ -101,6 +128,7 @@
       <input type="text" id="edit-popup-input" placeholder="Deurcode" maxlength="20" autocomplete="off" style="flex:1; margin-bottom:0;">
       <button id="btn-scan-qr" style="padding:8px 14px; border:none; border-radius:8px; background:#1a73e8; color:white; font-size:16px; font-weight:600; cursor:pointer; white-space:nowrap;">&#128247; Scan</button>
     </div>
+    <div id="edit-popup-custom"></div>
     <div id="edit-popup-error" style="color:#d93025; font-size:14px; font-weight:600; margin-bottom:12px; min-height:20px;"></div>
     <div class="popup-buttons" id="edit-popup-buttons"></div>
   </div>
@@ -211,7 +239,9 @@
     </div>
     <!-- Canvas area -->
     <div class="img-editor-canvas-wrap" id="img-editor-canvas-wrap">
-      <canvas id="img-editor-canvas"></canvas>
+      <div id="img-editor-stage" class="img-editor-stage">
+        <canvas id="img-editor-canvas"></canvas>
+      </div>
     </div>
     <!-- Brush size row (gum mode only) -->
     <div id="img-editor-brush-row" class="img-editor-brush-row" style="display:none;">
@@ -220,9 +250,11 @@
     </div>
     <!-- Bottom toolbar -->
     <div class="img-editor-toolbar">
-      <button id="img-editor-tool-crop"   class="img-editor-tool active">&#9986; Uitsnijden</button>
+      <button id="img-editor-tool-pan"    class="img-editor-tool active">&#9995; Verplaatsen</button>
+      <button id="img-editor-tool-crop"   class="img-editor-tool">&#9986; Uitsnijden</button>
       <button id="img-editor-tool-erase"  class="img-editor-tool">&#9676; Wissen</button>
-      <button id="img-editor-tool-rotate" class="img-editor-tool">&#8635; Roteren</button>
+      <button id="img-editor-tool-rotate-left"  class="img-editor-tool">&#8630; 90° links</button>
+      <button id="img-editor-tool-rotate-right" class="img-editor-tool">&#8631; 90° rechts</button>
       <button id="img-editor-apply-crop"  class="img-editor-tool img-editor-apply">&#10003; Toepassen</button>
       <button id="img-editor-undo"        class="img-editor-tool img-editor-undo-btn" disabled>&#8617; Ongedaan</button>
       <button id="img-editor-save"        class="img-editor-tool img-editor-save">&#128190; Opslaan</button>

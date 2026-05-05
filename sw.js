@@ -1,4 +1,4 @@
-const CACHE_NAME = 'fd-v1.7.1';
+const CACHE_NAME = 'fd-v1.8.7';
 
 const STATIC_ASSETS = [
   './',
@@ -31,9 +31,28 @@ self.addEventListener('activate', (e) => {
 self.addEventListener('fetch', (e) => {
   const url = new URL(e.request.url);
 
-  // Never cache API calls or external services
-  if (url.hostname === 'api.github.com' ||
-      url.hostname === 'eu.jotform.com' ||
+  // GitHub writes must always go straight to the network. Safe GETs are
+  // cached so customers, statuses, SVG metadata, and SVG blobs remain
+  // available after they have been loaded once.
+  if (url.hostname === 'api.github.com') {
+    if (e.request.method !== 'GET') return;
+
+    e.respondWith(
+      fetch(e.request)
+        .then(resp => {
+          if (resp.ok) {
+            const clone = resp.clone();
+            caches.open(CACHE_NAME).then(cache => cache.put(e.request, clone));
+          }
+          return resp;
+        })
+        .catch(() => caches.match(e.request))
+    );
+    return;
+  }
+
+  // Never cache external services with mutable/auth side effects
+  if (url.hostname === 'eu.jotform.com' ||
       url.hostname === 'ipapi.co' ||
       url.hostname === 'api.emailjs.com' ||
       url.hostname === 'api.ipify.org') {
