@@ -1,4 +1,4 @@
-const CACHE_NAME = 'fd-v1.8.44';
+const CACHE_NAME = 'fd-v1.8.83';
 
 const STATIC_ASSETS = [
   './',
@@ -6,16 +6,38 @@ const STATIC_ASSETS = [
   'app.css',
   'repository.js',
   'data-service.js',
+  'floorplan-cache-service.js',
+  'floorplan-view-service.js',
+  'auth-service.js',
   'status-service.js',
+  'status-sync-service.js',
   'mode-service.js',
   'image-editor-service.js',
   'viewport-service.js',
   'marker-service.js',
+  'door-action-service.js',
+  'ui-shell-service.js',
+  'edit-ui-service.js',
+  'upload-service.js',
+  'select-sheet-service.js',
+  'side-panel-service.js',
   'app.js',
   'manifest.json',
   'icon-192.png',
   'icon-512.png',
 ];
+
+function offlineMissResponse() {
+  return new Response('Offline cache miss', {
+    status: 504,
+    statusText: 'Offline cache miss',
+    headers: { 'Content-Type': 'text/plain; charset=utf-8' },
+  });
+}
+
+function cacheFallback(request) {
+  return caches.match(request).then(cached => cached || offlineMissResponse());
+}
 
 self.addEventListener('install', (e) => {
   e.waitUntil(
@@ -53,7 +75,7 @@ self.addEventListener('fetch', (e) => {
           }
           return resp;
         })
-        .catch(() => caches.match(e.request))
+        .catch(() => cacheFallback(e.request))
     );
     return;
   }
@@ -71,13 +93,15 @@ self.addEventListener('fetch', (e) => {
     e.respondWith(
       caches.match(e.request).then(cached => {
         if (cached) return cached;
-        return fetch(e.request).then(resp => {
-          if (resp.ok) {
-            const clone = resp.clone();
-            caches.open(CACHE_NAME).then(cache => cache.put(e.request, clone));
-          }
-          return resp;
-        });
+        return fetch(e.request)
+          .then(resp => {
+            if (resp.ok) {
+              const clone = resp.clone();
+              caches.open(CACHE_NAME).then(cache => cache.put(e.request, clone));
+            }
+            return resp;
+          })
+          .catch(() => offlineMissResponse());
       })
     );
     return;
@@ -93,6 +117,6 @@ self.addEventListener('fetch', (e) => {
         }
         return resp;
       })
-      .catch(() => caches.match(e.request))
+      .catch(() => cacheFallback(e.request))
   );
 });

@@ -26,19 +26,19 @@
     }, 'Kon status niet opslaan');
   }
 
-  async function loadFloorplanSVG(fileUrl) {
+  async function loadFloorplanSVG(fileUrl, options) {
     requireRepository();
-    const meta = await Repository.fetchContentMeta(fileUrl, 'Bestand niet gevonden');
+    const meta = await Repository.fetchContentMeta(fileUrl, 'Bestand niet gevonden', options);
     const repo = Repository.repoFromContentsUrl(fileUrl, 'mlivvm/gallery');
-    return Repository.fetchBlobText(repo, meta.sha, 'Kon blob niet laden');
+    return Repository.fetchBlobText(repo, meta.sha, 'Kon blob niet laden', options);
   }
 
-  async function revalidateFloorplanSVG(fileUrl, cachedSha) {
+  async function revalidateFloorplanSVG(fileUrl, cachedSha, options) {
     requireRepository();
-    const meta = await Repository.fetchContentMeta(fileUrl);
+    const meta = await Repository.fetchContentMeta(fileUrl, null, options);
     if (meta.sha === cachedSha) return null;
     const repo = Repository.repoFromContentsUrl(fileUrl, 'mlivvm/gallery');
-    return Repository.fetchBlobText(repo, meta.sha);
+    return Repository.fetchBlobText(repo, meta.sha, null, options);
   }
 
   async function warmFloorplanSVG(fileUrl, options) {
@@ -79,16 +79,9 @@
     let uploadedSvgSha = null;
 
     try {
-      let sha = null;
-      try {
-        const existing = await Repository.fetchContentMeta(uploadUrl);
-        sha = existing.sha;
-      } catch (e) {}
-
       const uploadData = await Repository.putTextContent(uploadUrl, {
         message: 'Upload: ' + customerName + ' - ' + floorplanName,
         text: svgText,
-        sha,
       }, 'SVG upload mislukt');
       uploadedSvgSha = uploadData.content?.sha;
 

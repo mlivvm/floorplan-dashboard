@@ -27,6 +27,11 @@
     bucket[STATUS_CYCLE_STARTED_KEY] = new Date(timestamp).toISOString();
   }
 
+  function isDoorDone(statusData, customer, floorplan, doorId) {
+    const bucket = getFloorplanStatusBucket(statusData, customer, floorplan);
+    return Boolean(bucket && bucket[doorId] === 'done');
+  }
+
   function readCachedDoorStatus() {
     try {
       return JSON.parse(localStorage.getItem(STATUS_CACHE_KEY) || '{}') || {};
@@ -71,6 +76,16 @@
     }
   }
 
+  function buildToggleOperation(statusData, { customer, floorplan, doorId, ts = Date.now() }) {
+    return {
+      customer,
+      floorplan,
+      doorId,
+      status: isDoorDone(statusData, customer, floorplan, doorId) ? 'todo' : 'done',
+      ts,
+    };
+  }
+
   function applyQueuedStatusOperations(statusData, queue) {
     queue.forEach(op => applyStatusOperation(statusData, op));
     return statusData;
@@ -102,11 +117,13 @@
     getFloorplanStatusBucket,
     getCycleStartedMs,
     setCycleStartedAt,
+    isDoorDone,
     readCachedDoorStatus,
     cacheDoorStatus,
     readSyncQueue,
     writeSyncQueue,
     applyStatusOperation,
+    buildToggleOperation,
     applyQueuedStatusOperations,
     enqueueOperation,
     isSameOperation,

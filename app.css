@@ -224,6 +224,19 @@
       box-shadow: 0 2px 8px rgba(0,0,0,0.15);
       flex-wrap: wrap;
       gap: 6px;
+      transition: right 0.25s ease;
+    }
+
+    @media (min-width: 700px) {
+      #app-container.side-panel-open .info-panel {
+        right: 280px;
+      }
+    }
+
+    @media (max-width: 699px) {
+      #app-container.side-panel-open .info-panel {
+        z-index: 102;
+      }
     }
 
     .info-panel .door-name {

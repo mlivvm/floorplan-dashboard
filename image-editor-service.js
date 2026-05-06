@@ -43,9 +43,73 @@
     return { cropData, cropX, cropY, cropW, cropH, outsideDoorCodes };
   }
 
+  function canvasToLimitedJPEG(canvas, {
+    maxLength = 1040000,
+    startQuality = 0.86,
+    minQuality = 0.38,
+    qualityStep = 0.08,
+  } = {}) {
+    let quality = startQuality;
+    let dataUrl;
+    do {
+      dataUrl = canvas.toDataURL('image/jpeg', quality);
+      quality -= qualityStep;
+    } while (dataUrl.length > maxLength && quality > minQuality);
+
+    if (dataUrl.length > maxLength) {
+      throw new Error('Uitsnede is te groot. Maak de uitsnede kleiner.');
+    }
+    return dataUrl;
+  }
+
+  function buildCroppedSVGText({
+    svgEl,
+    imageDataUrl,
+    plan,
+    markerService = FD.MarkerService,
+    serializer = new XMLSerializer(),
+  }) {
+    if (!svgEl || !imageDataUrl || !plan || !markerService) {
+      throw new Error('Crop-save data is incompleet.');
+    }
+
+    const width = Math.round(plan.cropW);
+    const height = Math.round(plan.cropH);
+    const svgClone = svgEl.cloneNode(true);
+    svgClone.setAttribute('viewBox', `0 0 ${width} ${height}`);
+    svgClone.setAttribute('width', width.toString());
+    svgClone.setAttribute('height', height.toString());
+
+    const cloneImage = svgClone.querySelector('image');
+    if (!cloneImage) throw new Error('Afbeelding ontbreekt in plattegrond.');
+    cloneImage.setAttribute('href', imageDataUrl);
+    cloneImage.removeAttributeNS('http://www.w3.org/1999/xlink', 'href');
+    cloneImage.setAttribute('x', '0');
+    cloneImage.setAttribute('y', '0');
+    cloneImage.setAttribute('width', width.toString());
+    cloneImage.setAttribute('height', height.toString());
+
+    svgClone.querySelectorAll('[data-fd-label]').forEach(el => el.remove());
+    svgClone.querySelectorAll('[data-door-id]').forEach(marker => {
+      if (marker.getAttribute('data-fd-label')) return;
+      const position = markerService.markerPosition(marker);
+      if (!position) return;
+      if (!markerFitsInsideCrop(marker, plan.cropX, plan.cropY, plan.cropW, plan.cropH)) {
+        marker.remove();
+        return;
+      }
+      markerService.setMarkerPosition(marker, position.x - plan.cropX, position.y - plan.cropY);
+      markerService.clearRuntimeMarkerState(marker);
+    });
+
+    return serializer.serializeToString(svgClone);
+  }
+
   FD.ImageEditorService = {
     markerDoorCode,
     markerFitsInsideCrop,
     buildCropSavePlan,
+    canvasToLimitedJPEG,
+    buildCroppedSVGText,
   };
 })(window);

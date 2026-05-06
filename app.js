@@ -9,8 +9,9 @@
       svgUploadsUrl: 'https://api.github.com/repos/mlivvm/floorplan-uploads/contents/',
       jotformBaseUrl: 'https://eu.jotform.com/',
       jotformFormId: '250122093908351',
+      loginEmailNotificationsEnabled: false,
       pollInterval: 30000,
-      offlineCacheVersion: 'fd-v1.8.44',
+      offlineCacheVersion: 'fd-v1.8.83',
     };
 
     const COLORS = {
@@ -33,21 +34,23 @@
     let currentCustomer = null;
     let currentFloorplan = null;
     let selectedDoor = null;
-    let pollTimer = null;
     let customersLoading = false;
     const AppModes = FD.ModeService.MODES;
     const appMode = FD.ModeService.createModeController(AppModes.LOGIN);
+    let statusSync = null;
 
     function setDocumentAppMode(mode) {
       document.documentElement.dataset.appMode = mode;
       document.body.dataset.appMode = mode;
     }
 
+    function isEditModeActive() {
+      return appMode.is(AppModes.EDIT);
+    }
+
     setDocumentAppMode(appMode.current);
     appMode.onTransition(({ to }) => setDocumentAppMode(to));
 
-    // Floorplan load generation counter (guards against race conditions)
-    let loadGeneration = 0;
     let pendingDoor = null;
 
     // Pan & zoom
@@ -73,6 +76,8 @@
     const customerSelect = document.getElementById('customer-select');
     const floorplanSelect = document.getElementById('floorplan-select');
     const svgContainer = document.getElementById('svg-container');
+    const appContainer = document.getElementById('app-container');
+    const topbarEl = document.querySelector('.topbar');
     const loadingEl = document.getElementById('loading');
     const infoPanel = document.getElementById('info-panel');
     const doorNameEl = document.getElementById('door-name');
@@ -91,28 +96,28 @@
     const syncIndicator = document.getElementById('sync-indicator');
     const syncLabel = document.getElementById('sync-label');
     const topbarMenu = document.getElementById('topbar-menu');
+    const btnTopbarMenu = document.getElementById('btn-menu');
+    const btnMenuLabels = document.getElementById('btn-menu-labels');
+    const topbarMenuController = FD.UIShellService.createTopbarMenu({
+      toggleButtonEl: btnTopbarMenu,
+      menuEl: topbarMenu,
+      documentEl: document,
+    });
+
+    function hideTopbarMenu() {
+      topbarMenuController.hide();
+    }
 
     // ============================================================
     // SHARED UI HELPERS
     // ============================================================
 
-    const BUILDING_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="90" height="90" viewBox="0 0 90 90"><rect x="8" y="32" width="74" height="50" rx="5" fill="#e8f0fe" stroke="#1a73e8" stroke-width="2.5"/><rect x="18" y="44" width="16" height="16" rx="3" fill="#1a73e8" opacity="0.45"/><rect x="56" y="44" width="16" height="16" rx="3" fill="#1a73e8" opacity="0.45"/><rect x="37" y="50" width="16" height="32" rx="3" fill="#1a73e8" opacity="0.65"/><polygon points="45,6 6,32 84,32" fill="#1a73e8" opacity="0.75"/></svg>`;
-
     function setEmptyState(subtitle, hint) {
-      loadingEl.innerHTML = `<div class="empty-state">
-        <div class="empty-state-icon">${BUILDING_SVG}</div>
-        <div class="empty-state-title">Plattegrond Dashboard</div>
-        <div class="empty-state-sub">${subtitle}</div>
-        ${hint ? `<div class="empty-state-hint">${hint}</div>` : ''}
-      </div>`;
+      FD.UIShellService.renderEmptyState(loadingEl, { subtitle, hint });
     }
 
     function setLoadingState() {
-      loadingEl.innerHTML = `<div class="empty-state">
-        <div class="empty-state-icon loading-scan-container">${BUILDING_SVG}<div class="loading-scan-line"></div></div>
-        <div class="empty-state-title" style="color:#555; font-size:18px; font-weight:600;">Plattegrond laden</div>
-        <div class="loading-dots"><span></span><span></span><span></span></div>
-      </div>`;
+      FD.UIShellService.renderLoadingState(loadingEl);
     }
 
     // ============================================================
@@ -120,16 +125,18 @@
     // ============================================================
 
     function updateViewportMetrics() {
-      const viewport = window.visualViewport;
-      const height = viewport ? viewport.height : window.innerHeight;
-      document.documentElement.style.setProperty('--app-height', Math.round(height) + 'px');
+      FD.UIShellService.updateViewportHeightProperty({
+        rootEl: document.documentElement,
+        visualViewport: window.visualViewport,
+        fallbackHeight: window.innerHeight,
+      });
     }
 
     function updateTopbarHeight() {
-      const topbar = document.querySelector('.topbar');
-      if (!topbar) return;
-      const h = topbar.offsetHeight;
-      document.documentElement.style.setProperty('--topbar-h', h + 'px');
+      FD.UIShellService.updateTopbarHeightProperty({
+        rootEl: document.documentElement,
+        topbarEl,
+      });
     }
 
     function handleResize() {
@@ -153,7 +160,7 @@
 
     // Warn before closing with unsaved edit mode changes
     window.addEventListener('beforeunload', (e) => {
-      if (isEditMode || appMode.isBusy()) {
+      if (isEditModeActive() || appMode.isBusy()) {
         e.preventDefault();
         e.returnValue = '';
       }
@@ -164,46 +171,43 @@
     // ============================================================
 
     const toastEl = document.getElementById('toast');
-    let toastTimer = null;
+    const toastController = FD.UIShellService.createToastController(toastEl);
 
     function showToast(message, type) {
-      if (toastTimer) clearTimeout(toastTimer);
-      toastEl.textContent = message;
-      toastEl.style.background = type === 'error' ? '#d93025' : '#34a853';
-      toastEl.style.color = 'white';
-      toastEl.style.display = 'block';
-      toastTimer = setTimeout(() => { toastEl.style.display = 'none'; }, 4000);
+      toastController.show(message, type);
     }
-
-    toastEl.addEventListener('click', () => {
-      toastEl.style.display = 'none';
-      if (toastTimer) clearTimeout(toastTimer);
-    });
 
     function updateConnectionIndicator() {
       const isOnline = navigator.onLine;
-      connectionIndicator.classList.toggle('offline', !isOnline);
-      connectionLabel.textContent = isOnline ? 'Online' : 'Offline';
-      connectionIndicator.title = isOnline ? 'Online' : 'Offline';
+      FD.UIShellService.renderConnectionIndicator({
+        indicatorEl: connectionIndicator,
+        labelEl: connectionLabel,
+        isOnline,
+      });
       requestAnimationFrame(updateTopbarHeight);
     }
 
     function updateStatusSyncIndicator() {
-      const count = readStatusSyncQueue().length;
-      syncIndicator.style.display = count > 0 ? 'inline-flex' : 'none';
-      syncLabel.textContent = 'Sync ' + count;
-      syncIndicator.title = count === 1 ? '1 statuswijziging wacht op sync' : count + ' statuswijzigingen wachten op sync';
+      const count = statusSync ? statusSync.getQueueCount() : 0;
+      FD.UIShellService.renderStatusSyncIndicator({
+        indicatorEl: syncIndicator,
+        labelEl: syncLabel,
+        count,
+      });
       requestAnimationFrame(updateTopbarHeight);
     }
 
     window.addEventListener('online', () => {
       updateConnectionIndicator();
       showToast('Je bent weer online', 'success');
+      if (statusSync) statusSync.markNetworkAvailable();
       flushStatusSyncQueue();
+      scheduleFloorplanCacheWarmup();
     });
 
     window.addEventListener('offline', () => {
       updateConnectionIndicator();
+      cancelFloorplanCacheWarmup();
       showToast('Offline modus', 'error');
     });
 
@@ -215,10 +219,6 @@
 
     function getGitHubToken() {
       return FD.Repository.getToken();
-    }
-
-    function ghHeaders(accept) {
-      return FD.Repository.headers(accept);
     }
 
     function readCachedCustomers() {
@@ -238,319 +238,36 @@
       }
     }
 
-    async function fetchGitHubSVG(fileUrl) {
-      return FD.DataService.loadFloorplanSVG(fileUrl);
-    }
-
-    async function fetchGitHubSVGCacheFirst(fileUrl) {
-      if (!('caches' in window)) return { svgText: await fetchGitHubSVG(fileUrl), revalidate: null };
-      try {
-        const cache = await caches.open(CONFIG.offlineCacheVersion);
-        const cachedMetaResp = await cache.match(fileUrl, { ignoreVary: true });
-        if (cachedMetaResp) {
-          const meta = await cachedMetaResp.clone().json();
-          const repo = FD.Repository.repoFromContentsUrl(fileUrl, 'mlivvm/gallery');
-          const blobUrl = FD.Repository.blobUrl(repo, meta.sha);
-          const cachedBlobResp = await cache.match(blobUrl, { ignoreVary: true });
-          if (cachedBlobResp) {
-            const blob = await cachedBlobResp.clone().json();
-            const svgText = FD.Repository.blobJSONToText(blob);
-            const revalidate = revalidateSVGInBackground(fileUrl, meta.sha);
-            return { svgText, revalidate };
-          }
-        }
-      } catch (err) {
-        console.warn('Cache-first lookup mislukt:', err);
-      }
-      return { svgText: await fetchGitHubSVG(fileUrl), revalidate: null };
-    }
-
-    async function revalidateSVGInBackground(fileUrl, cachedSha) {
-      try {
-        return FD.DataService.revalidateFloorplanSVG(fileUrl, cachedSha);
-      } catch {
-        return null;
-      }
-    }
-
-    async function updateCachedSVGAfterSave(fileUrl, updateResult, svgText) {
-      if (!('caches' in window) || !updateResult?.content?.sha) return;
-      try {
-        const repo = FD.Repository.repoFromContentsUrl(fileUrl, 'mlivvm/gallery');
-        const sha = updateResult.content.sha;
-        const blobUrl = FD.Repository.blobUrl(repo, sha);
-        const cache = await caches.open(CONFIG.offlineCacheVersion);
-
-        await Promise.all([
-          cache.put(fileUrl, new Response(JSON.stringify(updateResult.content), {
-            headers: { 'Content-Type': 'application/json' }
-          })),
-          cache.put(blobUrl, new Response(JSON.stringify(FD.Repository.textBlobJSON(svgText)), {
-            headers: { 'Content-Type': 'application/json' }
-          }))
-        ]);
-
-        const manifest = readFloorplanCacheManifest();
-        const path = decodeURIComponent(fileUrl.split('/contents/')[1] || '');
-        if (path) {
-          manifest.files[getFloorplanCacheKey(repo, path)] = sha;
-          writeFloorplanCacheManifest(manifest);
-        }
-      } catch (err) {
-        console.warn('SVG cache kon niet direct worden bijgewerkt:', err);
-      }
-    }
-
-    function getFloorplanRepo(fp) {
-      return fp.repo === 'uploads' ? 'mlivvm/floorplan-uploads' : 'mlivvm/gallery';
-    }
-
-    function getFloorplanPath(fp) {
-      return fp.file;
-    }
-
     function getFloorplanApiUrl(fp) {
-      const baseUrl = fp.repo === 'uploads' ? CONFIG.svgUploadsUrl : CONFIG.svgBaseUrl;
-      return baseUrl + encodeURIComponent(getFloorplanPath(fp));
+      return FD.FloorplanCacheService.getFloorplanApiUrl(fp, CONFIG);
     }
 
-    async function warmGitHubSVGCache(fileUrl, signal) {
-      await FD.DataService.warmFloorplanSVG(fileUrl, { signal });
-    }
+    const floorplanCache = FD.FloorplanCacheService.createWarmupController({
+      config: CONFIG,
+      getCustomers: () => customers,
+      getToken: getGitHubToken,
+      isOnline: () => navigator.onLine,
+      logger: console,
+    });
 
-    const FLOORPLAN_CACHE_MANIFEST_KEY = 'fd_floorplan_cache_manifest';
-
-    function readFloorplanCacheManifest() {
-      try {
-        const raw = localStorage.getItem(FLOORPLAN_CACHE_MANIFEST_KEY);
-        if (!raw) return { version: CONFIG.offlineCacheVersion, files: {} };
-        const parsed = JSON.parse(raw);
-        if (!parsed || typeof parsed !== 'object' || !parsed.files) {
-          return { version: CONFIG.offlineCacheVersion, files: {} };
-        }
-        if (parsed.version !== CONFIG.offlineCacheVersion) {
-          return { version: CONFIG.offlineCacheVersion, files: {} };
-        }
-        return parsed;
-      } catch {
-        return { version: CONFIG.offlineCacheVersion, files: {} };
-      }
-    }
-
-    function writeFloorplanCacheManifest(manifest) {
-      try {
-        localStorage.setItem(FLOORPLAN_CACHE_MANIFEST_KEY, JSON.stringify(manifest));
-      } catch (err) {
-        console.warn('Offline cache manifest kon niet worden opgeslagen:', err);
-      }
-    }
-
-    function getFloorplanCacheKey(repo, path) {
-      return repo + ':' + path;
-    }
-
-    function getGitHubBlobUrl(repo, sha) {
-      return FD.Repository.blobUrl(repo, sha);
-    }
-
-    function getGitHubGetRequest(url) {
-      return new Request(url, {
-        headers: ghHeaders(),
-        cache: 'no-store',
+    function fetchGitHubSVGCacheFirst(fileUrl) {
+      return FD.FloorplanCacheService.fetchSVGCacheFirst(fileUrl, {
+        cacheVersion: CONFIG.offlineCacheVersion,
       });
     }
 
-    async function isFloorplanCached(item) {
-      if (!item.sha || !('caches' in window)) return false;
-      try {
-        const [metaCached, blobCached] = await Promise.all([
-          caches.match(getGitHubGetRequest(item.fileUrl)),
-          caches.match(getGitHubGetRequest(getGitHubBlobUrl(item.repo, item.sha))),
-        ]);
-        return Boolean(metaCached && blobCached);
-      } catch (err) {
-        console.warn('Offline cache controle mislukt:', item.fileUrl, err);
-        return false;
-      }
+    function updateCachedSVGAfterSave(fileUrl, updateResult, svgText) {
+      return FD.FloorplanCacheService.updateCachedSVGAfterSave(fileUrl, updateResult, svgText, {
+        cacheVersion: CONFIG.offlineCacheVersion,
+      });
     }
-
-    let floorplanCacheWarmStarted = false;
-    let floorplanCacheWarmGeneration = 0;
-    let floorplanCacheWarmController = null;
 
     function cancelFloorplanCacheWarmup() {
-      floorplanCacheWarmGeneration++;
-      floorplanCacheWarmStarted = false;
-      if (floorplanCacheWarmController) {
-        floorplanCacheWarmController.abort();
-        floorplanCacheWarmController = null;
-      }
-    }
-
-    async function waitForServiceWorkerReady() {
-      if (!('serviceWorker' in navigator)) return false;
-      try {
-        await Promise.race([
-          navigator.serviceWorker.ready,
-          new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 8000)),
-        ]);
-        return true;
-      } catch (err) {
-        console.warn('Service worker niet klaar voor offline cache warmup:', err);
-        return false;
-      }
+      floorplanCache.cancel();
     }
 
     function scheduleFloorplanCacheWarmup() {
-      if (floorplanCacheWarmStarted || !customers.length) return;
-      floorplanCacheWarmStarted = true;
-      const generation = ++floorplanCacheWarmGeneration;
-      const token = getGitHubToken();
-      floorplanCacheWarmController = new AbortController();
-      const signal = floorplanCacheWarmController.signal;
-
-      const run = async () => {
-        if (generation !== floorplanCacheWarmGeneration || !token || getGitHubToken() !== token) return;
-        const swReady = await waitForServiceWorkerReady();
-        if (generation !== floorplanCacheWarmGeneration || getGitHubToken() !== token) return;
-        if (!swReady) return;
-        await warmFloorplanCache(generation, token, signal);
-      };
-
-      const safeRun = () => run().catch(err => {
-        if (err?.name === 'AbortError') return;
-        console.warn('Offline cache warmup mislukt:', err);
-      });
-
-      if ('requestIdleCallback' in window) {
-        requestIdleCallback(safeRun, { timeout: 5000 });
-      } else {
-        setTimeout(safeRun, 1500);
-      }
-    }
-
-    async function warmFloorplanCache(generation, token, signal) {
-      const shouldCancelWarmup = () => signal?.aborted || generation !== floorplanCacheWarmGeneration || !token || getGitHubToken() !== token;
-      if (shouldCancelWarmup()) return;
-
-      const queue = [];
-      customers.forEach(c => {
-        c.floorplans.forEach(fp => {
-          if (!fp.file) return;
-          const repo = getFloorplanRepo(fp);
-          const path = getFloorplanPath(fp);
-          queue.push({
-            repo,
-            path,
-            fileUrl: getFloorplanApiUrl(fp),
-            cacheKey: getFloorplanCacheKey(repo, path),
-          });
-        });
-      });
-
-      const repoTreeMaps = {};
-      const authSkippedRepos = new Set();
-      const warnedAuthRepos = new Set();
-      const markRepoAuthSkipped = (repo, err) => {
-        authSkippedRepos.add(repo);
-        if (warnedAuthRepos.has(repo)) return;
-        warnedAuthRepos.add(repo);
-        console.warn('Offline cache warmup overgeslagen voor repo zonder toegang:', repo, err);
-      };
-
-      await Promise.all(Array.from(new Set(queue.map(item => item.repo))).map(async repo => {
-        if (shouldCancelWarmup()) return;
-        try {
-          repoTreeMaps[repo] = await FD.DataService.fetchFloorplanTreeMap(repo, { signal });
-        } catch (err) {
-          if (err?.name === 'AbortError') return;
-          repoTreeMaps[repo] = null;
-          if (err?.status === 401 || err?.status === 403) {
-            markRepoAuthSkipped(repo, err);
-            return;
-          }
-          console.warn('GitHub tree niet beschikbaar, warmup valt terug op volledige check:', repo, err);
-        }
-      }));
-
-      if (shouldCancelWarmup()) return;
-
-      const manifest = readFloorplanCacheManifest();
-      const warmQueue = [];
-      let skipped = 0;
-      let authSkipped = 0;
-      let missing = 0;
-      let transientFailed = 0;
-
-      await Promise.all(queue.map(async item => {
-        if (shouldCancelWarmup()) return;
-        if (authSkippedRepos.has(item.repo)) {
-          authSkipped++;
-          return;
-        }
-
-        const treeMap = repoTreeMaps[item.repo];
-        const sha = treeMap ? treeMap.get(item.path) : null;
-        item.sha = sha;
-
-        if (treeMap && !sha) {
-          missing++;
-          return;
-        }
-
-        if (sha && manifest.files[item.cacheKey] === sha && await isFloorplanCached(item)) {
-          skipped++;
-        } else {
-          warmQueue.push(item);
-        }
-      }));
-
-      let next = 0;
-      let cached = 0;
-      const workerCount = Math.min(3, warmQueue.length);
-
-      async function worker() {
-        while (next < warmQueue.length) {
-          if (shouldCancelWarmup()) return;
-          const item = warmQueue[next++];
-          if (authSkippedRepos.has(item.repo)) {
-            authSkipped++;
-            continue;
-          }
-          try {
-            await warmGitHubSVGCache(item.fileUrl, signal);
-            if (item.sha) manifest.files[item.cacheKey] = item.sha;
-            cached++;
-          } catch (err) {
-            if (err?.name === 'AbortError') return;
-            if (err?.status === 401 || err?.status === 403) {
-              markRepoAuthSkipped(item.repo, err);
-              authSkipped++;
-              continue;
-            }
-            if (err?.status === 404) {
-              missing++;
-              continue;
-            }
-            if (err?.status >= 500 && err?.status < 600) {
-              transientFailed++;
-              continue;
-            }
-            console.warn('Plattegrond niet in offline cache:', item.fileUrl, err);
-          }
-          await new Promise(resolve => setTimeout(resolve, 50));
-        }
-      }
-
-      await Promise.all(Array.from({ length: workerCount }, worker));
-      if (shouldCancelWarmup()) return;
-      writeFloorplanCacheManifest(manifest);
-      const details = [];
-      if (authSkipped) details.push(`${authSkipped} auth overgeslagen`);
-      if (missing) details.push(`${missing} ontbrekend in repo`);
-      if (transientFailed) details.push(`${transientFailed} tijdelijk mislukt`);
-      const detailText = details.length ? `, ${details.join(', ')}` : '';
-      console.info(`Offline cache warmup klaar: ${cached} vernieuwd, ${skipped} overgeslagen, ${queue.length} totaal${detailText}.`);
+      floorplanCache.schedule();
     }
 
     async function loadCustomers() {
@@ -563,71 +280,62 @@
         cacheCustomers();
         customerSelect.disabled = false;
         populateCustomerDropdown();
-        if (activeSelectSheet === 'customer') renderSelectSheetItems();
+        if (selectionController.isOpen('customer')) renderSelectSheetItems();
         scheduleFloorplanCacheWarmup();
       } catch (err) {
-        console.error('Kon klanten niet laden:', err);
         const cachedCustomers = readCachedCustomers();
         if (cachedCustomers.length > 0) {
+          console.warn('Kon klanten niet online laden, lokale cache gebruikt:', err);
           customers = cachedCustomers;
           customerSelect.disabled = false;
           populateCustomerDropdown();
-          if (activeSelectSheet === 'customer') renderSelectSheetItems();
+          if (selectionController.isOpen('customer')) renderSelectSheetItems();
           setEmptyState('Offline klantgegevens geladen.<br>Kies een klant en plattegrond.', 'Controleer later online of alles actueel is');
         } else {
+          console.error('Kon klanten niet laden:', err);
           loadingEl.textContent = 'Fout bij laden van klantgegevens.';
         }
       } finally {
         customersLoading = false;
         customerSelect.disabled = customers.length === 0;
         updatePickerButtons();
-        if (activeSelectSheet === 'customer') renderSelectSheetItems();
+        if (selectionController.isOpen('customer')) renderSelectSheetItems();
       }
     }
 
     async function loadStatus() {
-      const queuedOps = readStatusSyncQueue();
-      const cachedStatus = readCachedDoorStatus();
-      if (Object.keys(cachedStatus).length > 0) {
-        doorStatus = applyQueuedStatusOperations(cachedStatus, queuedOps);
-        cacheDoorStatus();
-        updateStatusBar();
-      }
+      const result = await statusSync.loadStatusLocalFirst({
+        onCachedStatus: (cachedStatus) => {
+          doorStatus = cachedStatus;
+          updateStatusBar();
+        },
+      });
 
-      try {
-        const remoteStatus = await FD.DataService.loadStatus(CONFIG);
-        doorStatus = applyQueuedStatusOperations(remoteStatus, queuedOps);
-        cacheDoorStatus();
-        flushStatusSyncQueue();
-      } catch (err) {
-        console.error('Kon status niet laden:', err);
-        if (Object.keys(cachedStatus).length === 0) doorStatus = {};
+      if (result.error) {
+        console.error('Kon status niet laden:', result.error);
       }
+      doorStatus = result.status || {};
       updateStatusBar();
     }
 
     function populateCustomerDropdown() {
-      customerSelect.innerHTML = '<option value="">-- Kies klant --</option>';
-      customers.forEach((c, i) => {
-        const opt = document.createElement('option');
-        opt.value = i;
-        opt.textContent = c.customer;
-        customerSelect.appendChild(opt);
-      });
+      FD.SelectSheetService.renderCustomerOptions(customerSelect, customers);
       updatePickerButtons();
     }
 
     function populateFloorplanDropdown(customerIndex) {
       const c = customers[customerIndex];
-      floorplanSelect.innerHTML = '<option value="">-- Kies plattegrond --</option>';
-      floorplanSelect.disabled = false;
-      c.floorplans.forEach((fp, i) => {
-        const opt = document.createElement('option');
-        opt.value = i;
-        opt.textContent = fp.name;
-        floorplanSelect.appendChild(opt);
-      });
+      FD.SelectSheetService.renderFloorplanOptions(floorplanSelect, c.floorplans);
       updatePickerButtons();
+    }
+
+    function resetFloorplanDropdown(disabled = true) {
+      FD.SelectSheetService.resetFloorplanOptions(floorplanSelect, { disabled });
+      updatePickerButtons();
+    }
+
+    function getSelectedFloorplan() {
+      return FD.SelectSheetService.getSelectedFloorplan(customers, customerSelect, floorplanSelect);
     }
 
     const customerPickerBtn = document.getElementById('customer-picker-btn');
@@ -640,108 +348,191 @@
     const selectSheetTitle = document.getElementById('select-sheet-title');
     const selectSheetSearch = document.getElementById('select-sheet-search');
     const selectSheetList = document.getElementById('select-sheet-list');
-    let activeSelectSheet = null;
-
-    function getSelectedOptionText(selectEl, fallback) {
-      if (!selectEl.value) return fallback;
-      return selectEl.options[selectEl.selectedIndex]?.textContent || fallback;
-    }
-
-    function updatePickerButtons() {
-      customerPickerValue.textContent = customersLoading ? 'Klanten laden...' : getSelectedOptionText(customerSelect, 'Kies klant');
-      floorplanPickerValue.textContent = getSelectedOptionText(floorplanSelect, 'Kies plattegrond');
-      customerPickerBtn.disabled = customerSelect.disabled || customersLoading;
-      floorplanPickerBtn.disabled = floorplanSelect.disabled || !customerSelect.value;
-    }
+    const selectSheetClose = document.getElementById('select-sheet-close');
 
     function getSelectSheetItems(type) {
       if (type === 'customer') {
         return customers.map((c, index) => ({ index, label: c.customer }));
       }
-      const ci = parseInt(customerSelect.value, 10);
-      if (isNaN(ci) || !customers[ci]) return [];
+      const ci = FD.SelectSheetService.selectedIndex(customerSelect);
+      if (ci === null || !customers[ci]) return [];
       return customers[ci].floorplans.map((fp, index) => ({ index, label: fp.name }));
     }
 
-    function renderSelectSheetItems() {
-      const query = selectSheetSearch.value.trim().toLowerCase();
-      const currentValue = activeSelectSheet === 'customer' ? customerSelect.value : floorplanSelect.value;
-      selectSheetList.innerHTML = '';
-      if (activeSelectSheet === 'customer' && customersLoading) {
-        const loading = document.createElement('div');
-        loading.className = 'select-sheet-empty';
-        loading.textContent = 'Klanten laden...';
-        selectSheetList.appendChild(loading);
-        return;
-      }
-      const items = getSelectSheetItems(activeSelectSheet)
-        .filter(item => item.label.toLowerCase().includes(query));
-      if (!items.length) {
-        const empty = document.createElement('div');
-        empty.className = 'select-sheet-empty';
-        empty.textContent = 'Geen resultaten';
-        selectSheetList.appendChild(empty);
-        return;
-      }
-      items.forEach(item => {
-        const btn = document.createElement('button');
-        btn.type = 'button';
-        btn.className = 'select-sheet-item';
-        if (String(item.index) === currentValue) btn.classList.add('selected');
-        btn.textContent = item.label;
-        btn.addEventListener('click', () => {
-          if (activeSelectSheet === 'customer') {
-            customerSelect.value = String(item.index);
-            customerSelect.dispatchEvent(new Event('change'));
-          } else {
-            floorplanSelect.value = String(item.index);
-            floorplanSelect.dispatchEvent(new Event('change'));
-          }
-          closeSelectSheet();
-        });
-        selectSheetList.appendChild(btn);
-      });
+    const selectionController = FD.SelectSheetService.createSelectionController({
+      elements: {
+        customerSelect,
+        floorplanSelect,
+        customerPickerBtn,
+        floorplanPickerBtn,
+        customerPickerValue,
+        floorplanPickerValue,
+        overlay: selectSheetOverlay,
+        sheet: selectSheet,
+        eyebrow: selectSheetEyebrow,
+        title: selectSheetTitle,
+        search: selectSheetSearch,
+        list: selectSheetList,
+        closeButton: selectSheetClose,
+      },
+      getState: () => ({ customersLoading }),
+      getItems: getSelectSheetItems,
+      onCustomerChange: ({ value }) => {
+        if (isEditModeActive()) exitEditMode();
+        resetFloorplanUI();
+        currentCustomer = null;
+        currentFloorplan = null;
+        updateDeleteButton();
+        updatePickerButtons();
+
+        if (value === '') {
+          resetFloorplanDropdown(true);
+          setEmptyState('Kies een klant en plattegrond<br>om te beginnen.', 'Gebruik de dropdowns bovenaan');
+          loadingEl.classList.remove('hidden');
+          return;
+        }
+        setEmptyState('Kies een plattegrond<br>uit het dropdown menu.');
+        loadingEl.classList.remove('hidden');
+        populateFloorplanDropdown(parseInt(value, 10));
+      },
+      onFloorplanChange: () => {
+        updatePickerButtons();
+        const { customerIndex, floorplanIndex, floorplan } = getSelectedFloorplan();
+        if (customerIndex === null || floorplanIndex === null || !floorplan) {
+          if (isEditModeActive()) exitEditMode();
+          resetFloorplanUI();
+          currentCustomer = null;
+          currentFloorplan = null;
+          setEmptyState('Kies een plattegrond<br>uit het dropdown menu.');
+          loadingEl.classList.remove('hidden');
+          updateDeleteButton();
+          return;
+        }
+        loadFloorplan(customerIndex, floorplanIndex);
+      },
+    });
+
+    function updatePickerButtons() {
+      selectionController.updatePickerButtons();
     }
 
-    function openSelectSheet(type) {
-      if (type === 'customer' && customersLoading) return;
-      if (type === 'floorplan' && floorplanPickerBtn.disabled) return;
-      activeSelectSheet = type;
-      selectSheetEyebrow.textContent = type === 'customer' ? 'Klant' : 'Plattegrond';
-      selectSheetTitle.textContent = type === 'customer' ? 'Kies klant' : 'Kies plattegrond';
-      selectSheetSearch.value = '';
-      selectSheetOverlay.style.display = 'block';
-      selectSheet.style.display = 'flex';
-      renderSelectSheetItems();
-      setTimeout(() => selectSheetSearch.focus(), 0);
+    function renderSelectSheetItems() {
+      selectionController.renderItems();
     }
 
     function closeSelectSheet() {
-      selectSheetOverlay.style.display = 'none';
-      selectSheet.style.display = 'none';
-      activeSelectSheet = null;
+      selectionController.close();
+    }
+
+    const sidePanelController = FD.SidePanelService.createController({
+      elements: {
+        panelEl: sidePanel,
+        listEl: sidePanelList,
+        headerEl: sidePanelHeader,
+      },
+      getDoorIds: () => FD.MarkerService.allMarkers(svgContainer).map(marker => marker.dataset.doorId),
+      getSelectedDoor: () => selectedDoor,
+      getDoorStatus,
+      colors: { done: COLORS.done, todo: COLORS.todo },
+      onSelect: selectDoor,
+      setShellOpen: (open) => FD.UIShellService.setSidePanelOpen({
+        sidePanelEl: sidePanel,
+        toggleButtonEl: btnPanelToggle,
+        appContainerEl: appContainer,
+        open,
+      }),
+    });
+
+    const doorActionController = FD.DoorActionService.createController({
+      elements: {
+        doorNameEl,
+        doorStatusEl,
+        btnJotform,
+        btnClose,
+        btnDone,
+      },
+      config: {
+        baseUrl: CONFIG.jotformBaseUrl,
+        formId: CONFIG.jotformFormId,
+      },
+      colors: { done: COLORS.done, todo: COLORS.todo },
+      getState: () => ({
+        selectedDoor,
+        currentCustomer,
+        currentFloorplan,
+        online: navigator.onLine,
+      }),
+      setSelectedDoor: (doorId) => { selectedDoor = doorId; },
+      getDoorStatus,
+      refreshAllDoorColors,
+      scrollToDoor: (doorId) => sidePanelController.scrollToDoor(doorId),
+      showToast,
+      openWindow: (url, target) => window.open(url, target),
+    });
+
+    const floorplanLoadController = FD.FloorplanViewService.createLoadController({
+      elements: {
+        svgContainer,
+        loadingEl,
+      },
+      getSelection: () => ({
+        customerIndex: customerSelect.value,
+        floorplanIndex: floorplanSelect.value,
+      }),
+      fetchSvg: ({ floorplan }, options) => fetchGitHubSVGCacheFirst(getFloorplanApiUrl(floorplan), options),
+      setLoadingState,
+      onBeforeLoad: () => {
+        stopPolling();
+        deselectDoor();
+        btnReset.style.display = 'none';
+        infoPanel.style.display = 'none';
+        btnPanelToggle.style.display = 'none';
+        btnEdit.style.display = 'none';
+        closeSidePanel();
+        sidePanelController.clear();
+        loadingEl.classList.add('hidden');
+      },
+      onSvgReady: ({ svgEl }) => {
+        initDoorMarkers(svgEl);
+        deselectDoor();
+        updateStatusBar();
+        if (showLabels) updateEditLabels();
+        infoPanel.style.display = 'flex';
+        btnPanelToggle.style.display = 'block';
+        btnReset.style.display = 'inline-block';
+        btnEdit.style.display = 'inline-block';
+        populateSidePanel();
+        updateDeleteButton();
+        startPolling();
+      },
+      onBeforeReveal: ({ size }) => fitToScreen(size.width, size.height),
+      onRevalidated: () => showToast('Plattegrond bijgewerkt', 'success'),
+      onError: (err) => {
+        loadingEl.textContent = 'Fout: ' + err.message;
+      },
+    });
+
+    function closeSidePanel() {
+      sidePanelController.close();
     }
 
     function resetFloorplanUI() {
-      loadGeneration++;
+      floorplanLoadController.cancel();
       stopPolling();
       deselectDoor();
-      svgContainer.style.display = 'none';
-      svgContainer.style.visibility = '';
-      svgContainer.innerHTML = '';
+      floorplanLoadController.clearContent();
+      statusCount.textContent = '';
       btnReset.style.display = 'none';
       infoPanel.style.display = 'none';
       btnPanelToggle.style.display = 'none';
       btnEdit.style.display = 'none';
-      sidePanel.classList.remove('open');
-      btnPanelToggle.classList.remove('panel-open');
-      sidePanelList.innerHTML = '';
-      sidePanelHeader.textContent = 'Deuren';
+      closeSidePanel();
+      sidePanelController.clear();
     }
 
     function resetAppToStartScreen() {
       cancelFloorplanCacheWarmup();
-      if (isEditMode) exitEditMode();
+      if (isEditModeActive()) exitEditMode();
       closeSelectSheet();
       customers = [];
       doorStatus = {};
@@ -749,12 +540,11 @@
       currentFloorplan = null;
       pendingDoor = null;
       customerSelect.disabled = false;
-      customerSelect.innerHTML = '<option value="">-- Kies klant --</option>';
-      floorplanSelect.innerHTML = '<option value="">-- Kies plattegrond --</option>';
-      floorplanSelect.disabled = true;
+      FD.SelectSheetService.renderCustomerOptions(customerSelect, []);
+      resetFloorplanDropdown(true);
       resetFloorplanUI();
       statusCount.textContent = '';
-      topbarMenu.style.display = 'none';
+      hideTopbarMenu();
       updatePickerButtons();
       updateDeleteButton();
       setEmptyState('Kies een klant en plattegrond<br>om te beginnen.', 'Gebruik de dropdowns bovenaan');
@@ -770,155 +560,28 @@
       const fp = c.floorplans[floorplanIndex];
       currentCustomer = c.customer;
       currentFloorplan = fp.name;
-
-      const thisGeneration = ++loadGeneration;
-      const isCurrentFloorplanSelection = () =>
-        thisGeneration === loadGeneration &&
-        customerSelect.value === String(customerIndex) &&
-        floorplanSelect.value === String(floorplanIndex);
-
-      // Non-visual cleanup: stop polling, reset UI chrome, but keep current SVG
-      // visible until new content is ready (prevents blank/flash between selections).
-      stopPolling();
-      deselectDoor();
-      btnReset.style.display = 'none';
-      infoPanel.style.display = 'none';
-      btnPanelToggle.style.display = 'none';
-      btnEdit.style.display = 'none';
-      sidePanel.classList.remove('open');
-      btnPanelToggle.classList.remove('panel-open');
-      sidePanelList.innerHTML = '';
-      sidePanelHeader.textContent = 'Deuren';
-      loadingEl.classList.add('hidden');
-
-      // Only show loading state after 150ms — hides old SVG then.
-      // Fast cache hits swap content before this fires.
-      const showLoadingTimer = setTimeout(() => {
-        if (!isCurrentFloorplanSelection()) return;
-        svgContainer.style.display = 'none';
-        svgContainer.innerHTML = '';
-        setLoadingState();
-        loadingEl.classList.remove('hidden');
-      }, 150);
-
-      try {
-        const svgUrl = getFloorplanApiUrl(fp);
-        const { svgText, revalidate } = await fetchGitHubSVGCacheFirst(svgUrl);
-        clearTimeout(showLoadingTimer);
-
-        // Another floorplan was requested while we were loading — abort
-        if (!isCurrentFloorplanSelection()) return;
-
-        // Atomically swap: hide old, set new content
-        svgContainer.style.display = 'none';
-        svgContainer.innerHTML = svgText;
-        const svgEl = svgContainer.querySelector('svg');
-        if (!svgEl) throw new Error('Geen geldig SVG bestand.');
-
-        // Show container invisible so it has layout dimensions for fitToScreen.
-        // Stays hidden until after fitToScreen so SVG never appears unscaled.
-        loadingEl.classList.add('hidden');
-        svgContainer.style.visibility = 'hidden';
-        svgContainer.style.display = 'block';
-        btnReset.style.display = 'inline-block';
-
-        await new Promise(r => requestAnimationFrame(r));
-
-        // Set SVG to viewBox pixel dimensions
-        const vb = svgEl.viewBox.baseVal;
-        if (!vb.width || !vb.height) throw new Error('SVG heeft geen geldige viewBox.');
-        svgEl.setAttribute('width', vb.width);
-        svgEl.setAttribute('height', vb.height);
-        svgEl.style.width = vb.width + 'px';
-        svgEl.style.height = vb.height + 'px';
-
-        // Find and style all door markers
-        initDoorMarkers(svgEl);
-        deselectDoor();
-        updateStatusBar();
-        if (showLabels) updateEditLabels();
-        infoPanel.style.display = 'flex';
-        btnPanelToggle.style.display = 'block';
-        btnEdit.style.display = 'inline-block';
-        populateSidePanel();
-        updateDeleteButton();
-        startPolling();
-
-        // Fit SVG, then reveal — never visible before this point
-        await new Promise(r => requestAnimationFrame(r));
-        fitToScreen(vb.width, vb.height);
-        svgContainer.style.visibility = '';
-
-        // Background revalidation: re-render if SVG changed on GitHub
-        if (revalidate) {
-          revalidate.then(newSvgText => {
-            if (!newSvgText || !isCurrentFloorplanSelection()) return;
-            svgContainer.style.visibility = 'hidden';
-            svgContainer.innerHTML = newSvgText;
-            const newSvgEl = svgContainer.querySelector('svg');
-            if (!newSvgEl) { svgContainer.style.visibility = ''; return; }
-            const newVb = newSvgEl.viewBox.baseVal;
-            if (!newVb.width || !newVb.height) { svgContainer.style.visibility = ''; return; }
-            newSvgEl.setAttribute('width', newVb.width);
-            newSvgEl.setAttribute('height', newVb.height);
-            newSvgEl.style.width = newVb.width + 'px';
-            newSvgEl.style.height = newVb.height + 'px';
-            initDoorMarkers(newSvgEl);
-            deselectDoor();
-            updateStatusBar();
-            if (showLabels) updateEditLabels();
-            populateSidePanel();
-            fitToScreen(newVb.width, newVb.height);
-            svgContainer.style.visibility = '';
-            showToast('Plattegrond bijgewerkt', 'success');
-          }).catch(() => {});
-        }
-
-      } catch (err) {
-        clearTimeout(showLoadingTimer);
-        svgContainer.style.visibility = '';
-        if (!isCurrentFloorplanSelection()) return;
-        svgContainer.style.display = 'none';
-        svgContainer.innerHTML = '';
-        loadingEl.classList.remove('hidden');
-        loadingEl.textContent = 'Fout: ' + err.message;
-      }
+      return floorplanLoadController.load({ customerIndex, floorplanIndex, customer: c, floorplan: fp });
     }
 
     function getDoorId(el) {
-      const id = el.getAttribute('id') || '';
-      const label = el.getAttributeNS('http://www.inkscape.org/namespaces/inkscape', 'label') || '';
-      // Use label if id is generic
-      if (/^(ellipse|circle)\d+$/i.test(id) && label) {
-        return label;
-      }
-      return id || label;
+      return FD.MarkerService.getDoorId(el);
     }
 
     function initDoorMarkers(svgEl) {
       const markers = svgEl.querySelectorAll('ellipse, circle');
       markers.forEach(marker => {
         const doorId = getDoorId(marker);
-        if (!doorId) return;
-        if (/^(defs|namedview|image)\d*$/i.test(doorId)) return;
+        if (FD.MarkerService.isIgnoredDoorId(doorId)) return;
 
-        marker.dataset.doorId = doorId;
+        FD.MarkerService.prepareInteractiveMarker(marker, doorId);
 
         const isDone = getDoorStatus(doorId);
         applyDoorColor(marker, isDone);
-
-        marker.style.cursor = 'pointer';
-        marker.style.pointerEvents = 'all';
-        marker.style.transition = 'opacity 0.2s';
 
         // Track door target on pointerdown (read from dataset so renames are picked up)
         marker.addEventListener('pointerdown', (e) => {
           pendingDoor = e.currentTarget.dataset.doorId;
         });
-
-        // Larger touch target, override any inline stroke styles
-        marker.style.stroke = 'transparent';
-        marker.style.strokeWidth = '20';
       });
     }
 
@@ -943,11 +606,7 @@
 
     function getDoorStatus(doorId) {
       if (!currentCustomer || !currentFloorplan) return false;
-      const cs = doorStatus[currentCustomer];
-      if (!cs) return false;
-      const fps = cs[currentFloorplan];
-      if (!fps) return false;
-      return fps[doorId] === 'done';
+      return FD.StatusService.isDoorDone(doorStatus, currentCustomer, currentFloorplan, doorId);
     }
 
     function refreshAllDoorColors() {
@@ -964,41 +623,11 @@
     // ============================================================
 
     function selectDoor(doorId) {
-      // If same door clicked again, deselect
-      if (selectedDoor === doorId) {
-        deselectDoor();
-        return;
-      }
-
-      selectedDoor = doorId;
-
-      // Update all markers (dim non-selected, highlight selected)
-      refreshAllDoorColors();
-
-      // Show door info
-      const isDone = getDoorStatus(doorId);
-      doorNameEl.textContent = doorId;
-      doorStatusEl.textContent = isDone ? '(afgerond)' : '(nog te doen)';
-      doorStatusEl.style.color = isDone ? COLORS.done : COLORS.todo;
-      btnJotform.classList.remove('disabled');
-      btnClose.classList.remove('disabled');
-      updateDoneButton();
-
-      // Scroll side panel to selected door
-      const panelItem = sidePanelList.querySelector(`.side-panel-item[data-door-id="${doorId}"]`);
-      if (panelItem) {
-        panelItem.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-      }
+      doorActionController.selectDoor(doorId);
     }
 
     function deselectDoor() {
-      selectedDoor = null;
-      refreshAllDoorColors();
-      doorNameEl.textContent = '—';
-      doorStatusEl.textContent = '';
-      btnJotform.classList.add('disabled');
-      btnClose.classList.add('disabled');
-      updateDoneButton();
+      doorActionController.deselectDoor();
     }
 
     // ============================================================
@@ -1006,28 +635,17 @@
     // ============================================================
 
     function openJotForm() {
-      if (!selectedDoor) return;
-      if (!navigator.onLine) {
-        showToast('Geen internet — vul later in via JotForm Mobile Forms-app', 'error');
-        return;
-      }
-
-      const params = new URLSearchParams();
-      params.set('klant', currentCustomer);       // ID 82: Klant - Locatie
-      params.set('deurNummer', selectedDoor);      // ID 3: Deur nummer
-
-      const url = `${CONFIG.jotformBaseUrl}${CONFIG.jotformFormId}?${params.toString()}`;
-      window.open(url, '_blank');
+      doorActionController.openJotForm();
     }
 
     // ============================================================
     // EDIT MODE
     // ============================================================
 
-    let isEditMode = false;
     let editChanges = [];
     let editMarkerSize = 15;
-    let qrScanner = null;
+    let qrScannerController = null;
+    let markerSizeSliderController = null;
 
     let movingMarker = null;    // { marker, doorId, origCx, origCy, dragOffsetX, dragOffsetY }
     let isDraggingMove = false;
@@ -1047,6 +665,25 @@
     const editPopupInput = document.getElementById('edit-popup-input');
     const editPopupCustom = document.getElementById('edit-popup-custom');
     const editPopupButtons = document.getElementById('edit-popup-buttons');
+    const editPopupInputRow = document.getElementById('edit-popup-input-row');
+    const editPopupError = document.getElementById('edit-popup-error');
+    const btnScanQr = document.getElementById('btn-scan-qr');
+    const editPopupController = FD.EditUIService.createEditPopupController({
+      elements: {
+        popupEl: editPopup,
+        overlayEl: editOverlay,
+        titleEl: editPopupTitle,
+        inputEl: editPopupInput,
+        inputRowEl: editPopupInputRow,
+        customEl: editPopupCustom,
+        buttonsEl: editPopupButtons,
+        errorEl: editPopupError,
+      },
+      onBeforeHide: () => {
+        if (resizingMarker) cancelResize();
+        if (qrScannerController?.isActive()) qrScannerController.stop();
+      },
+    });
 
     function getSliderRange() {
       const svgEl = svgContainer.querySelector('svg');
@@ -1103,7 +740,6 @@
         return;
       }
       appMode.enter(AppModes.EDIT);
-      isEditMode = true;
       editChanges = [];
       movingMarker = null;
       isDraggingMove = false;
@@ -1114,11 +750,7 @@
       document.getElementById('btn-edit-save').disabled = false;
       document.getElementById('btn-edit-save').textContent = 'Opslaan';
       const range = getSliderRange();
-      const slider = document.getElementById('edit-marker-size');
-      slider.max = range.max;
-      slider.value = range.def;
-      editMarkerSize = range.def;
-      document.getElementById('edit-size-label').textContent = range.def;
+      markerSizeSliderController.setRange({ max: range.max, value: range.def });
       document.getElementById('btn-auto-number').classList.remove('active');
       document.getElementById('auto-number-row').style.display = 'none';
       document.getElementById('auto-prefix-input').value = '';
@@ -1137,7 +769,6 @@
     function exitEditMode() {
       if (resizingMarker) applyResize();
       if (movingMarker) cancelMoveMode();
-      isEditMode = false;
       appMode.enter(AppModes.VIEW);
       topbar.classList.remove('edit-mode');
       editBar.style.display = 'none';
@@ -1159,35 +790,7 @@
     function cancelEditMode() {
       if (resizingMarker) cancelResize();
       if (movingMarker) cancelMoveMode();
-      editChanges.reverse().forEach(change => {
-        if (change.type === 'add') {
-          const marker = svgContainer.querySelector(`[data-door-id="${change.doorId}"]`);
-          if (marker) marker.remove();
-        } else if (change.type === 'delete') {
-          const svgEl = svgContainer.querySelector('svg');
-          svgEl.appendChild(change.element);
-          initSingleMarker(change.element, change.doorId);
-        } else if (change.type === 'rename') {
-          const marker = svgContainer.querySelector(`[data-door-id="${change.newId}"]`);
-          if (marker) {
-            marker.setAttribute('id', change.oldId);
-            marker.setAttributeNS('http://www.inkscape.org/namespaces/inkscape', 'label', change.oldId);
-            marker.dataset.doorId = change.oldId;
-          }
-        } else if (change.type === 'resize') {
-          const marker = svgContainer.querySelector(`[data-door-id="${change.doorId}"]`);
-          if (marker) {
-            marker.setAttribute('rx', change.oldRx.toString());
-            marker.setAttribute('ry', change.oldRx.toString());
-          }
-        } else if (change.type === 'move') {
-          const marker = svgContainer.querySelector(`[data-door-id="${change.doorId}"]`);
-          if (marker) {
-            marker.setAttribute('cx', change.oldCx.toString());
-            marker.setAttribute('cy', change.oldCy.toString());
-          }
-        }
-      });
+      FD.MarkerService.revertEditChanges(editChanges, svgContainer, { initMarker: initSingleMarker });
       exitEditMode();
       populateSidePanel();
     }
@@ -1201,24 +804,8 @@
         return;
       }
 
-      // Serialize a clean clone (keep original intact in case save fails)
       const svgEl = svgContainer.querySelector('svg');
-      const svgClone = svgEl.cloneNode(true);
-      const cloneMarkers = svgClone.querySelectorAll('[data-door-id]');
-      cloneMarkers.forEach(m => {
-        m.style.fill = '';
-        m.style.opacity = '';
-        m.style.cursor = '';
-        m.style.pointerEvents = '';
-        m.style.transition = '';
-        m.style.stroke = '';
-        m.style.strokeWidth = '';
-        m.style.filter = '';
-        m.removeAttribute('data-door-id');
-      });
-
-      svgClone.querySelectorAll('[data-fd-label]').forEach(el => el.remove());
-      const svgText = new XMLSerializer().serializeToString(svgClone);
+      const svgText = FD.MarkerService.serializeCleanSVG(svgEl);
 
       // Upload to GitHub
       const btnSave = document.getElementById('btn-edit-save');
@@ -1226,9 +813,9 @@
       btnSave.disabled = true;
 
       try {
-        const fp = customers[parseInt(customerSelect.value, 10)].floorplans[parseInt(floorplanSelect.value, 10)];
-        const editBaseUrl = fp.repo === 'uploads' ? CONFIG.svgUploadsUrl : CONFIG.svgBaseUrl;
-        const fileUrl = editBaseUrl + encodeURIComponent(fp.file);
+        const { floorplan: fp } = getSelectedFloorplan();
+        if (!fp) throw new Error('Geen plattegrond geselecteerd');
+        const fileUrl = getFloorplanApiUrl(fp);
 
         const updateResult = await FD.DataService.saveFloorplanSVG(fileUrl, svgText, {
           message: 'Markers bijgewerkt: ' + currentCustomer + ' - ' + currentFloorplan,
@@ -1250,93 +837,43 @@
       }
     }
 
-    const editPopupInputRow = document.getElementById('edit-popup-input-row');
-    const editPopupError = document.getElementById('edit-popup-error');
-    const btnScanQr = document.getElementById('btn-scan-qr');
-
     function showEditPopup(title, defaultValue, buttons) {
-      editPopupTitle.textContent = title;
-      editPopupError.textContent = '';
-      editPopupButtons.innerHTML = '';
-      editPopupCustom.innerHTML = '';
-      editPopupCustom.style.display = 'none';
-      editPopup.style.top = '50%';
-      editPopup.style.left = '50%';
-      editPopup.style.right = '';
-      editPopup.style.bottom = '';
-      editPopup.style.transform = 'translate(-50%, -50%)';
-      const primaryAction = buttons.length > 0 ? buttons[0].action : null;
-      buttons.forEach(btn => {
-        const el = document.createElement('button');
-        el.textContent = btn.text;
-        el.style.background = btn.color || '#1a73e8';
-        el.style.color = btn.textColor || 'white';
-        el.addEventListener('click', btn.action);
-        editPopupButtons.appendChild(el);
-      });
-      editPopup.style.display = 'block';
-      editOverlay.style.display = 'block';
-      if (defaultValue === null) {
-        editPopupInputRow.style.display = 'none';
-      } else {
-        editPopupInputRow.style.display = 'flex';
-        editPopupInput.value = defaultValue || '';
-        editPopupInput.focus();
-      }
-      editPopupInput.onkeydown = (e) => {
-        if (e.key === 'Enter' && primaryAction) primaryAction();
-      };
+      editPopupController.show(title, defaultValue, buttons);
     }
 
     function closeEditPopup() {
-      if (resizingMarker) cancelResize();
-      editPopup.style.display = 'none';
-      editOverlay.style.display = 'none';
-      editPopupCustom.innerHTML = '';
-      editPopupCustom.style.display = 'none';
-      if (qrScanner) stopQrScanner();
+      editPopupController.hide();
     }
 
     function initSingleMarker(marker, doorId) {
-      marker.dataset.doorId = doorId;
+      FD.MarkerService.prepareInteractiveMarker(marker, doorId);
       const isDone = getDoorStatus(doorId);
       applyDoorColor(marker, isDone);
-      marker.style.cursor = 'pointer';
-      marker.style.pointerEvents = 'all';
-      marker.style.transition = 'opacity 0.2s';
-      marker.style.stroke = 'transparent';
-      marker.style.strokeWidth = '20';
       marker.addEventListener('pointerdown', (e) => { pendingDoor = e.currentTarget.dataset.doorId; });
     }
 
     function addMarkerAtPosition(svgX, svgY, doorId) {
       const svgEl = svgContainer.querySelector('svg');
-      const ns = 'http://www.w3.org/2000/svg';
-      const inkNs = 'http://www.inkscape.org/namespaces/inkscape';
       const pos = clampMarkerPosition(svgX, svgY, editMarkerSize);
-
-      const ellipse = document.createElementNS(ns, 'ellipse');
-      ellipse.setAttribute('id', doorId);
-      ellipse.setAttributeNS(inkNs, 'inkscape:label', doorId);
-      ellipse.setAttribute('cx', Math.round(pos.x));
-      ellipse.setAttribute('cy', Math.round(pos.y));
-      ellipse.setAttribute('rx', editMarkerSize.toString());
-      ellipse.setAttribute('ry', editMarkerSize.toString());
-      ellipse.style.fill = '#1a73e8';
-      ellipse.style.opacity = '0.7';
+      const ellipse = FD.MarkerService.createEllipseMarker({
+        doorId,
+        x: pos.x,
+        y: pos.y,
+        radius: editMarkerSize,
+      });
 
       svgEl.appendChild(ellipse);
       initSingleMarker(ellipse, doorId);
 
-      editChanges.push({ type: 'add', doorId: doorId });
+      editChanges.push(FD.MarkerService.addChange(doorId));
       populateSidePanel();
       if (showLabels) updateEditLabels();
     }
 
     function deleteMarker(doorId) {
-      const marker = svgContainer.querySelector(`[data-door-id="${doorId}"]`);
+      const marker = FD.MarkerService.findMarkerByDoorId(svgContainer, doorId);
       if (!marker) return;
-      editChanges.push({ type: 'delete', doorId: doorId, element: marker });
+      editChanges.push(FD.MarkerService.deleteChange(marker, doorId));
       marker.remove();
       deselectDoor();
       populateSidePanel();
@@ -1344,12 +881,10 @@
     }
 
     function renameMarker(doorId, newId) {
-      const marker = svgContainer.querySelector(`[data-door-id="${doorId}"]`);
+      const marker = FD.MarkerService.findMarkerByDoorId(svgContainer, doorId);
       if (!marker) return;
-      marker.setAttribute('id', newId);
-      marker.setAttributeNS('http://www.inkscape.org/namespaces/inkscape', 'label', newId);
-      marker.dataset.doorId = newId;
-      editChanges.push({ type: 'rename', oldId: doorId, newId: newId });
+      FD.MarkerService.setMarkerCode(marker, newId);
+      editChanges.push(FD.MarkerService.renameChange(doorId, newId));
       populateSidePanel();
       if (showLabels) updateEditLabels();
     }
@@ -1362,12 +897,11 @@
       resizingOldRx = currentRx;
 
       // Set slider to current size, expand max if needed
-      const slider = document.getElementById('edit-marker-size');
       const range = getSliderRange();
-      slider.max = Math.max(range.max, Math.ceil(currentRx));
-      slider.value = Math.round(currentRx);
-      editMarkerSize = Math.round(currentRx);
-      document.getElementById('edit-size-label').textContent = Math.round(currentRx);
+      markerSizeSliderController.setRange({
+        max: Math.max(range.max, Math.ceil(currentRx)),
+        value: Math.round(currentRx),
+      });
 
       // Highlight the marker with uniform glow
       marker.style.opacity = '1';
@@ -1498,7 +1032,7 @@
 
     function applyResize() {
       if (!resizingMarker) return;
-      editChanges.push({ type: 'resize', doorId: resizingMarker.doorId, oldRx: resizingOldRx });
+      editChanges.push(FD.MarkerService.resizeChange(resizingMarker.doorId, resizingOldRx));
       clearResizeHighlight(resizingMarker.marker);
       resizingMarker = null;
       resizingOldRx = null;
@@ -1508,8 +1042,7 @@
 
     function cancelResize() {
       if (!resizingMarker) return;
-      resizingMarker.marker.setAttribute('rx', resizingOldRx.toString());
-      resizingMarker.marker.setAttribute('ry', resizingOldRx.toString());
+      FD.MarkerService.setMarkerRadius(resizingMarker.marker, resizingOldRx);
       clearResizeHighlight(resizingMarker.marker);
       resizingMarker = null;
       resizingOldRx = null;
@@ -1534,7 +1067,7 @@
 
     function confirmMove() {
       if (!movingMarker) return;
-      editChanges.push({ type: 'move', doorId: movingMarker.doorId, oldCx: movingMarker.origCx, oldCy: movingMarker.origCy });
+      editChanges.push(FD.MarkerService.moveChange(movingMarker.doorId, movingMarker.origCx, movingMarker.origCy));
       clearMoveHighlight(movingMarker.marker);
       movingMarker = null;
       document.querySelector('.edit-label').textContent = 'Bewerkingsmodus';
@@ -1543,8 +1076,7 @@
 
     function cancelMoveMode() {
       if (!movingMarker) return;
-      movingMarker.marker.setAttribute('cx', movingMarker.origCx.toString());
-      movingMarker.marker.setAttribute('cy', movingMarker.origCy.toString());
+      FD.MarkerService.setMarkerPosition(movingMarker.marker, movingMarker.origCx, movingMarker.origCy);
       clearMoveHighlight(movingMarker.marker);
       movingMarker = null;
       isDraggingMove = false;
@@ -1556,20 +1088,11 @@
     // ============================================================
 
     function getNextAutoCode() {
-      if (!autoPrefix) return '';
-      const markers = svgContainer.querySelectorAll('[data-door-id]');
-      let max = 0;
-      markers.forEach(m => {
-        const id = m.dataset.doorId;
-        if (id.startsWith(autoPrefix)) {
-          const suffix = id.slice(autoPrefix.length);
-          if (/^\d+$/.test(suffix)) {
-            const n = parseInt(suffix, 10);
-            if (n > max) max = n;
-          }
-        }
-      });
-      return autoPrefix + String(max + 1).padStart(autoPadding, '0');
+      return FD.MarkerService.nextAutoCode(
+        svgContainer.querySelectorAll('[data-door-id]'),
+        autoPrefix,
+        autoPadding
+      );
     }
 
     function updateAutoPreview() {
@@ -1600,120 +1123,28 @@
       const svgEl = svgContainer.querySelector('svg');
       if (!svgEl) return;
       const ns = 'http://www.w3.org/2000/svg';
-      const currentScale = scale || 1;
-      const fontSize = Math.max(5, Math.min(120, 16 / currentScale));
-      const strokeWidth = Math.max(1, 3 / currentScale);
-      const padding = Math.max(1, 3 / currentScale);
-      const labelGap = Math.max(6 / currentScale, strokeWidth + padding + 4 / currentScale);
-      const placedBoxes = [];
       const activeDoorId = movingMarker?.doorId || resizingMarker?.doorId || selectedDoor;
-      const vb = svgEl.viewBox.baseVal;
-      const labelBounds = (vb.width && vb.height) ? { x: vb.x, y: vb.y, width: vb.width, height: vb.height } : getEditableBounds();
-      const markers = Array.from(svgContainer.querySelectorAll('[data-door-id]'))
-        .sort((a, b) => {
-          const aActive = a.dataset.doorId === activeDoorId ? 1 : 0;
-          const bActive = b.dataset.doorId === activeDoorId ? 1 : 0;
-          return bActive - aActive;
-        });
-      const overlaps = (a, b) => (
-        a.left < b.right &&
-        a.right > b.left &&
-        a.top < b.bottom &&
-        a.bottom > b.top
-      );
-      markers.forEach(m => {
-        const cx = parseFloat(m.getAttribute('cx')) || 0;
-        const cy = parseFloat(m.getAttribute('cy')) || 0;
-        const rx = parseFloat(m.getAttribute('rx')) || 10;
-        const ry = parseFloat(m.getAttribute('ry')) || rx;
-        const labelText = m.dataset.doorId;
-        const estimatedWidth = labelText.length * fontSize * 0.62;
-        const active = labelText === activeDoorId;
-        const ownMarkerBox = {
-          left: cx - rx,
-          right: cx + rx,
-          top: cy - ry,
-          bottom: cy + ry,
-        };
-        const markerBoxes = [ownMarkerBox].concat(markers
-          .filter(other => other !== m)
-          .map(other => {
-            const ox = parseFloat(other.getAttribute('cx')) || 0;
-            const oy = parseFloat(other.getAttribute('cy')) || 0;
-            const orx = parseFloat(other.getAttribute('rx')) || parseFloat(other.getAttribute('r')) || 10;
-            const ory = parseFloat(other.getAttribute('ry')) || parseFloat(other.getAttribute('r')) || orx;
-            const markerPadding = Math.max(padding * 2, 6 / currentScale);
-            return {
-              left: ox - orx - markerPadding,
-              right: ox + orx + markerPadding,
-              top: oy - ory - markerPadding,
-              bottom: oy + ory + markerPadding,
-            };
-          }));
-        const clampY = (value) => labelBounds
-          ? Math.max(labelBounds.y + fontSize, Math.min(labelBounds.y + labelBounds.height - fontSize * 0.25, value))
-          : value;
-        const fitCandidateToBounds = (candidate) => {
-          const left = candidate.anchor === 'end' ? candidate.x - estimatedWidth : candidate.anchor === 'middle' ? candidate.x - estimatedWidth / 2 : candidate.x;
-          const right = left + estimatedWidth;
-          const top = candidate.y - fontSize;
-          const bottom = candidate.y + fontSize * 0.25;
-          const fitted = {
-            ...candidate,
-            box: { left: left - padding, right: right + padding, top: top - padding, bottom: bottom + padding }
-          };
-          if (!labelBounds) return fitted;
-
-          let dx = 0;
-          let dy = 0;
-          if (fitted.box.left < labelBounds.x) dx = labelBounds.x - fitted.box.left;
-          if (fitted.box.right + dx > labelBounds.x + labelBounds.width) dx = labelBounds.x + labelBounds.width - fitted.box.right;
-          if (fitted.box.top < labelBounds.y) dy = labelBounds.y - fitted.box.top;
-          if (fitted.box.bottom + dy > labelBounds.y + labelBounds.height) dy = labelBounds.y + labelBounds.height - fitted.box.bottom;
-          if (!dx && !dy) return fitted;
-          return {
-            ...fitted,
-            x: fitted.x + dx,
-            y: fitted.y + dy,
-            box: {
-              left: fitted.box.left + dx,
-              right: fitted.box.right + dx,
-              top: fitted.box.top + dy,
-              bottom: fitted.box.bottom + dy,
-            }
-          };
-        };
-        const candidates = [
-          { anchor: 'start', x: cx + rx + labelGap, y: clampY(cy + fontSize * 0.4) },
-          { anchor: 'end', x: cx - rx - labelGap, y: clampY(cy + fontSize * 0.4) },
-          { anchor: 'middle', x: cx, y: clampY(cy - ry - labelGap) },
-          { anchor: 'middle', x: cx, y: clampY(cy + ry + labelGap + fontSize) },
-          { anchor: 'start', x: cx + rx + labelGap, y: clampY(cy - ry - labelGap) },
-          { anchor: 'start', x: cx + rx + labelGap, y: clampY(cy + ry + labelGap + fontSize) },
-          { anchor: 'end', x: cx - rx - labelGap, y: clampY(cy - ry - labelGap) },
-          { anchor: 'end', x: cx - rx - labelGap, y: clampY(cy + ry + labelGap + fontSize) },
-        ].map(fitCandidateToBounds);
-        const chosen = candidates.find(c =>
-          !placedBoxes.some(box => overlaps(c.box, box)) &&
-          !markerBoxes.some(box => overlaps(c.box, box))
-        ) || (active ? candidates.find(c => !markerBoxes.some(box => overlaps(c.box, box))) : null);
-        if (!chosen) return;
+      const labels = FD.MarkerService.labelPlacements(svgContainer.querySelectorAll('[data-door-id]'), {
+        scale,
+        activeDoorId,
+        bounds: FD.MarkerService.labelBounds(svgEl),
+      });
+      labels.forEach(label => {
         const text = document.createElementNS(ns, 'text');
-        text.setAttribute('x', chosen.x.toString());
-        text.setAttribute('y', chosen.y.toString());
-        text.setAttribute('font-size', fontSize.toString());
+        text.setAttribute('x', label.x.toString());
+        text.setAttribute('y', label.y.toString());
+        text.setAttribute('font-size', label.fontSize.toString());
         text.setAttribute('fill', '#222');
         text.setAttribute('stroke', '#fff');
-        text.setAttribute('stroke-width', strokeWidth.toString());
+        text.setAttribute('stroke-width', label.strokeWidth.toString());
         text.setAttribute('paint-order', 'stroke');
-        text.setAttribute('text-anchor', chosen.anchor);
+        text.setAttribute('text-anchor', label.anchor);
         text.setAttribute('data-fd-label', '1');
         text.setAttribute('pointer-events', 'none');
         text.style.userSelect = 'none';
-        text.textContent = labelText;
+        text.textContent = label.text;
         svgEl.appendChild(text);
         editLabelElements.push(text);
-        placedBoxes.push(chosen.box);
       });
     }
 
@@ -1727,18 +1158,15 @@
       localStorage.setItem(LABELS_STORAGE_KEY, showLabels ? '1' : '0');
       updateLabelsMenuButton();
       if (showLabels) updateEditLabels(); else removeEditLabels();
-      topbarMenu.style.display = 'none';
+      hideTopbarMenu();
     }
 
     function updateLabelsMenuButton() {
-      const btn = document.getElementById('btn-menu-labels');
-      if (!btn) return;
-      btn.textContent = showLabels ? 'Labels verbergen' : 'Labels tonen';
-      btn.classList.toggle('active', showLabels);
+      FD.UIShellService.updateLabelsButton(btnMenuLabels, showLabels);
     }
 
     function handleEditTapOnEmpty(e) {
-      if (!isEditMode) return;
+      if (!isEditModeActive()) return;
       if (movingMarker) { cancelMoveMode(); return; }
       if (resizingMarker) { applyResize(); return; }
       const svgEl = svgContainer.querySelector('svg');
@@ -1750,7 +1178,7 @@
       if (autoNumbering) {
         const code = getNextAutoCode();
         if (!code) { showToast('Voer eerst een prefix in', 'error'); return; }
-        if ([...svgContainer.querySelectorAll('[data-door-id]')].some(m => m.dataset.doorId === code)) {
+        if (FD.MarkerService.markerExists(svgContainer, code)) {
           showToast('Code ' + code + ' bestaat al', 'error'); return;
         }
         addMarkerAtPosition(svgPoint.x, svgPoint.y, code);
@@ -1764,7 +1192,7 @@
           action: () => {
             const code = editPopupInput.value.trim().toUpperCase();
             if (!code) return;
-            if (svgContainer.querySelector(`[data-door-id="${code}"]`)) {
+            if (FD.MarkerService.markerExists(svgContainer, code)) {
               editPopupError.textContent = 'Deze code bestaat al op deze plattegrond.';
               return;
             }
@@ -1777,10 +1205,11 @@
     }
 
     function handleEditTapOnDoor(doorId) {
-      if (!isEditMode) return;
+      if (!isEditModeActive()) return;
       if (movingMarker) { cancelMoveMode(); return; }
       if (resizingMarker) { applyResize(); return; }
-      const marker = svgContainer.querySelector(`[data-door-id="${doorId}"]`);
+      const marker = FD.MarkerService.findMarkerByDoorId(svgContainer, doorId);
+      if (!marker) return;
       showEditPopup('Deur: ' + doorId, null, [
         {
           text: 'Verplaatsen', color: '#7b1fa2',
@@ -1810,7 +1239,7 @@
                   const newCode = editPopupInput.value.trim().toUpperCase();
                   if (!newCode) return;
                   if (newCode === doorId) { closeEditPopup(); return; }
-                  if (svgContainer.querySelector(`[data-door-id="${newCode}"]`)) {
+                  if (FD.MarkerService.markerExists(svgContainer, newCode)) {
                     editPopupError.textContent = 'Deze code bestaat al op deze plattegrond.';
                     return;
                   }
@@ -1840,150 +1269,47 @@
     // DOOR STATUS UPDATE
     // ============================================================
 
-    let statusSyncInProgress = false;
-    let statusSyncRetryTimer = null;
-
-    function getFloorplanStatusBucket(statusData, customer, floorplan, create = false) {
-      return FD.StatusService.getFloorplanStatusBucket(statusData, customer, floorplan, create);
-    }
-
-    function getCycleStartedMs(bucket) {
-      return FD.StatusService.getCycleStartedMs(bucket);
-    }
-
-    function setCycleStartedAt(bucket, timestamp) {
-      FD.StatusService.setCycleStartedAt(bucket, timestamp);
-    }
-
-    function readCachedDoorStatus() {
-      return FD.StatusService.readCachedDoorStatus();
-    }
-
-    function cacheDoorStatus() {
-      FD.StatusService.cacheDoorStatus(doorStatus);
-    }
-
-    function readStatusSyncQueue() {
-      return FD.StatusService.readSyncQueue();
-    }
-
-    function writeStatusSyncQueue(queue) {
-      FD.StatusService.writeSyncQueue(queue);
-      updateStatusSyncIndicator();
-    }
-
-    function applyStatusOperation(statusData, op) {
-      FD.StatusService.applyStatusOperation(statusData, op);
-    }
-
-    function applyQueuedStatusOperations(statusData, queue) {
-      return FD.StatusService.applyQueuedStatusOperations(statusData, queue);
-    }
-
-    function enqueueStatusSync(op) {
-      const queue = FD.StatusService.enqueueOperation(readStatusSyncQueue(), op);
-      writeStatusSyncQueue(queue);
-    }
-
-    function isSameStatusOperation(a, b) {
-      return FD.StatusService.isSameOperation(a, b);
-    }
-
-    function removeSyncedStatusOperations(syncedQueue) {
-      const latestQueue = readStatusSyncQueue();
-      return FD.StatusService.removeSyncedOperations(latestQueue, syncedQueue);
-    }
-
-    function scheduleStatusSyncRetry() {
-      if (statusSyncRetryTimer) return;
-      statusSyncRetryTimer = setTimeout(() => {
-        statusSyncRetryTimer = null;
-        flushStatusSyncQueue();
-      }, 15000);
-    }
-
-    async function saveStatusToGitHub(statusData, messageCustomer) {
-      await FD.DataService.saveStatus(CONFIG, statusData, messageCustomer);
-    }
-
-    async function flushStatusSyncQueue() {
-      const queue = readStatusSyncQueue();
-      if (statusSyncInProgress || queue.length === 0 || !navigator.onLine) return;
-
-      statusSyncInProgress = true;
-      let shouldFlushAgain = false;
-      try {
-        const remoteStatus = await FD.DataService.loadStatus(CONFIG);
-        const mergedStatus = applyQueuedStatusOperations(remoteStatus, queue);
-        await saveStatusToGitHub(mergedStatus, queue[queue.length - 1]?.customer);
-        const remainingQueue = removeSyncedStatusOperations(queue);
-        doorStatus = applyQueuedStatusOperations(mergedStatus, remainingQueue);
-        writeStatusSyncQueue(remainingQueue);
-        cacheDoorStatus();
+    statusSync = FD.StatusSyncService.create(CONFIG, {
+      setStatus: (nextStatus) => { doorStatus = nextStatus || {}; },
+      isOnline: () => navigator.onLine,
+      onQueueChange: () => updateStatusSyncIndicator(),
+      onSynced: () => {
         refreshAllDoorColors();
         updateDoneButton();
         showToast('Status gesynchroniseerd', 'success');
-        shouldFlushAgain = remainingQueue.length > 0;
-      } catch (err) {
-        console.error('Status sync queue mislukt:', err);
-        scheduleStatusSyncRetry();
-      } finally {
-        statusSyncInProgress = false;
-        if (shouldFlushAgain) setTimeout(flushStatusSyncQueue, 0);
-      }
+      },
+      onNetworkUnavailable: () => {},
+      onSyncError: (err) => console.error('Status sync queue mislukt:', err),
+    });
+
+    const statusController = FD.StatusSyncService.createController({
+      sync: statusSync,
+      intervalMs: CONFIG.pollInterval,
+      getStatus: () => doorStatus,
+      setStatus: (nextStatus) => { doorStatus = nextStatus || {}; },
+      getState: () => ({
+        selectedDoor,
+        currentCustomer,
+        currentFloorplan,
+        isEditMode: isEditModeActive(),
+        online: navigator.onLine,
+      }),
+      onStatusChanged: refreshAllDoorColors,
+      updateDoneButton,
+      showToast,
+      logger: console,
+    });
+
+    async function flushStatusSyncQueue() {
+      return statusController.flush();
     }
 
     async function toggleDoorStatus() {
-      if (!selectedDoor || !currentCustomer || !currentFloorplan) return;
-
-      const now = Date.now();
-      const customer = currentCustomer;
-      const floorplan = currentFloorplan;
-      const doorId = selectedDoor;
-      const isDone = getDoorStatus(doorId);
-      const newStatus = isDone ? 'todo' : 'done';
-      const op = { customer, floorplan, doorId, status: newStatus, ts: now };
-
-      // Update local state
-      const bucket = getFloorplanStatusBucket(doorStatus, customer, floorplan, true);
-
-      if (newStatus === 'done') {
-        if (!getCycleStartedMs(bucket)) setCycleStartedAt(bucket, now);
-        bucket[doorId] = 'done';
-      } else {
-        delete bucket[doorId];
-      }
-
-      // Update UI immediately
-      refreshAllDoorColors();
-      updateDoneButton();
-      cacheDoorStatus();
-      enqueueStatusSync(op);
-
-      if (navigator.onLine) {
-        flushStatusSyncQueue();
-        showToast(newStatus === 'done' ? 'Deur afgerond' : 'Deur teruggezet', 'success');
-      } else {
-        showToast('Status lokaal opgeslagen — synchroniseert later', 'success');
-      }
+      return statusController.toggleDoorStatus();
     }
 
     function updateDoneButton() {
-      if (!selectedDoor) {
-        btnDone.classList.add('disabled');
-        btnDone.textContent = 'Gedaan';
-        btnDone.className = 'btn btn-done disabled';
-        return;
-      }
-      const isDone = getDoorStatus(selectedDoor);
-      btnDone.classList.remove('disabled');
-      if (isDone) {
-        btnDone.textContent = 'Terugzetten';
-        btnDone.className = 'btn btn-undo';
-      } else {
-        btnDone.textContent = 'Gedaan';
-        btnDone.className = 'btn btn-done';
-      }
+      doorActionController.updateDoneButton();
     }
 
     // ============================================================
@@ -2107,8 +1433,7 @@
           svgPoint.y + movingMarker.dragOffsetY,
           getMarkerRadius(movingMarker.marker)
         );
-        movingMarker.marker.setAttribute('cx', Math.round(pos.x).toString());
-        movingMarker.marker.setAttribute('cy', Math.round(pos.y).toString());
+        FD.MarkerService.setMarkerPosition(movingMarker.marker, pos.x, pos.y);
         return;
       }
       if (!isPanning) return;
@@ -2144,12 +1469,12 @@
       }
 
       if (!hasMoved && pendingDoor) {
-        if (isEditMode) {
+        if (isEditModeActive()) {
           handleEditTapOnDoor(pendingDoor);
         } else {
           selectDoor(pendingDoor);
         }
-      } else if (!hasMoved && !pendingDoor && isEditMode) {
+      } else if (!hasMoved && !pendingDoor && isEditModeActive()) {
         handleEditTapOnEmpty(e);
       }
       pendingDoor = null;
@@ -2247,26 +1572,12 @@
     // STATUS POLLING
     // ============================================================
 
-    async function pollStatus() {
-      if (!currentFloorplan || isEditMode) return;
-      try {
-        const remoteStatus = await FD.DataService.loadStatus(CONFIG);
-        doorStatus = applyQueuedStatusOperations(remoteStatus, readStatusSyncQueue());
-        cacheDoorStatus();
-        refreshAllDoorColors();
-        flushStatusSyncQueue();
-      } catch (err) {
-        console.error('Sync fout:', err);
-      }
-    }
-
     function startPolling() {
-      if (pollTimer) clearInterval(pollTimer);
-      pollTimer = setInterval(pollStatus, CONFIG.pollInterval);
+      statusController.startPolling();
     }
 
     function stopPolling() {
-      if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+      statusController.stopPolling();
     }
 
     function updateStatusBar() {
@@ -2287,54 +1598,15 @@
     // ============================================================
 
     function toggleSidePanel() {
-      sidePanel.classList.toggle('open');
-      btnPanelToggle.classList.toggle('panel-open');
+      sidePanelController.toggle();
     }
 
     function populateSidePanel() {
-      sidePanelList.innerHTML = '';
-      const markers = svgContainer.querySelectorAll('[data-door-id]');
-      // Sort alphabetically
-      const doorIds = Array.from(markers).map(m => m.dataset.doorId).sort();
-
-      doorIds.forEach(doorId => {
-        const item = document.createElement('div');
-        item.className = 'side-panel-item';
-        item.dataset.doorId = doorId;
-
-        const dot = document.createElement('span');
-        dot.className = 'side-panel-dot';
-        const isDone = getDoorStatus(doorId);
-        dot.style.background = isDone ? COLORS.done : COLORS.todo;
-
-        const label = document.createElement('span');
-        label.textContent = doorId;
-
-        item.appendChild(dot);
-        item.appendChild(label);
-
-        item.addEventListener('click', () => selectDoor(doorId));
-
-        sidePanelList.appendChild(item);
-      });
-
-      sidePanelHeader.textContent = `Deuren (${doorIds.length})`;
+      sidePanelController.render();
     }
 
     function refreshSidePanel() {
-      const items = sidePanelList.querySelectorAll('.side-panel-item');
-      items.forEach(item => {
-        const doorId = item.dataset.doorId;
-        const isDone = getDoorStatus(doorId);
-        const dot = item.querySelector('.side-panel-dot');
-        dot.style.background = isDone ? COLORS.done : COLORS.todo;
-
-        if (doorId === selectedDoor) {
-          item.classList.add('selected');
-        } else {
-          item.classList.remove('selected');
-        }
-      });
+      sidePanelController.refresh();
     }
 
     // ============================================================
@@ -2345,432 +1617,119 @@
       pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
     }
 
-    let uploadImageDataUrl = null;
-    let uploadImageWidth = 0;
-    let uploadImageHeight = 0;
-    let uploadGeneration = 0;
+    const uploadController = FD.UploadService.createUploadController({
+      elements: {
+        imageState: { dataUrl: null, width: 0, height: 0 },
+        stepChoose: document.getElementById('upload-step-choose'),
+        stepPreview: document.getElementById('upload-step-preview'),
+        stepForm: document.getElementById('upload-step-form'),
+        previewImg: document.getElementById('upload-preview-img'),
+        previewTitle: document.querySelector('#upload-step-preview h3'),
+        previewRetakeBtn: document.querySelector('#upload-step-preview .upload-btn-grey'),
+        previewAcceptBtn: document.querySelector('#upload-step-preview .upload-btn-green'),
+        customerSelect: document.getElementById('upload-customer-select'),
+        newCustomerWrapper: document.getElementById('upload-new-customer-wrapper'),
+        newCustomerInput: document.getElementById('upload-new-customer'),
+        floorplanNameInput: document.getElementById('upload-floorplan-name'),
+        errorEl: document.getElementById('upload-error'),
+      },
+      controls: {
+        overlay: document.getElementById('upload-overlay'),
+        popup: document.getElementById('upload-popup'),
+        pdfInput: document.getElementById('upload-pdf-input'),
+        photoInput: document.getElementById('upload-photo-input'),
+        openButton: document.getElementById('btn-upload'),
+        pdfButton: document.getElementById('btn-upload-pdf'),
+        photoButton: document.getElementById('btn-upload-photo'),
+        cancelChooseButton: document.getElementById('btn-upload-cancel-1'),
+        retakeButton: document.getElementById('btn-upload-retake'),
+        acceptButton: document.getElementById('btn-upload-accept'),
+        saveButton: document.getElementById('btn-upload-save'),
+        cancelFormButton: document.getElementById('btn-upload-cancel-3'),
+        backToSelectButton: document.getElementById('btn-back-to-select'),
+        fullscreenImage: document.getElementById('img-fullscreen-img'),
+        fullscreenOverlay: document.getElementById('img-fullscreen-overlay'),
+        fullscreenCloseButton: document.getElementById('img-fullscreen-close'),
+      },
+      getCustomers: () => customers,
+      modeController: appMode,
+      modes: AppModes,
+      isEditMode: isEditModeActive,
+      hideTopbarMenu,
+      showToast,
+      getPdfJsLib: () => window.pdfjsLib,
+      onSave: async ({ form, fileName, svgText }) => {
+        const { customers: currentCustomers } = await FD.DataService.addUploadedFloorplan(CONFIG, {
+          customerName: form.customerName,
+          floorplanName: form.floorplanName,
+          fileName,
+          svgText,
+          isNewCustomer: form.isNewCustomer,
+        });
 
-    const uploadOverlay = document.getElementById('upload-overlay');
-    const uploadPopup = document.getElementById('upload-popup');
-    const uploadStepChoose = document.getElementById('upload-step-choose');
-    const uploadStepPreview = document.getElementById('upload-step-preview');
-    const uploadStepForm = document.getElementById('upload-step-form');
-    const uploadPreviewImg = document.getElementById('upload-preview-img');
-    const uploadPdfInput = document.getElementById('upload-pdf-input');
-    const uploadPhotoInput = document.getElementById('upload-photo-input');
-    const uploadCustomerSelect = document.getElementById('upload-customer-select');
-    const uploadNewCustomerWrapper = document.getElementById('upload-new-customer-wrapper');
-    const uploadNewCustomer = document.getElementById('upload-new-customer');
-    const uploadFloorplanName = document.getElementById('upload-floorplan-name');
-    const uploadError = document.getElementById('upload-error');
-
-    function resetUploadPreviewState() {
-      uploadImageDataUrl = null;
-      uploadImageWidth = 0;
-      uploadImageHeight = 0;
-      uploadPreviewImg.src = '';
-      uploadPreviewImg.style.display = '';
-      document.querySelector('#upload-step-preview h3').textContent = 'Voorbeeld';
-      document.querySelector('#upload-step-preview .upload-btn-grey').style.display = '';
-      document.querySelector('#upload-step-preview .upload-btn-green').style.display = '';
-      uploadStepChoose.style.display = 'block';
-      uploadStepPreview.style.display = 'none';
-      uploadStepForm.style.display = 'none';
-      uploadError.textContent = '';
-    }
-
-    function resetUploadFormState() {
-      uploadCustomerSelect.style.display = '';
-      uploadNewCustomerWrapper.style.display = 'none';
-      uploadNewCustomer.value = '';
-      uploadFloorplanName.value = '';
-    }
-
-    function enterUploadModeUI() {
-      topbarMenu.style.display = 'none';
-      resetUploadPreviewState();
-      resetUploadFormState();
-      uploadOverlay.style.display = 'block';
-      uploadPopup.style.display = 'block';
-    }
-
-    function exitUploadModeUI() {
-      uploadGeneration++;
-      uploadOverlay.style.display = 'none';
-      uploadPopup.style.display = 'none';
-      uploadPdfInput.value = '';
-      uploadPhotoInput.value = '';
-      resetUploadPreviewState();
-      resetUploadFormState();
-    }
+        customers = currentCustomers;
+        cacheCustomers();
+        populateCustomerDropdown();
+        return { customers: currentCustomers };
+      },
+      onSaved: ({ result, form }) => {
+        const currentCustomers = result.customers;
+        const newCi = currentCustomers.findIndex(c => c.customer === form.customerName);
+        if (newCi < 0) return;
+        customerSelect.value = newCi;
+        populateFloorplanDropdown(newCi);
+        const newFi = currentCustomers[newCi].floorplans.length - 1;
+        floorplanSelect.value = newFi;
+        updatePickerButtons();
+        loadFloorplan(newCi, newFi);
+      },
+    });
 
     appMode.setHooks(AppModes.UPLOAD, {
       enter({ from }) {
         if (from === AppModes.UPLOAD_SAVING) return;
-        enterUploadModeUI();
+        uploadController.enterModeUI();
       },
       exit({ to }) {
         if (to === AppModes.UPLOAD_SAVING) return;
-        exitUploadModeUI();
+        uploadController.exitModeUI();
       },
     });
 
     appMode.setHooks(AppModes.UPLOAD_SAVING, {
       exit({ to }) {
         if (to === AppModes.UPLOAD) return;
-        exitUploadModeUI();
+        uploadController.exitModeUI();
       },
     });
 
-    function showUploadPopup() {
-      if (isEditMode) { showToast('Sluit eerst de bewerkingsmodus', 'error'); return; }
-      if (!appMode.isInteractiveView()) { showToast('Sluit eerst het huidige scherm', 'error'); return; }
-      appMode.enter(AppModes.UPLOAD);
-    }
-
-    let uploadSaving = false;
-
-    function hideUploadPopup() {
-      if (uploadSaving) return;
-      if (appMode.isAny([AppModes.UPLOAD, AppModes.UPLOAD_SAVING])) appMode.enter(AppModes.VIEW);
-      else exitUploadModeUI();
-    }
-
-    function showUploadPreview(dataUrl, width, height) {
-      uploadImageDataUrl = dataUrl;
-      uploadImageWidth = width;
-      uploadImageHeight = height;
-      uploadPreviewImg.src = dataUrl;
-      uploadStepChoose.style.display = 'none';
-      uploadStepPreview.style.display = 'block';
-    }
-
-    function showUploadForm() {
-      uploadCustomerSelect.innerHTML = '<option value="">-- Kies klant --</option>';
-      const newOpt = document.createElement('option');
-      newOpt.value = '__new__';
-      newOpt.textContent = '➕ Nieuwe klant toevoegen';
-      uploadCustomerSelect.appendChild(newOpt);
-      const sep = document.createElement('option');
-      sep.disabled = true;
-      sep.textContent = '──────────────────';
-      uploadCustomerSelect.appendChild(sep);
-      customers.forEach((c, i) => {
-        const opt = document.createElement('option');
-        opt.value = i;
-        opt.textContent = c.customer;
-        uploadCustomerSelect.appendChild(opt);
-      });
-
-      uploadCustomerSelect.style.display = '';
-      uploadNewCustomerWrapper.style.display = 'none';
-      uploadNewCustomer.value = '';
-      uploadFloorplanName.value = '';
-      uploadError.textContent = '';
-
-      uploadStepPreview.style.display = 'none';
-      uploadStepForm.style.display = 'block';
-    }
-
-    function resizeImageToCanvas(img, maxSize) {
-      const canvas = document.createElement('canvas');
-      let w = img.naturalWidth || img.width;
-      let h = img.naturalHeight || img.height;
-
-      if (w > maxSize || h > maxSize) {
-        if (w > h) {
-          h = Math.round(h * maxSize / w);
-          w = maxSize;
-        } else {
-          w = Math.round(w * maxSize / h);
-          h = maxSize;
-        }
-      }
-
-      canvas.width = w;
-      canvas.height = h;
-      const ctx = canvas.getContext('2d');
-      ctx.drawImage(img, 0, 0, w, h);
-      return { canvas, width: w, height: h };
-    }
-
-    // Photo handling
-    uploadPhotoInput.addEventListener('change', (e) => {
-      const file = e.target.files[0];
-      if (!file) return;
-      if (file.size > 20 * 1024 * 1024) {
-        showToast('Bestand is te groot (max 20 MB)', 'error');
-        return;
-      }
-      const gen = ++uploadGeneration;
-      const img = new Image();
-      img.onload = () => {
-        if (gen !== uploadGeneration) return;
-        const result = resizeImageToCanvas(img, 2000);
-        let quality = 0.8, dataUrl;
-        do { dataUrl = result.canvas.toDataURL('image/jpeg', quality); quality -= 0.1; }
-        while (dataUrl.length > 1040000 && quality > 0.2);
-        if (dataUrl.length > 1040000) {
-          showToast('Afbeelding te groot. Probeer een kleinere foto.', 'error');
-          URL.revokeObjectURL(img.src);
-          return;
-        }
-        showUploadPreview(dataUrl, result.width, result.height);
-        URL.revokeObjectURL(img.src);
-      };
-      img.src = URL.createObjectURL(file);
-    });
-
-    // PDF handling
-    uploadPdfInput.addEventListener('change', async (e) => {
-      const file = e.target.files[0];
-      if (!file) return;
-      if (file.size > 20 * 1024 * 1024) {
-        showToast('Bestand is te groot (max 20 MB)', 'error');
-        return;
-      }
-      if (!window.pdfjsLib) {
-        showToast('PDF library niet geladen. Gebruik een foto.', 'error');
-        return;
-      }
-      const gen = ++uploadGeneration;
-      // Show loading state
-      uploadStepChoose.style.display = 'none';
-      uploadStepPreview.style.display = 'block';
-      uploadPreviewImg.style.display = 'none';
-      document.querySelector('#upload-step-preview h3').textContent = 'PDF verwerken...';
-      document.querySelector('#upload-step-preview .upload-btn-grey').style.display = 'none';
-      document.querySelector('#upload-step-preview .upload-btn-green').style.display = 'none';
-      try {
-        const arrayBuffer = await file.arrayBuffer();
-        if (gen !== uploadGeneration) return;
-        const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
-        if (gen !== uploadGeneration) return;
-        const page = await pdf.getPage(1);
-        const viewport = page.getViewport({ scale: 1.5 });
-        const canvas = document.createElement('canvas');
-        canvas.width = viewport.width;
-        canvas.height = viewport.height;
-        await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
-        if (gen !== uploadGeneration) return;
-        let quality = 0.8, dataUrl;
-        do { dataUrl = canvas.toDataURL('image/jpeg', quality); quality -= 0.1; }
-        while (dataUrl.length > 1040000 && quality > 0.2);
-        if (dataUrl.length > 1040000) {
-          uploadStepPreview.style.display = 'none';
-          uploadStepChoose.style.display = 'block';
-          showToast('PDF te groot. Probeer een andere pagina of foto.', 'error');
-          return;
-        }
-        uploadPreviewImg.style.display = '';
-        document.querySelector('#upload-step-preview h3').textContent = 'Voorbeeld';
-        document.querySelector('#upload-step-preview .upload-btn-grey').style.display = '';
-        document.querySelector('#upload-step-preview .upload-btn-green').style.display = '';
-        showUploadPreview(dataUrl, viewport.width, viewport.height);
-      } catch (err) {
-        if (gen !== uploadGeneration) return;
-        uploadStepPreview.style.display = 'none';
-        uploadStepChoose.style.display = 'block';
-        showToast('PDF kon niet worden geladen', 'error');
-      }
-    });
-
-    function showNewCustomerInput() {
-      uploadCustomerSelect.style.display = 'none';
-      uploadNewCustomerWrapper.style.display = 'block';
-      uploadNewCustomer.focus();
-    }
-
-    function showCustomerSelect() {
-      uploadNewCustomerWrapper.style.display = 'none';
-      uploadCustomerSelect.style.display = '';
-      uploadCustomerSelect.value = '';
-      uploadNewCustomer.value = '';
-    }
-
-    uploadCustomerSelect.addEventListener('change', () => {
-      if (uploadCustomerSelect.value === '__new__') showNewCustomerInput();
-    });
-
-    document.getElementById('btn-back-to-select').addEventListener('click', showCustomerSelect);
-
-    function sanitizeFilename(name) {
-      const slug = name.toLowerCase()
-        .replace(/[^a-z0-9\-_ ]/g, '')
-        .replace(/\s+/g, '-')
-        .replace(/-+/g, '-')
-        .substring(0, 60);
-      const ts = Date.now();
-      return slug ? ts + '-' + slug : String(ts);
-    }
-
-    async function saveUpload() {
-      const customerIdx = uploadCustomerSelect.value;
-      let customerName;
-      let isNewCustomer = false;
-
-      if (customerIdx === '') {
-        uploadError.textContent = 'Kies een klant.';
-        return;
-      } else if (customerIdx === '__new__') {
-        customerName = uploadNewCustomer.value.trim();
-        if (!customerName) {
-          uploadError.textContent = 'Vul een klantnaam in.';
-          return;
-        }
-        const existingMatch = customers.find(c => c.customer.toLowerCase() === customerName.toLowerCase());
-        if (existingMatch) {
-          uploadError.textContent = 'Deze klant bestaat al. Selecteer "' + existingMatch.customer + '" uit de lijst.';
-          return;
-        }
-        isNewCustomer = true;
-      } else {
-        customerName = customers[parseInt(customerIdx, 10)].customer;
-      }
-
-      const floorplanName = uploadFloorplanName.value.trim();
-      if (!floorplanName) {
-        uploadError.textContent = 'Vul een naam in voor de plattegrond.';
-        return;
-      }
-
-      // Check for duplicate floorplan name
-      if (!isNewCustomer) {
-        const ci = parseInt(customerIdx, 10);
-        const existing = customers[ci].floorplans.find(f => f.name === floorplanName);
-        if (existing) {
-          uploadError.textContent = 'Deze plattegrondnaam bestaat al bij deze klant.';
-          return;
-        }
-      }
-
-      const svgText = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${uploadImageWidth} ${uploadImageHeight}">\n  <image href="${uploadImageDataUrl}" width="${uploadImageWidth}" height="${uploadImageHeight}"/>\n</svg>`;
-
-      const fileName = sanitizeFilename(customerName + ' ' + floorplanName) + '.svg';
-
-      const btnSave = document.getElementById('btn-upload-save');
-      btnSave.textContent = 'Opslaan...';
-      btnSave.disabled = true;
-      uploadSaving = true;
-      appMode.enter(AppModes.UPLOAD_SAVING);
-      uploadError.textContent = '';
-
-      try {
-        const { customers: currentCustomers } = await FD.DataService.addUploadedFloorplan(CONFIG, {
-          customerName,
-          floorplanName,
-          fileName,
-          svgText,
-          isNewCustomer,
-        });
-
-        // Reload and select new floorplan
-        customers = currentCustomers;
-        cacheCustomers();
-        populateCustomerDropdown();
-        uploadSaving = false;
-        hideUploadPopup();
-        showToast('Plattegrond toegevoegd', 'success');
-
-        const newCi = currentCustomers.findIndex(c => c.customer === customerName);
-        if (newCi >= 0) {
-          customerSelect.value = newCi;
-          populateFloorplanDropdown(newCi);
-          const newFi = currentCustomers[newCi].floorplans.length - 1;
-          floorplanSelect.value = newFi;
-          updatePickerButtons();
-          loadFloorplan(newCi, newFi);
-        }
-
-      } catch (err) {
-        uploadError.textContent = 'Fout: ' + err.message;
-      } finally {
-        btnSave.textContent = 'Opslaan';
-        btnSave.disabled = false;
-        uploadSaving = false;
-        if (appMode.is(AppModes.UPLOAD_SAVING)) appMode.enter(AppModes.UPLOAD);
-      }
-    }
-
-    // Fullscreen preview
-    uploadPreviewImg.style.cursor = 'zoom-in';
-    uploadPreviewImg.addEventListener('click', () => {
-      if (!uploadPreviewImg.src) return;
-      document.getElementById('img-fullscreen-img').src = uploadPreviewImg.src;
-      document.getElementById('img-fullscreen-overlay').style.display = 'block';
-    });
-    document.getElementById('img-fullscreen-close').addEventListener('click', () => {
-      document.getElementById('img-fullscreen-overlay').style.display = 'none';
-    });
-
-    // Upload button handlers
-    document.getElementById('btn-upload').addEventListener('click', showUploadPopup);
-    document.getElementById('btn-upload-pdf').addEventListener('click', () => { uploadPdfInput.click(); });
-    document.getElementById('btn-upload-photo').addEventListener('click', () => { uploadPhotoInput.click(); });
-    document.getElementById('btn-upload-cancel-1').addEventListener('click', hideUploadPopup);
-    document.getElementById('btn-upload-retake').addEventListener('click', () => {
-      uploadStepPreview.style.display = 'none';
-      uploadStepChoose.style.display = 'block';
-      uploadPdfInput.value = '';
-      uploadPhotoInput.value = '';
-    });
-    document.getElementById('btn-upload-accept').addEventListener('click', showUploadForm);
-    document.getElementById('btn-upload-save').addEventListener('click', saveUpload);
-    document.getElementById('btn-upload-cancel-3').addEventListener('click', hideUploadPopup);
-    uploadOverlay.addEventListener('click', hideUploadPopup);
+    uploadController.bind();
 
     // ============================================================
     // DELETE UPLOADED FLOORPLAN
     // ============================================================
 
-    const btnDeleteFp = document.getElementById('btn-delete-fp');
     const btnEditImage = document.getElementById('btn-edit-image');
-    const deleteFpOverlay = document.getElementById('delete-fp-overlay');
-    const deleteFpPopup = document.getElementById('delete-fp-popup');
-    const deleteFpMessage = document.getElementById('delete-fp-message');
-
-    function updateDeleteButton() {
-      const ci = parseInt(customerSelect.value, 10);
-      const fi = parseInt(floorplanSelect.value, 10);
-      if (!isNaN(ci) && !isNaN(fi) && customers[ci] && customers[ci].floorplans[fi]) {
-        const fp = customers[ci].floorplans[fi];
-        const isUpload = fp.uploaded || fp.repo === 'uploads';
-        btnDeleteFp.style.display  = isUpload ? 'block' : 'none';
-        btnEditImage.style.display = isUpload ? 'block' : 'none';
-      } else {
-        btnDeleteFp.style.display  = 'none';
-        btnEditImage.style.display = 'none';
-      }
-      requestAnimationFrame(updateTopbarHeight);
-    }
-
-    function showDeleteConfirm() {
-      if (isEditMode) { showToast('Sluit eerst de bewerkingsmodus', 'error'); return; }
-      if (!appMode.isInteractiveView()) { showToast('Sluit eerst het huidige scherm', 'error'); return; }
-      topbarMenu.style.display = 'none';
-      const ci = parseInt(customerSelect.value, 10);
-      const fi = parseInt(floorplanSelect.value, 10);
-      if (isNaN(ci) || isNaN(fi)) return;
-      const fp = customers[ci].floorplans[fi];
-      deleteFpMessage.textContent = 'Weet je zeker dat je "' + fp.name + '" wilt verwijderen?';
-      deleteFpOverlay.style.display = 'block';
-      deleteFpPopup.style.display = 'block';
-    }
-
-    function hideDeleteConfirm() {
-      deleteFpOverlay.style.display = 'none';
-      deleteFpPopup.style.display = 'none';
-    }
-
-    async function deleteUploadedFloorplan() {
-      const ci = parseInt(customerSelect.value, 10);
-      const fi = parseInt(floorplanSelect.value, 10);
-      const fp = customers[ci].floorplans[fi];
-      const customerName = customers[ci].customer;
-
-      hideDeleteConfirm();
-
-      try {
+    const uploadActionsController = FD.UploadService.createUploadedFloorplanActionsController({
+      controls: {
+        deleteButton: document.getElementById('btn-delete-fp'),
+        editImageButton: btnEditImage,
+        deleteOverlay: document.getElementById('delete-fp-overlay'),
+        deletePopup: document.getElementById('delete-fp-popup'),
+        deleteMessage: document.getElementById('delete-fp-message'),
+        deleteConfirmButton: document.getElementById('delete-fp-confirm'),
+        deleteCancelButton: document.getElementById('delete-fp-cancel'),
+      },
+      getSelectedFloorplan,
+      modeController: appMode,
+      isEditMode: isEditModeActive,
+      hideTopbarMenu,
+      showToast,
+      requestTopbarUpdate: () => requestAnimationFrame(updateTopbarHeight),
+      onDelete: async ({ customer, floorplan: fp }) => {
+        const customerName = customer.customer;
+        floorplanLoadController.cancel();
+        stopPolling();
         const { customers: currentCustomers } = await FD.DataService.deleteUploadedFloorplan(CONFIG, {
           customerName,
           floorplan: fp,
@@ -2784,7 +1743,7 @@
         // Clear stale state
         currentFloorplan = null;
         currentCustomer = null;
-        stopPolling();
+        resetFloorplanUI();
 
         // Stay on same customer if still exists
         const remainingCi = currentCustomers.findIndex(c => c.customer === customerName);
@@ -2793,79 +1752,26 @@
           populateFloorplanDropdown(remainingCi);
           floorplanSelect.value = '';
           updatePickerButtons();
-          svgContainer.style.display = 'none';
-          svgContainer.innerHTML = '';
-          infoPanel.style.display = 'none';
-          btnPanelToggle.style.display = 'none';
-          btnEdit.style.display = 'none';
-          btnReset.style.display = 'none';
           setEmptyState('Kies een plattegrond<br>uit het dropdown menu.');
           loadingEl.classList.remove('hidden');
         } else {
           customerSelect.value = '';
           customerSelect.dispatchEvent(new Event('change'));
         }
-        updateDeleteButton();
-        showToast('Plattegrond verwijderd', 'success');
+      },
+    });
 
-      } catch (err) {
-        showToast('Verwijderen mislukt: ' + err.message, 'error');
-      }
+    function updateDeleteButton() {
+      uploadActionsController.updateButtons();
     }
 
-    btnDeleteFp.addEventListener('click', showDeleteConfirm);
-    document.getElementById('delete-fp-confirm').addEventListener('click', deleteUploadedFloorplan);
-    document.getElementById('delete-fp-cancel').addEventListener('click', hideDeleteConfirm);
-    deleteFpOverlay.addEventListener('click', hideDeleteConfirm);
+    uploadActionsController.bind();
 
     // ============================================================
     // EVENT LISTENERS
     // ============================================================
 
-    customerPickerBtn.addEventListener('click', () => openSelectSheet('customer'));
-    floorplanPickerBtn.addEventListener('click', () => openSelectSheet('floorplan'));
-    selectSheetSearch.addEventListener('input', renderSelectSheetItems);
-    document.getElementById('select-sheet-close').addEventListener('click', closeSelectSheet);
-    selectSheetOverlay.addEventListener('click', closeSelectSheet);
-
-    customerSelect.addEventListener('change', () => {
-      if (isEditMode) exitEditMode();
-      resetFloorplanUI();
-      currentCustomer = null;
-      currentFloorplan = null;
-      updateDeleteButton();
-      updatePickerButtons();
-
-      const idx = customerSelect.value;
-      if (idx === '') {
-        floorplanSelect.innerHTML = '<option value="">-- Kies plattegrond --</option>';
-        floorplanSelect.disabled = true;
-        updatePickerButtons();
-        setEmptyState('Kies een klant en plattegrond<br>om te beginnen.', 'Gebruik de dropdowns bovenaan');
-        loadingEl.classList.remove('hidden');
-        return;
-      }
-      setEmptyState('Kies een plattegrond<br>uit het dropdown menu.');
-      loadingEl.classList.remove('hidden');
-      populateFloorplanDropdown(parseInt(idx, 10));
-    });
-
-    floorplanSelect.addEventListener('change', () => {
-      updatePickerButtons();
-      const ci = parseInt(customerSelect.value, 10);
-      const fi = parseInt(floorplanSelect.value, 10);
-      if (isNaN(ci) || isNaN(fi)) {
-        if (isEditMode) exitEditMode();
-        resetFloorplanUI();
-        currentCustomer = null;
-        currentFloorplan = null;
-        setEmptyState('Kies een plattegrond<br>uit het dropdown menu.');
-        loadingEl.classList.remove('hidden');
-        updateDeleteButton();
-        return;
-      }
-      loadFloorplan(ci, fi);
-    });
+    selectionController.bind();
 
     btnJotform.addEventListener('click', openJotForm);
     btnDone.addEventListener('click', toggleDoorStatus);
@@ -2885,106 +1791,52 @@
       updateAutoPreview();
     });
 
-    document.getElementById('btn-edit-cancel').addEventListener('click', () => {
-      if (editChanges.length === 0 && !resizingMarker && !movingMarker) { cancelEditMode(); return; }
-      // Show confirmation using logout popup pattern
-      const overlay = document.getElementById('cancel-edit-overlay');
-      const popup = document.getElementById('cancel-edit-popup');
-      overlay.style.display = 'block';
-      popup.style.display = 'block';
-    });
-
-    // Cancel edit confirmation handlers
-    function hideCancelEditPopup() {
-      document.getElementById('cancel-edit-overlay').style.display = 'none';
-      document.getElementById('cancel-edit-popup').style.display = 'none';
-    }
-    document.getElementById('cancel-edit-confirm').addEventListener('click', () => { hideCancelEditPopup(); cancelEditMode(); });
-    document.getElementById('cancel-edit-back').addEventListener('click', hideCancelEditPopup);
-    document.getElementById('cancel-edit-overlay').addEventListener('click', hideCancelEditPopup);
+    FD.EditUIService.createCancelEditController({
+      openButtonEl: document.getElementById('btn-edit-cancel'),
+      overlayEl: document.getElementById('cancel-edit-overlay'),
+      popupEl: document.getElementById('cancel-edit-popup'),
+      confirmButtonEl: document.getElementById('cancel-edit-confirm'),
+      cancelButtonEl: document.getElementById('cancel-edit-back'),
+      hasPendingChanges: () => editChanges.length > 0 || resizingMarker || movingMarker,
+      onCancel: cancelEditMode,
+    }).bind();
 
     editOverlay.addEventListener('click', closeEditPopup);
     const markerSlider = document.getElementById('edit-marker-size');
-
-    function updateSliderValue(value) {
-      if (resizingMarker) {
-        value = Math.min(value, getMaxRadiusAtPosition(resizingMarker.marker));
-      }
-      editMarkerSize = value;
-      markerSlider.value = value;
-      document.getElementById('edit-size-label').textContent = value;
-      if (resizingMarker) {
-        resizingMarker.marker.setAttribute('rx', value.toString());
-        resizingMarker.marker.setAttribute('ry', value.toString());
-      }
-    }
-
-    function sliderValueFromTouch(e) {
-      const rect = markerSlider.getBoundingClientRect();
-      const x = (e.touches ? e.touches[0].clientX : e.clientX) - rect.left;
-      const ratio = Math.max(0, Math.min(1, x / rect.width));
-      const min = parseInt(markerSlider.min, 10);
-      const max = parseInt(markerSlider.max, 10);
-      return Math.round(min + ratio * (max - min));
-    }
-
-    markerSlider.addEventListener('input', (e) => {
-      updateSliderValue(parseInt(e.target.value, 10));
+    markerSizeSliderController = FD.EditUIService.createMarkerSizeSliderController({
+      sliderEl: markerSlider,
+      labelEl: document.getElementById('edit-size-label'),
+      getMaxValue: () => resizingMarker ? getMaxRadiusAtPosition(resizingMarker.marker) : Infinity,
+      onChange: (value) => {
+        editMarkerSize = value;
+        if (resizingMarker) {
+          FD.MarkerService.setMarkerRadius(resizingMarker.marker, value);
+        }
+      },
     });
 
-    // Jump to tap position on track + drag from anywhere
-    markerSlider.addEventListener('touchstart', (e) => {
-      e.preventDefault();
-      updateSliderValue(sliderValueFromTouch(e));
-    }, { passive: false });
-    markerSlider.addEventListener('touchmove', (e) => {
-      e.preventDefault();
-      updateSliderValue(sliderValueFromTouch(e));
-    }, { passive: false });
+    function updateSliderValue(value) {
+      markerSizeSliderController.setValue(value);
+    }
+
+    markerSizeSliderController.bind();
 
     // ============================================================
     // QR CODE SCANNER
     // ============================================================
 
-    const qrOverlay = document.getElementById('qr-overlay');
-    const qrStatus = document.getElementById('qr-status');
-
-    async function startQrScanner() {
-      qrOverlay.style.display = 'flex';
-      qrStatus.textContent = 'Camera starten...';
-
-      try {
-        qrScanner = new Html5Qrcode('qr-reader');
-        await qrScanner.start(
-          { facingMode: 'environment' },
-          { fps: 10, qrbox: { width: 250, height: 250 } },
-          (decodedText) => {
-            editPopupInput.value = decodedText.trim().toUpperCase();
-            editPopupInput.focus();
-            stopQrScanner();
-          },
-          () => {}
-        );
-        qrStatus.textContent = 'Richt de camera op een QR code';
-      } catch (err) {
-        console.error('Camera fout:', err);
-        qrStatus.textContent = 'Camera niet beschikbaar. Controleer de permissies.';
-      }
-    }
-
-    async function stopQrScanner() {
-      if (qrScanner) {
-        try {
-          await qrScanner.stop();
-          qrScanner.clear();
-        } catch (e) {}
-        qrScanner = null;
-      }
-      qrOverlay.style.display = 'none';
-    }
-
-    btnScanQr.addEventListener('click', startQrScanner);
-    document.getElementById('btn-qr-close').addEventListener('click', stopQrScanner);
+    qrScannerController = FD.EditUIService.createQrScannerController({
+      scanButtonEl: btnScanQr,
+      closeButtonEl: document.getElementById('btn-qr-close'),
+      overlayEl: document.getElementById('qr-overlay'),
+      statusEl: document.getElementById('qr-status'),
+      readerId: 'qr-reader',
+      onScan: (decodedText) => {
+        editPopupInput.value = decodedText.trim().toUpperCase();
+        editPopupInput.focus();
+      },
+    });
+    qrScannerController.bind();
 
     // ============================================================
     // LOGIN
@@ -2997,48 +1849,6 @@
       data: 'vWek2PmH1d2ddAsF1rAMWhRAQN5WSrQgcGYhpcmLTKV8w0eIRfDLOw==',
     };
 
-    async function decryptToken(password) {
-      const enc = new TextEncoder();
-      const keyMaterial = await crypto.subtle.importKey('raw', enc.encode(password), 'PBKDF2', false, ['deriveKey']);
-      const key = await crypto.subtle.deriveKey(
-        { name: 'PBKDF2', salt: enc.encode('fd_salt'), iterations: 100000, hash: 'SHA-256' },
-        keyMaterial,
-        { name: 'AES-GCM', length: 256 },
-        false,
-        ['decrypt']
-      );
-      const iv = Uint8Array.from(atob(ENCRYPTED_TOKEN.iv), c => c.charCodeAt(0));
-      const data = Uint8Array.from(atob(ENCRYPTED_TOKEN.data), c => c.charCodeAt(0));
-      const tag = Uint8Array.from(atob(ENCRYPTED_TOKEN.tag), c => c.charCodeAt(0));
-      const combined = new Uint8Array(data.length + tag.length);
-      combined.set(data);
-      combined.set(tag, data.length);
-      const decrypted = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: iv }, key, combined);
-      return new TextDecoder().decode(decrypted);
-    }
-
-    // EmailJS setup
-    emailjs.init('3DTmVGOU0h5-m-l12');
-
-    async function sendLoginNotification(type, attempts) {
-      let location = '-';
-      try {
-        const resp = await fetch('https://api.ipify.org?format=json');
-        const ipData = await resp.json();
-        const geoResp = await fetch(`https://ipapi.co/${ipData.ip}/json/`);
-        const data = await geoResp.json();
-        location = `${data.city}, ${data.country_name} (${data.ip})`;
-      } catch (err) {
-        console.error('Locatie ophalen mislukt:', err);
-      }
-      emailjs.send('service_in7o99q', 'template_j7na4ug', {
-        type: type,
-        time: new Date().toLocaleString('nl-NL'),
-        attempts: attempts || '-',
-        location: location,
-      }).catch(err => console.error('Email notificatie mislukt:', err));
-    }
-
     const LOGIN_CONFIG = {
       passwordHash: '0123940987a658e40d82d640ba2084a0f11828593a9a3be547e3e764d45f5ed7',
       maxAttempts: 3,
@@ -3049,144 +1859,9 @@
       attemptsKey: 'fd_attempts',
     };
 
-    const loginScreen = document.getElementById('login-screen');
-    const appContainer = document.getElementById('app-container');
-    const splashScreen = document.getElementById('splash-screen');
-    function hideSplash() { if (splashScreen) splashScreen.style.display = 'none'; }
-    const loginPassword = document.getElementById('login-password');
-    const loginBtn = document.getElementById('login-btn');
-    const loginError = document.getElementById('login-error');
-
-    async function hashPassword(password) {
-      const encoder = new TextEncoder();
-      const data = encoder.encode(password);
-      const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-      const hashArray = Array.from(new Uint8Array(hashBuffer));
-      return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
-    }
-
-    function isLockedOut() {
-      const lockout = localStorage.getItem(LOGIN_CONFIG.lockoutKey);
-      if (!lockout) return false;
-      const lockoutTime = parseInt(lockout, 10);
-      const remaining = lockoutTime - Date.now();
-      if (remaining <= 0) {
-        localStorage.removeItem(LOGIN_CONFIG.lockoutKey);
-        localStorage.removeItem(LOGIN_CONFIG.attemptsKey);
-        return false;
-      }
-      return true;
-    }
-
-    function getLockoutMinutes() {
-      const lockout = localStorage.getItem(LOGIN_CONFIG.lockoutKey);
-      if (!lockout) return 0;
-      const remaining = parseInt(lockout, 10) - Date.now();
-      return Math.ceil(remaining / 60000);
-    }
-
-    function getAttempts() {
-      return parseInt(localStorage.getItem(LOGIN_CONFIG.attemptsKey) || '0', 10);
-    }
-
-    async function validateGitHubTokenForLogin(token) {
-      try {
-        const testResp = await FD.DataService.validateTokenForCustomers(CONFIG, token);
-        if (testResp.ok) return { ok: true, offline: false };
-        if (testResp.status === 401 || testResp.status === 403) {
-          return { ok: false, message: 'GitHub token is ongeldig of verlopen.' };
-        }
-        return { ok: false, message: 'GitHub controle mislukt: ' + testResp.status };
-      } catch {
-        return { ok: true, offline: true };
-      }
-    }
-
-    async function handleLogin() {
-      if (isLockedOut()) {
-        loginError.textContent = `Geblokkeerd. Probeer opnieuw over ${getLockoutMinutes()} minuten.`;
-        return;
-      }
-
-      const password = loginPassword.value;
-      if (!password) {
-        loginError.textContent = 'Vul het wachtwoord in.';
-        return;
-      }
-
-      const hash = await hashPassword(password);
-
-      if (hash === LOGIN_CONFIG.passwordHash) {
-        loginBtn.disabled = true;
-        loginBtn.textContent = 'Controleren...';
-
-        // Decrypt GitHub token with password
-        let token;
-        try {
-          token = await decryptToken(password);
-        } catch {
-          loginBtn.disabled = false;
-          loginBtn.textContent = 'Inloggen';
-          loginError.textContent = 'Kon token niet ontsleutelen.';
-          return;
-        }
-
-        // Validate token against GitHub API; network failure is allowed for offline use.
-        const validation = await validateGitHubTokenForLogin(token);
-        if (!validation.ok) {
-          loginBtn.disabled = false;
-          loginBtn.textContent = 'Inloggen';
-          loginError.textContent = validation.message;
-          return;
-        }
-
-        localStorage.setItem(LOGIN_CONFIG.tokenKey, 'authenticated');
-        localStorage.setItem(LOGIN_CONFIG.tokenTimeKey, Date.now().toString());
-        localStorage.setItem('fd_github_token', token);
-        sessionStorage.removeItem(LOGIN_CONFIG.tokenKey);
-        sessionStorage.removeItem(LOGIN_CONFIG.tokenTimeKey);
-        sessionStorage.removeItem('fd_github_token');
-
-        // Read attempts before clearing
-        const priorAttempts = getAttempts();
-        localStorage.removeItem(LOGIN_CONFIG.attemptsKey);
-        localStorage.removeItem(LOGIN_CONFIG.lockoutKey);
-
-        // Remember checkbox state (not the password — use browser password manager)
-        localStorage.removeItem('fd_saved_password');
-        if (document.getElementById('login-remember').checked) {
-          localStorage.setItem('fd_remember_pw', '1');
-        } else {
-          localStorage.removeItem('fd_remember_pw');
-        }
-
-        loginBtn.textContent = 'Inloggen';
-        sendLoginNotification('Succesvol ingelogd', priorAttempts > 0 ? priorAttempts + ' foute pogingen vooraf' : '0');
-        if (validation.offline) showToast('Offline ingelogd', 'success');
-        showApp();
-      } else {
-        const attempts = getAttempts() + 1;
-        localStorage.setItem(LOGIN_CONFIG.attemptsKey, attempts.toString());
-
-        if (attempts >= LOGIN_CONFIG.maxAttempts) {
-          sendLoginNotification('Geblokkeerd na ' + attempts + ' foute pogingen', attempts);
-          const lockoutUntil = Date.now() + (LOGIN_CONFIG.lockoutMinutes * 60000);
-          localStorage.setItem(LOGIN_CONFIG.lockoutKey, lockoutUntil.toString());
-          loginError.textContent = `Te veel pogingen. Geblokkeerd voor ${LOGIN_CONFIG.lockoutMinutes} minuten.`;
-          loginBtn.disabled = true;
-          loginPassword.disabled = true;
-        } else {
-          const remaining = LOGIN_CONFIG.maxAttempts - attempts;
-          loginError.textContent = `Onjuist wachtwoord. Nog ${remaining} poging${remaining === 1 ? '' : 'en'}.`;
-          sendLoginNotification('Fout wachtwoord (poging ' + attempts + '/' + LOGIN_CONFIG.maxAttempts + ')', attempts);
-        }
-        loginPassword.value = '';
-      }
-    }
-
     function showApp() {
       appMode.enter(AppModes.VIEW);
-      loginScreen.style.display = 'none';
+      document.getElementById('login-screen').style.display = 'none';
       appContainer.style.display = 'block';
       updateConnectionIndicator();
       updateStatusSyncIndicator();
@@ -3194,77 +1869,54 @@
       init();
     }
 
-    function checkLockoutState() {
-      if (isLockedOut()) {
-        loginError.textContent = `Geblokkeerd. Probeer opnieuw over ${getLockoutMinutes()} minuten.`;
-        loginBtn.disabled = true;
-        loginPassword.disabled = true;
-        // Re-check every 30 seconds
-        setTimeout(() => {
-          if (!isLockedOut()) {
-            loginBtn.disabled = false;
-            loginPassword.disabled = false;
-            loginError.textContent = '';
-          } else {
-            checkLockoutState();
-          }
-        }, 30000);
-      }
-    }
-
-    function logout() {
-      resetAppToStartScreen();
-      appMode.enter(AppModes.LOGIN);
-      localStorage.removeItem(LOGIN_CONFIG.tokenKey);
-      localStorage.removeItem(LOGIN_CONFIG.tokenTimeKey);
-      localStorage.removeItem('fd_github_token');
-      sessionStorage.removeItem(LOGIN_CONFIG.tokenKey);
-      sessionStorage.removeItem(LOGIN_CONFIG.tokenTimeKey);
-      sessionStorage.removeItem('fd_github_token');
-      appContainer.style.display = 'none';
-      loginScreen.style.display = 'flex';
-      loginPassword.value = '';
-      loginError.textContent = '';
-      loginBtn.disabled = false;
-      loginBtn.textContent = 'Inloggen';
-      loginPassword.disabled = false;
-      stopPolling();
-      restoreSavedPassword();
-    }
-
     // Menu toggle
-    document.getElementById('btn-menu').addEventListener('click', (e) => {
-      e.stopPropagation();
-      topbarMenu.style.display = topbarMenu.style.display === 'none' ? 'block' : 'none';
-    });
-    document.getElementById('btn-menu-labels').addEventListener('click', (e) => {
+    topbarMenuController.bind();
+    btnMenuLabels.addEventListener('click', (e) => {
       e.stopPropagation();
       toggleLabels();
     });
-    document.addEventListener('click', () => { topbarMenu.style.display = 'none'; });
 
-    // Logout with confirmation popup
-    const logoutOverlay = document.getElementById('logout-overlay');
-    const logoutPopup = document.getElementById('logout-popup');
-
-    function showLogoutConfirm() {
-      topbarMenu.style.display = 'none';
-      logoutOverlay.style.display = 'block';
-      logoutPopup.style.display = 'block';
-    }
-    function hideLogoutConfirm() {
-      logoutOverlay.style.display = 'none';
-      logoutPopup.style.display = 'none';
-    }
-
-    document.getElementById('btn-logout').addEventListener('click', showLogoutConfirm);
-    document.getElementById('logout-confirm').addEventListener('click', () => { hideLogoutConfirm(); logout(); });
-    document.getElementById('logout-cancel').addEventListener('click', hideLogoutConfirm);
-    logoutOverlay.addEventListener('click', hideLogoutConfirm);
-    loginBtn.addEventListener('click', handleLogin);
-    loginPassword.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') handleLogin();
+    const authController = FD.AuthService.createAuthController({
+      loginConfig: LOGIN_CONFIG,
+      appConfig: CONFIG,
+      encryptedToken: ENCRYPTED_TOKEN,
+      elements: {
+        splashScreen: document.getElementById('splash-screen'),
+        loginScreen: document.getElementById('login-screen'),
+        appContainer,
+        passwordInput: document.getElementById('login-password'),
+        rememberCheckbox: document.getElementById('login-remember'),
+        loginButton: document.getElementById('login-btn'),
+        errorEl: document.getElementById('login-error'),
+      },
+      logoutControls: {
+        openButton: document.getElementById('btn-logout'),
+        overlay: document.getElementById('logout-overlay'),
+        popup: document.getElementById('logout-popup'),
+        confirmButton: document.getElementById('logout-confirm'),
+        cancelButton: document.getElementById('logout-cancel'),
+      },
+      modeController: appMode,
+      modes: AppModes,
+      emailConfig: {
+        enabled: CONFIG.loginEmailNotificationsEnabled,
+        publicKey: '3DTmVGOU0h5-m-l12',
+        serviceId: 'service_in7o99q',
+        templateId: 'template_j7na4ug',
+      },
+      hideTopbarMenu,
+      showToast,
+      onShowApp: showApp,
+      onLogout: () => {
+        resetAppToStartScreen();
+        stopPolling();
+      },
+      onSessionExpired: () => {
+        resetAppToStartScreen();
+      },
     });
+
+    authController.bind();
 
     // ============================================================
     // INIT
@@ -3275,70 +1927,7 @@
       await Promise.all([loadCustomers(), loadStatus()]);
     }
 
-    // Check if already logged in. Phase 5 keeps the session until explicit logout.
-    function isSessionValid() {
-      const legacyToken = sessionStorage.getItem(LOGIN_CONFIG.tokenKey);
-      if (legacyToken === 'authenticated') {
-        localStorage.setItem(LOGIN_CONFIG.tokenKey, 'authenticated');
-        localStorage.setItem(LOGIN_CONFIG.tokenTimeKey, sessionStorage.getItem(LOGIN_CONFIG.tokenTimeKey) || Date.now().toString());
-        const legacyGitHubToken = sessionStorage.getItem('fd_github_token');
-        if (legacyGitHubToken) localStorage.setItem('fd_github_token', legacyGitHubToken);
-        sessionStorage.removeItem(LOGIN_CONFIG.tokenKey);
-        sessionStorage.removeItem(LOGIN_CONFIG.tokenTimeKey);
-        sessionStorage.removeItem('fd_github_token');
-      }
-
-      const token = localStorage.getItem(LOGIN_CONFIG.tokenKey);
-      const githubToken = localStorage.getItem('fd_github_token');
-      if (token !== 'authenticated' || !githubToken) {
-        localStorage.removeItem(LOGIN_CONFIG.tokenKey);
-        localStorage.removeItem(LOGIN_CONFIG.tokenTimeKey);
-        localStorage.removeItem('fd_github_token');
-        return false;
-      }
-      return true;
-    }
-
-    function restoreSavedPassword() {
-      if (localStorage.getItem('fd_remember_pw') === '1') {
-        document.getElementById('login-remember').checked = true;
-      }
-    }
-
-    restoreSavedPassword();
-
-    try {
-      if (isSessionValid()) {
-        // Show app immediately; validate token silently in background.
-        // Only kick back to login on explicit 401/403 — network errors are fine (offline use).
-        hideSplash();
-        showApp();
-        validateGitHubTokenForLogin(getGitHubToken()).then(validation => {
-          if (!validation.ok && !validation.offline) {
-            localStorage.removeItem(LOGIN_CONFIG.tokenKey);
-            localStorage.removeItem(LOGIN_CONFIG.tokenTimeKey);
-            localStorage.removeItem('fd_github_token');
-            resetAppToStartScreen();
-            appMode.enter(AppModes.LOGIN);
-            appContainer.style.display = 'none';
-            loginScreen.style.display = 'flex';
-            loginError.textContent = validation.message || 'Sessie verlopen. Log opnieuw in.';
-            checkLockoutState();
-          }
-        }).catch(() => {
-          // Network error — stay in app (offline use allowed)
-        });
-      } else {
-        hideSplash();
-        loginScreen.style.display = 'flex';
-        checkLockoutState();
-      }
-    } catch (err) {
-      // Fallback: always hide splash and show login on unexpected error
-      hideSplash();
-      loginScreen.style.display = 'flex';
-      console.error('Startup fout:', err);
-    }
+    authController.start();
 
     // ============================================================
     // IMAGE EDITOR
@@ -3361,9 +1950,7 @@
     let pendingCropSave = null;
 
     function getCurrentFloorplanObj() {
-      const ci = parseInt(customerSelect.value, 10);
-      const fi = parseInt(floorplanSelect.value, 10);
-      return customers[ci]?.floorplans[fi];
+      return getSelectedFloorplan().floorplan;
     }
 
     function startCropperWhenEditorLayoutIsReady(cropImage, attempt = 0) {
@@ -3415,11 +2002,11 @@
     }
 
     function openImageEditor() {
-      if (isEditMode) { showToast('Sluit eerst de bewerkingsmodus', 'error'); return; }
+      if (isEditModeActive()) { showToast('Sluit eerst de bewerkingsmodus', 'error'); return; }
       if (!appMode.isInteractiveView()) { showToast('Sluit eerst het huidige scherm', 'error'); return; }
       if (typeof Cropper === 'undefined') { showToast('Crop-tool kon niet worden geladen', 'error'); return; }
       if (document.getElementById('img-editor-overlay').style.display !== 'none') return;
-      topbarMenu.style.display = 'none';
+      hideTopbarMenu();
 
       const svgEl = svgContainer.querySelector('svg');
       const svgImgEl = svgEl?.querySelector('image');
@@ -3997,50 +2584,13 @@
           imageSmoothingEnabled: true,
           imageSmoothingQuality: 'high',
         });
-        let quality = 0.86;
-        let newDataUrl;
-        do { newDataUrl = outputCanvas.toDataURL('image/jpeg', quality); quality -= 0.08; }
-        while (newDataUrl.length > 1040000 && quality > 0.38);
-        if (newDataUrl.length > 1040000) {
-          throw new Error('Uitsnede is te groot. Maak de uitsnede kleiner.');
-        }
-
-        const svgClone = editorCropContext.svgEl.cloneNode(true);
-        svgClone.setAttribute('viewBox', `0 0 ${Math.round(plan.cropW)} ${Math.round(plan.cropH)}`);
-        svgClone.setAttribute('width', Math.round(plan.cropW).toString());
-        svgClone.setAttribute('height', Math.round(plan.cropH).toString());
-        const cloneImage = svgClone.querySelector('image');
-        cloneImage.setAttribute('href', newDataUrl);
-        cloneImage.removeAttributeNS('http://www.w3.org/1999/xlink', 'href');
-        cloneImage.setAttribute('x', '0');
-        cloneImage.setAttribute('y', '0');
-        cloneImage.setAttribute('width', Math.round(plan.cropW).toString());
-        cloneImage.setAttribute('height', Math.round(plan.cropH).toString());
-
-        svgClone.querySelectorAll('[data-fd-label]').forEach(el => el.remove());
-        svgClone.querySelectorAll('[data-door-id]').forEach(marker => {
-          if (marker.getAttribute('data-fd-label')) return;
-          const cx = parseFloat(marker.getAttribute('cx'));
-          const cy = parseFloat(marker.getAttribute('cy'));
-          if (!Number.isFinite(cx) || !Number.isFinite(cy)) return;
-          if (!FD.ImageEditorService.markerFitsInsideCrop(marker, plan.cropX, plan.cropY, plan.cropW, plan.cropH)) {
-            marker.remove();
-            return;
-          }
-          marker.setAttribute('cx', Math.round(cx - plan.cropX).toString());
-          marker.setAttribute('cy', Math.round(cy - plan.cropY).toString());
-          marker.style.fill = '';
-          marker.style.opacity = '';
-          marker.style.cursor = '';
-          marker.style.pointerEvents = '';
-          marker.style.transition = '';
-          marker.style.stroke = '';
-          marker.style.strokeWidth = '';
-          marker.style.filter = '';
-          marker.removeAttribute('data-door-id');
+        const newDataUrl = FD.ImageEditorService.canvasToLimitedJPEG(outputCanvas);
+        const svgText = FD.ImageEditorService.buildCroppedSVGText({
+          svgEl: editorCropContext.svgEl,
+          imageDataUrl: newDataUrl,
+          plan,
+          markerService: FD.MarkerService,
         });
-
-        const svgText = new XMLSerializer().serializeToString(svgClone);
         const fileUrl = CONFIG.svgUploadsUrl + encodeURIComponent(fp.file);
         await FD.DataService.saveFloorplanSVG(fileUrl, svgText, {
           message: 'Afbeelding bewerkt: ' + currentCustomer + ' - ' + currentFloorplan,
@@ -4050,9 +2600,10 @@
 
         closeImageEditor();
         showToast('Afbeelding opgeslagen', 'success');
-        const ci = parseInt(customerSelect.value, 10);
-        const fi = parseInt(floorplanSelect.value, 10);
-        if (!isNaN(ci) && !isNaN(fi)) loadFloorplan(ci, fi);
+        const { customerIndex, floorplanIndex, floorplan } = getSelectedFloorplan();
+        if (customerIndex !== null && floorplanIndex !== null && floorplan) {
+          loadFloorplan(customerIndex, floorplanIndex);
+        }
 
       } catch (err) {
         showToast('Fout: ' + err.message, 'error');
