@@ -62,11 +62,6 @@
     newOpt.textContent = '➕ Nieuwe klant toevoegen';
     selectEl.appendChild(newOpt);
 
-    const sep = document.createElement('option');
-    sep.disabled = true;
-    sep.textContent = '──────────────────';
-    selectEl.appendChild(sep);
-
     customers.forEach((customer, index) => {
       const opt = document.createElement('option');
       opt.value = index;

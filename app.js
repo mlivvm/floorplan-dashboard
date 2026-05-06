@@ -11,7 +11,7 @@
       jotformFormId: '250122093908351',
       loginEmailNotificationsEnabled: false,
       pollInterval: 30000,
-      offlineCacheVersion: 'fd-v1.8.83',
+      offlineCacheVersion: 'fd-v1.8.85',
     };
 
     const COLORS = {
@@ -216,6 +216,7 @@
     // ============================================================
 
     const CUSTOMERS_CACHE_KEY = 'fd_customers_cache';
+    const JOTFORM_RETURN_CONTEXT_KEY = 'fd_jotform_return_context';
 
     function getGitHubToken() {
       return FD.Repository.getToken();
@@ -240,6 +241,75 @@
 
     function getFloorplanApiUrl(fp) {
       return FD.FloorplanCacheService.getFloorplanApiUrl(fp, CONFIG);
+    }
+
+    function currentJotFormReturnContext() {
+      const { customer, floorplan } = getSelectedFloorplan();
+      return FD.DoorActionService.createReturnContext({
+        customer: customer || currentCustomer,
+        floorplan: floorplan || currentFloorplan,
+        doorId: selectedDoor,
+      });
+    }
+
+    function saveJotFormReturnContext() {
+      const context = currentJotFormReturnContext();
+      if (!context) return;
+      const saved = FD.DoorActionService.saveReturnContext(
+        localStorage,
+        JOTFORM_RETURN_CONTEXT_KEY,
+        context
+      );
+      if (!saved) console.warn('JotForm terugkeercontext kon niet worden opgeslagen.');
+    }
+
+    function readJotFormReturnContext() {
+      return FD.DoorActionService.readReturnContext(localStorage, JOTFORM_RETURN_CONTEXT_KEY);
+    }
+
+    function clearJotFormReturnContext() {
+      localStorage.removeItem(JOTFORM_RETURN_CONTEXT_KEY);
+    }
+
+    function findCustomerIndexForReturnContext(context) {
+      if (!context) return -1;
+      return customers.findIndex(customer => customer.customer === context.customerName);
+    }
+
+    async function restoreJotFormReturnIfNeeded() {
+      if (!FD.DoorActionService.hasReturnParam(window.location)) return;
+
+      const context = readJotFormReturnContext();
+      FD.DoorActionService.clearReturnParam(window.history, window.location);
+      clearJotFormReturnContext();
+
+      if (!context) {
+        showToast('Terug uit JotForm', 'success');
+        return;
+      }
+
+      const customerIndex = findCustomerIndexForReturnContext(context);
+      const customer = customers[customerIndex];
+      const floorplanIndex = FD.DoorActionService.findFloorplanIndex(customer?.floorplans, context);
+
+      if (customerIndex < 0 || floorplanIndex < 0) {
+        showToast('Terug uit JotForm, vorige selectie niet gevonden', 'error');
+        return;
+      }
+
+      customerSelect.value = String(customerIndex);
+      populateFloorplanDropdown(customerIndex);
+      floorplanSelect.value = String(floorplanIndex);
+      updatePickerButtons();
+
+      await loadFloorplan(customerIndex, floorplanIndex);
+
+      if (FD.MarkerService.markerExists(svgContainer, context.doorId)) {
+        selectDoor(context.doorId);
+        showToast('Terug uit JotForm', 'success');
+      } else {
+        showToast('Terug uit JotForm, deur niet gevonden', 'error');
+      }
     }
 
     const floorplanCache = FD.FloorplanCacheService.createWarmupController({
@@ -468,6 +538,7 @@
       scrollToDoor: (doorId) => sidePanelController.scrollToDoor(doorId),
       showToast,
       openWindow: (url, target) => window.open(url, target),
+      onBeforeOpenJotForm: saveJotFormReturnContext,
     });
 
     const floorplanLoadController = FD.FloorplanViewService.createLoadController({
@@ -1925,6 +1996,7 @@
     async function init() {
       updateLabelsMenuButton();
       await Promise.all([loadCustomers(), loadStatus()]);
+      await restoreJotFormReturnIfNeeded();
     }
 
     authController.start();
