@@ -1199,6 +1199,15 @@
       border-color: #1a73e8;
     }
 
+    #upload-popup.upload-form-active {
+      top: max(12px, calc(env(safe-area-inset-top) + 12px)) !important;
+      transform: translateX(-50%) !important;
+      width: min(420px, calc(100vw - 24px));
+      max-height: calc(var(--app-vh, 100vh) - env(safe-area-inset-top) - 24px) !important;
+      box-sizing: border-box;
+      overscroll-behavior: contain;
+    }
+
     .select-sheet-overlay {
       position: fixed;
       inset: 0;

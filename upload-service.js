@@ -91,6 +91,20 @@
     elements.newCustomerInput.value = '';
   }
 
+  function setUploadFormLayout(controls, active) {
+    controls.popup.classList.toggle('upload-form-active', active);
+    if (active) controls.popup.scrollTop = 0;
+  }
+
+  function prepareCustomerSelectInteraction(elements, controls) {
+    const activeEl = global.document.activeElement;
+    if (activeEl && activeEl !== elements.customerSelect && controls.popup.contains(activeEl)) {
+      if (/^(INPUT|TEXTAREA)$/i.test(activeEl.tagName)) activeEl.blur();
+    }
+    controls.popup.scrollTop = 0;
+    elements.customerSelect.scrollIntoView({ block: 'center', inline: 'nearest' });
+  }
+
   function resizeImageToCanvas(img, maxSize, documentRef = document) {
     const canvas = documentRef.createElement('canvas');
     let width = img.naturalWidth || img.width;
@@ -227,6 +241,7 @@
 
     function enterModeUI() {
       hideTopbarMenu();
+      setUploadFormLayout(controls, false);
       resetAll();
       controls.overlay.style.display = 'block';
       controls.popup.style.display = 'block';
@@ -234,6 +249,7 @@
 
     function exitModeUI() {
       generation++;
+      setUploadFormLayout(controls, false);
       controls.overlay.style.display = 'none';
       controls.popup.style.display = 'none';
       controls.pdfInput.value = '';
@@ -321,9 +337,11 @@
 
     function showFormForCurrentCustomers() {
       showForm(elements, currentCustomers());
+      setUploadFormLayout(controls, true);
     }
 
     function retakeUpload() {
+      setUploadFormLayout(controls, false);
       showChooseStep(elements);
       controls.pdfInput.value = '';
       controls.photoInput.value = '';
@@ -401,6 +419,9 @@
       controls.overlay.addEventListener('click', hidePopup);
       controls.photoInput.addEventListener('change', handlePhotoChange);
       controls.pdfInput.addEventListener('change', handlePdfChange);
+      elements.customerSelect.addEventListener('pointerdown', () => prepareCustomerSelectInteraction(elements, controls));
+      elements.customerSelect.addEventListener('touchstart', () => prepareCustomerSelectInteraction(elements, controls), { passive: true });
+      elements.customerSelect.addEventListener('mousedown', () => prepareCustomerSelectInteraction(elements, controls));
       elements.customerSelect.addEventListener('change', handleCustomerChange);
       controls.backToSelectButton.addEventListener('click', () => showCustomerSelect(elements));
       elements.previewImg.style.cursor = 'zoom-in';
