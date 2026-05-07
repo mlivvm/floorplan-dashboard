@@ -63,9 +63,9 @@
     });
   }
 
-  async function fetchSVGCacheFirst(fileUrl, { cacheVersion, signal } = {}) {
+  async function fetchSVGCacheFirst(fileUrl, { cacheVersion, signal, config } = {}) {
     if (!global.caches) {
-      return { svgText: await FD.DataService.loadFloorplanSVG(fileUrl, { signal }), revalidate: null };
+      return { svgText: await FD.DataService.loadFloorplanSVG(fileUrl, { signal, config }), revalidate: null };
     }
 
     try {
@@ -79,7 +79,7 @@
         if (cachedBlobResp) {
           const blob = await cachedBlobResp.clone().json();
           const svgText = FD.Repository.blobJSONToText(blob);
-          const revalidate = revalidateSVGInBackground(fileUrl, meta.sha, { signal });
+          const revalidate = revalidateSVGInBackground(fileUrl, meta.sha, { signal, config });
           return { svgText, revalidate };
         }
       }
@@ -87,7 +87,7 @@
       console.warn('Cache-first lookup mislukt:', err);
     }
 
-    return { svgText: await FD.DataService.loadFloorplanSVG(fileUrl, { signal }), revalidate: null };
+    return { svgText: await FD.DataService.loadFloorplanSVG(fileUrl, { signal, config }), revalidate: null };
   }
 
   async function revalidateSVGInBackground(fileUrl, cachedSha, options) {
@@ -169,6 +169,10 @@
     }
 
     function schedule() {
+      if (FD.DataService.isWorkerReadProxyEnabled?.(config)) {
+        return;
+      }
+
       const customers = getCustomers ? getCustomers() : [];
       const online = isOnline ? isOnline() : global.navigator?.onLine;
       if (!online) return;
@@ -293,7 +297,7 @@
             continue;
           }
           try {
-            await FD.DataService.warmFloorplanSVG(item.fileUrl, { signal });
+            await FD.DataService.warmFloorplanSVG(item.fileUrl, { signal, config });
             if (item.sha) manifest.files[item.cacheKey] = item.sha;
             cached++;
           } catch (err) {

@@ -5,6 +5,8 @@
   const GITHUB_TOKEN_KEY = 'fd_github_token';
   const REMEMBER_KEY = 'fd_remember_pw';
   const SAVED_PASSWORD_KEY = 'fd_saved_password';
+  const WORKER_SESSION_TOKEN_KEY = 'fd_worker_session_token';
+  const WORKER_SESSION_EXPIRES_KEY = 'fd_worker_session_expires_at';
 
   async function hashPassword(password) {
     const encoder = new TextEncoder();
@@ -82,9 +84,13 @@
     local.removeItem(config.tokenKey);
     local.removeItem(config.tokenTimeKey);
     local.removeItem(GITHUB_TOKEN_KEY);
+    local.removeItem(WORKER_SESSION_TOKEN_KEY);
+    local.removeItem(WORKER_SESSION_EXPIRES_KEY);
     session.removeItem(config.tokenKey);
     session.removeItem(config.tokenTimeKey);
     session.removeItem(GITHUB_TOKEN_KEY);
+    session.removeItem(WORKER_SESSION_TOKEN_KEY);
+    session.removeItem(WORKER_SESSION_EXPIRES_KEY);
   }
 
   function recordSuccessfulLogin(config, githubToken, rememberPassword, passwordOrNow = Date.now(), local = localStorage, session = sessionStorage) {
@@ -246,6 +252,39 @@
       lockoutTimer = null;
     }
 
+    function needsWorkerSession() {
+      return FD.DataService?.isWorkerSessionAuthEnabled?.(appConfig) ||
+        FD.DataService?.isWorkerStatusWriteEnabled?.(appConfig) ||
+        FD.DataService?.isWorkerFloorplanWriteEnabled?.(appConfig) ||
+        FD.DataService?.isWorkerUploadWriteEnabled?.(appConfig);
+    }
+
+    function hasValidWorkerSession() {
+      try {
+        const token = localStorage.getItem(WORKER_SESSION_TOKEN_KEY);
+        const expiresAt = localStorage.getItem(WORKER_SESSION_EXPIRES_KEY);
+        if (!token || !expiresAt) return false;
+        const expiresTime = Date.parse(expiresAt);
+        return Number.isFinite(expiresTime) && expiresTime > Date.now() + 60000;
+      } catch {
+        return false;
+      }
+    }
+
+    async function ensureWorkerSessionForStoredLogin() {
+      if (!needsWorkerSession() || hasValidWorkerSession()) return true;
+      const savedPassword = getSavedPassword();
+      if (!savedPassword) return false;
+
+      try {
+        await FD.DataService.loginWorkerSession(appConfig, savedPassword);
+        return true;
+      } catch (err) {
+        logger.warn('Worker sessie hervatten mislukt:', err);
+        return false;
+      }
+    }
+
     function checkLockoutState() {
       clearLockoutTimer();
       if (!isLockedOut(loginConfig)) {
@@ -327,6 +366,20 @@
         return;
       }
 
+      if (needsWorkerSession()) {
+        try {
+          await FD.DataService.loginWorkerSession(appConfig, password);
+        } catch (err) {
+          elements.loginButton.disabled = false;
+          elements.loginButton.textContent = 'Inloggen';
+          elements.errorEl.textContent = err?.status === 429
+            ? 'Te veel loginpogingen via server. Probeer later opnieuw.'
+            : 'Server-login mislukt.';
+          logger.warn('Worker sessie-login mislukt:', err);
+          return;
+        }
+      }
+
       const { priorAttempts } = recordSuccessfulLogin(
         loginConfig,
         token,
@@ -338,6 +391,29 @@
       notifyLogin('Succesvol ingelogd', priorAttempts > 0 ? priorAttempts + ' foute pogingen vooraf' : '0');
       if (validation.offline) showToast('Offline ingelogd', 'success');
       onShowApp();
+    }
+
+    async function resumeStoredSession() {
+      hideSplash();
+      if (!(await ensureWorkerSessionForStoredLogin())) {
+        clearSession(loginConfig);
+        showLoginScreen({
+          message: 'Log opnieuw in voor server-sessie.',
+          restorePassword: true,
+        });
+        return;
+      }
+
+      onShowApp();
+      validateGitHubToken(appConfig, FD.Repository.getToken()).then(validation => {
+        if (!validation.ok && !validation.offline) {
+          clearSession(loginConfig);
+          onSessionExpired();
+          showLoginScreen({ message: validation.message || 'Sessie verlopen. Log opnieuw in.' });
+        }
+      }).catch(() => {
+        // Network error: stay in app for offline use.
+      });
     }
 
     function showLogoutConfirm() {
@@ -374,17 +450,7 @@
       restoreSavedPassword();
       try {
         if (isSessionValid(loginConfig)) {
-          hideSplash();
-          onShowApp();
-          validateGitHubToken(appConfig, FD.Repository.getToken()).then(validation => {
-            if (!validation.ok && !validation.offline) {
-              clearSession(loginConfig);
-              onSessionExpired();
-              showLoginScreen({ message: validation.message || 'Sessie verlopen. Log opnieuw in.' });
-            }
-          }).catch(() => {
-            // Network error: stay in app for offline use.
-          });
+          resumeStoredSession();
         } else {
           showLoginScreen();
         }

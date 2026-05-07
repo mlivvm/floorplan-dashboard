@@ -1,4 +1,4 @@
-const CACHE_NAME = 'fd-v1.8.87';
+const CACHE_NAME = 'fd-v1.8.97';
 
 const STATIC_ASSETS = [
   './',
@@ -85,6 +85,25 @@ self.addEventListener('fetch', (e) => {
       url.hostname === 'ipapi.co' ||
       url.hostname === 'api.emailjs.com' ||
       url.hostname === 'api.ipify.org') {
+    return;
+  }
+
+  // Cloudflare Worker writes must remain network-only. Safe read endpoints are
+  // network-first with cache fallback for feature-flagged Worker integration.
+  if (url.hostname === 'floorplan-dashboard-api.mko-floorplan-dashboard.workers.dev') {
+    if (e.request.method !== 'GET') return;
+
+    e.respondWith(
+      fetch(e.request)
+        .then(resp => {
+          if (resp.ok) {
+            const clone = resp.clone();
+            caches.open(CACHE_NAME).then(cache => cache.put(e.request, clone));
+          }
+          return resp;
+        })
+        .catch(() => cacheFallback(e.request))
+    );
     return;
   }
 

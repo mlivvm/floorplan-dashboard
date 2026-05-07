@@ -6,17 +6,289 @@
     if (!Repository) throw new Error('FD.Repository ontbreekt');
   }
 
+  function getWorkerApiBaseUrl(config) {
+    return String(config?.workerApiBaseUrl || '').replace(/\/+$/, '');
+  }
+
+  function readUrlFlag(paramName) {
+    const params = new URLSearchParams(global.location?.search || '');
+    const value = params.get(paramName);
+    if (value === '1') return true;
+    if (value === '0') return false;
+    return null;
+  }
+
+  function readLocalFlag(key) {
+    return global.localStorage?.getItem(key) === '1';
+  }
+
+  function isWorkerReadProxyEnabled(config) {
+    if (!getWorkerApiBaseUrl(config)) return false;
+
+    try {
+      const flagKey = config?.workerReadProxyFlagKey || 'fd_use_worker_read_proxy';
+      const disableFlagKey = config?.workerReadProxyDisableFlagKey || 'fd_disable_worker_read_proxy';
+      const paramValue = readUrlFlag('fd_worker_read_proxy');
+      if (paramValue !== null) return paramValue;
+      if (readLocalFlag(disableFlagKey)) return false;
+      if (readLocalFlag(flagKey)) return true;
+      return config?.workerReadProxyEnabled === true;
+    } catch {
+      return config?.workerReadProxyEnabled === true;
+    }
+  }
+
+  function isWorkerStatusWriteEnabled(config) {
+    if (!getWorkerApiBaseUrl(config)) return false;
+
+    try {
+      const flagKey = config?.workerStatusWriteFlagKey || 'fd_use_worker_status_write';
+      const disableFlagKey = config?.workerStatusWriteDisableFlagKey || 'fd_disable_worker_status_write';
+      const paramValue = readUrlFlag('fd_worker_status_write');
+      if (paramValue !== null) return paramValue;
+      if (readLocalFlag(disableFlagKey)) return false;
+      if (readLocalFlag(flagKey)) return true;
+      return config?.workerStatusWriteEnabled === true;
+    } catch {
+      return config?.workerStatusWriteEnabled === true;
+    }
+  }
+
+  function isWorkerSessionAuthEnabled(config) {
+    if (!getWorkerApiBaseUrl(config)) return false;
+
+    try {
+      const flagKey = config?.workerSessionAuthFlagKey || 'fd_use_worker_auth';
+      const disableFlagKey = config?.workerSessionAuthDisableFlagKey || 'fd_disable_worker_auth';
+      const paramValue = readUrlFlag('fd_worker_auth');
+      if (paramValue !== null) return paramValue;
+      if (readLocalFlag(disableFlagKey)) return false;
+      if (readLocalFlag(flagKey)) return true;
+      return config?.workerSessionAuthEnabled === true;
+    } catch {
+      return config?.workerSessionAuthEnabled === true;
+    }
+  }
+
+  function isWorkerFloorplanWriteEnabled(config) {
+    if (!getWorkerApiBaseUrl(config)) return false;
+
+    try {
+      const flagKey = config?.workerFloorplanWriteFlagKey || 'fd_use_worker_floorplan_write';
+      const disableFlagKey = config?.workerFloorplanWriteDisableFlagKey || 'fd_disable_worker_floorplan_write';
+      const paramValue = readUrlFlag('fd_worker_floorplan_write');
+      if (paramValue !== null) return paramValue;
+      if (readLocalFlag(disableFlagKey)) return false;
+      if (readLocalFlag(flagKey)) return true;
+      return config?.workerFloorplanWriteEnabled === true;
+    } catch {
+      return config?.workerFloorplanWriteEnabled === true;
+    }
+  }
+
+  function isWorkerUploadWriteEnabled(config) {
+    if (!getWorkerApiBaseUrl(config)) return false;
+
+    try {
+      const flagKey = config?.workerUploadWriteFlagKey || 'fd_use_worker_upload_write';
+      const disableFlagKey = config?.workerUploadWriteDisableFlagKey || 'fd_disable_worker_upload_write';
+      const paramValue = readUrlFlag('fd_worker_upload_write');
+      if (paramValue !== null) return paramValue;
+      if (readLocalFlag(disableFlagKey)) return false;
+      if (readLocalFlag(flagKey)) return true;
+      return config?.workerUploadWriteEnabled === true;
+    } catch {
+      return config?.workerUploadWriteEnabled === true;
+    }
+  }
+
+  function isWorkerStatusReadEnabled(config) {
+    return isWorkerReadProxyEnabled(config) || isWorkerStatusWriteEnabled(config);
+  }
+
+  function getWorkerSessionToken(config) {
+    try {
+      return global.localStorage?.getItem(config?.workerSessionTokenKey || 'fd_worker_session_token') || '';
+    } catch {
+      return '';
+    }
+  }
+
+  function setWorkerSession(config, sessionData) {
+    try {
+      if (sessionData?.token) {
+        global.localStorage?.setItem(config?.workerSessionTokenKey || 'fd_worker_session_token', sessionData.token);
+      }
+      if (sessionData?.expiresAt) {
+        global.localStorage?.setItem(config?.workerSessionExpiresKey || 'fd_worker_session_expires_at', sessionData.expiresAt);
+      }
+    } catch {}
+  }
+
+  function clearWorkerSession(config) {
+    try {
+      global.localStorage?.removeItem(config?.workerSessionTokenKey || 'fd_worker_session_token');
+      global.localStorage?.removeItem(config?.workerSessionExpiresKey || 'fd_worker_session_expires_at');
+    } catch {}
+  }
+
+  function workerUrl(config, path) {
+    return getWorkerApiBaseUrl(config) + path;
+  }
+
+  function workerError(status, code) {
+    const error = new Error(code || 'Worker request failed');
+    error.status = status;
+    return error;
+  }
+
+  async function fetchWorkerJSON(config, path, options) {
+    const response = await fetch(workerUrl(config, path), {
+      cache: 'no-store',
+      signal: options?.signal,
+    });
+    const data = await response.json().catch(() => null);
+    if (!response.ok || data?.ok === false) {
+      throw workerError(response.status, data?.error || 'worker_json_failed');
+    }
+    return data;
+  }
+
+  async function postWorkerJSON(config, path, data, options) {
+    const response = await fetch(workerUrl(config, path), {
+      method: 'POST',
+      cache: 'no-store',
+      signal: options?.signal,
+      headers: {
+        'Content-Type': 'application/json',
+        ...(options?.headers || {}),
+      },
+      body: JSON.stringify(data),
+    });
+    const responseData = await response.json().catch(() => null);
+    if (!response.ok || responseData?.ok === false) {
+      throw workerError(response.status, responseData?.error || 'worker_post_failed');
+    }
+    return responseData;
+  }
+
+  async function putWorkerJSON(config, path, data, options) {
+    const response = await fetch(workerUrl(config, path), {
+      method: 'PUT',
+      cache: 'no-store',
+      signal: options?.signal,
+      headers: {
+        'Content-Type': 'application/json',
+        ...(options?.headers || {}),
+      },
+      body: JSON.stringify(data),
+    });
+    const responseData = await response.json().catch(() => null);
+    if (!response.ok || responseData?.ok === false) {
+      throw workerError(response.status, responseData?.error || 'worker_put_failed');
+    }
+    return responseData;
+  }
+
+  async function deleteWorkerJSON(config, path, data, options) {
+    const response = await fetch(workerUrl(config, path), {
+      method: 'DELETE',
+      cache: 'no-store',
+      signal: options?.signal,
+      headers: {
+        'Content-Type': 'application/json',
+        ...(options?.headers || {}),
+      },
+      body: JSON.stringify(data),
+    });
+    const responseData = await response.json().catch(() => null);
+    if (!response.ok || responseData?.ok === false) {
+      throw workerError(response.status, responseData?.error || 'worker_delete_failed');
+    }
+    return responseData;
+  }
+
+  function floorplanTargetFromContentsUrl(config, fileUrl) {
+    const url = String(fileUrl || '');
+    const mappings = [
+      { prefix: config?.svgUploadsUrl, repo: 'uploads' },
+      { prefix: config?.svgBaseUrl, repo: 'gallery' },
+    ];
+
+    for (const item of mappings) {
+      if (!item.prefix || !url.startsWith(item.prefix)) continue;
+      const encodedFile = url.slice(item.prefix.length);
+      const file = decodeURIComponent(encodedFile);
+      return { repo: item.repo, file };
+    }
+
+    return null;
+  }
+
+  function floorplanRouteFromContentsUrl(config, fileUrl) {
+    const target = floorplanTargetFromContentsUrl(config, fileUrl);
+    if (!target) return null;
+    return `/api/floorplan?repo=${encodeURIComponent(target.repo)}&file=${encodeURIComponent(target.file)}`;
+  }
+
+  async function fetchWorkerFloorplan(config, fileUrl, options) {
+    const route = floorplanRouteFromContentsUrl(config, fileUrl);
+    if (!route) return null;
+
+    const response = await fetch(workerUrl(config, route), {
+      cache: 'no-store',
+      signal: options?.signal,
+    });
+    if (!response.ok) {
+      throw workerError(response.status, 'worker_floorplan_failed');
+    }
+    return {
+      text: await response.text(),
+      sha: response.headers.get('X-FD-Sha') || '',
+    };
+  }
+
   async function loadCustomers(config) {
+    if (isWorkerReadProxyEnabled(config)) {
+      const data = await fetchWorkerJSON(config, '/api/customers');
+      return Array.isArray(data.customers) ? data.customers : [];
+    }
+
     requireRepository();
     return Repository.fetchJSON(config.customersUrl);
   }
 
   async function loadStatus(config) {
+    if (isWorkerStatusReadEnabled(config)) {
+      const data = await fetchWorkerJSON(config, '/api/status');
+      return data.status && typeof data.status === 'object' ? data.status : {};
+    }
+
     requireRepository();
     return Repository.fetchJSON(config.statusUrl);
   }
 
-  async function saveStatus(config, statusData, messageCustomer) {
+  function canUseWorkerStatusWrite(config, operations) {
+    return Array.isArray(operations) &&
+      operations.length > 0;
+  }
+
+  async function saveStatus(config, statusData, messageCustomer, options = {}) {
+    if (isWorkerStatusWriteEnabled(config) && canUseWorkerStatusWrite(config, options.operations)) {
+      const token = getWorkerSessionToken(config);
+      if (!token) {
+        throw workerError(401, 'worker_session_required');
+      }
+      return putWorkerJSON(config, '/api/status', {
+        operations: options.operations,
+      }, {
+        signal: options.signal,
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+    }
+
     requireRepository();
     const { meta } = await Repository.fetchJSONWithMeta(config.statusUrl, 'Kon status.json niet ophalen');
     return Repository.putJSON(config.statusUrl, {
@@ -27,6 +299,11 @@
   }
 
   async function loadFloorplanSVG(fileUrl, options) {
+    if (isWorkerReadProxyEnabled(options?.config)) {
+      const floorplan = await fetchWorkerFloorplan(options.config, fileUrl, options);
+      if (floorplan) return floorplan.text;
+    }
+
     requireRepository();
     const meta = await Repository.fetchContentMeta(fileUrl, 'Bestand niet gevonden', options);
     const repo = Repository.repoFromContentsUrl(fileUrl, 'mlivvm/gallery');
@@ -34,6 +311,14 @@
   }
 
   async function revalidateFloorplanSVG(fileUrl, cachedSha, options) {
+    if (isWorkerReadProxyEnabled(options?.config)) {
+      const floorplan = await fetchWorkerFloorplan(options.config, fileUrl, options);
+      if (floorplan) {
+        if (floorplan.sha && floorplan.sha === cachedSha) return null;
+        return floorplan.text;
+      }
+    }
+
     requireRepository();
     const meta = await Repository.fetchContentMeta(fileUrl, null, options);
     if (meta.sha === cachedSha) return null;
@@ -49,10 +334,35 @@
   }
 
   async function saveFloorplanSVG(fileUrl, svgText, options, legacyErrorMessage) {
-    requireRepository();
     const saveOptions = typeof options === 'string'
       ? { message: options, saveErrorMessage: legacyErrorMessage }
       : (options || {});
+
+    const config = saveOptions.config;
+    if (config && isWorkerFloorplanWriteEnabled(config)) {
+      const target = floorplanTargetFromContentsUrl(config, fileUrl);
+      const token = getWorkerSessionToken(config);
+      if (!target || !saveOptions.customerName || !saveOptions.floorplanName) {
+        throw workerError(400, 'worker_floorplan_target_required');
+      }
+      if (!token) {
+        throw workerError(401, 'worker_session_required');
+      }
+      return putWorkerJSON(config, '/api/floorplan', {
+        repo: target.repo,
+        file: target.file,
+        customer: saveOptions.customerName,
+        floorplan: saveOptions.floorplanName,
+        svgText,
+      }, {
+        signal: saveOptions.signal,
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+    }
+
+    requireRepository();
     const meta = await Repository.fetchContentMeta(fileUrl, saveOptions.fetchErrorMessage || 'Kon bestand niet ophalen');
     return Repository.putTextContent(fileUrl, {
       message: saveOptions.message,
@@ -66,7 +376,6 @@
   }
 
   async function addUploadedFloorplan(config, options) {
-    requireRepository();
     const {
       customerName,
       floorplanName,
@@ -76,6 +385,29 @@
     } = options;
 
     const uploadUrl = uploadedFloorplanUrl(config, fileName);
+    if (isWorkerUploadWriteEnabled(config)) {
+      const token = getWorkerSessionToken(config);
+      if (!token) throw workerError(401, 'worker_session_required');
+      const data = await postWorkerJSON(config, '/api/uploaded-floorplan', {
+        customerName,
+        floorplanName,
+        fileName,
+        svgText,
+        isNewCustomer,
+      }, {
+        signal: options.signal,
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      return {
+        customers: Array.isArray(data.customers) ? data.customers : [],
+        entry: data.entry,
+        uploadUrl,
+      };
+    }
+
+    requireRepository();
     let uploadedSvgSha = null;
 
     try {
@@ -114,9 +446,26 @@
   }
 
   async function deleteUploadedFloorplan(config, options) {
-    requireRepository();
     const { customerName, floorplan } = options;
     const fp = floorplan;
+
+    if (isWorkerUploadWriteEnabled(config)) {
+      const token = getWorkerSessionToken(config);
+      if (!token) throw workerError(401, 'worker_session_required');
+      const data = await deleteWorkerJSON(config, '/api/uploaded-floorplan', {
+        customerName,
+        floorplanName: fp.name,
+        fileName: fp.file,
+      }, {
+        signal: options.signal,
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      return { customers: Array.isArray(data.customers) ? data.customers : [] };
+    }
+
+    requireRepository();
 
     const { meta: customersMeta, data: currentCustomers } = await Repository.fetchJSONWithMeta(config.customersUrl, 'Kon customers.json niet ophalen');
 
@@ -172,7 +521,14 @@
     return Repository.testTokenAccess(config.customersUrl, token);
   }
 
+  async function loginWorkerSession(config, password, options) {
+    const sessionData = await postWorkerJSON(config, '/api/session/login', { password }, options);
+    setWorkerSession(config, sessionData);
+    return sessionData;
+  }
+
   FD.DataService = {
+    clearWorkerSession,
     loadCustomers,
     loadStatus,
     saveStatus,
@@ -183,6 +539,13 @@
     addUploadedFloorplan,
     deleteUploadedFloorplan,
     fetchFloorplanTreeMap,
+    isWorkerReadProxyEnabled,
+    isWorkerFloorplanWriteEnabled,
+    isWorkerUploadWriteEnabled,
+    isWorkerStatusReadEnabled,
+    isWorkerSessionAuthEnabled,
+    isWorkerStatusWriteEnabled,
+    loginWorkerSession,
     validateTokenForCustomers,
   };
 })(window);

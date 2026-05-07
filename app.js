@@ -7,11 +7,28 @@
       statusUrl: 'https://api.github.com/repos/mlivvm/floorplan-dashboard-data/contents/status.json',
       svgBaseUrl: 'https://api.github.com/repos/mlivvm/gallery/contents/',
       svgUploadsUrl: 'https://api.github.com/repos/mlivvm/floorplan-uploads/contents/',
+      workerApiBaseUrl: 'https://floorplan-dashboard-api.mko-floorplan-dashboard.workers.dev',
+      workerReadProxyFlagKey: 'fd_use_worker_read_proxy',
+      workerReadProxyDisableFlagKey: 'fd_disable_worker_read_proxy',
+      workerSessionAuthFlagKey: 'fd_use_worker_auth',
+      workerSessionAuthDisableFlagKey: 'fd_disable_worker_auth',
+      workerSessionTokenKey: 'fd_worker_session_token',
+      workerSessionExpiresKey: 'fd_worker_session_expires_at',
+      workerStatusWriteFlagKey: 'fd_use_worker_status_write',
+      workerStatusWriteDisableFlagKey: 'fd_disable_worker_status_write',
+      workerStatusWriteEnabled: true,
+      workerFloorplanWriteFlagKey: 'fd_use_worker_floorplan_write',
+      workerFloorplanWriteDisableFlagKey: 'fd_disable_worker_floorplan_write',
+      workerFloorplanWriteEnabled: true,
+      workerUploadWriteFlagKey: 'fd_use_worker_upload_write',
+      workerUploadWriteDisableFlagKey: 'fd_disable_worker_upload_write',
+      workerUploadWriteEnabled: true,
+      workerStatusWriteTestCustomer: '--- TEST ---',
       jotformBaseUrl: 'https://eu.jotform.com/',
       jotformFormId: '250122093908351',
       loginEmailNotificationsEnabled: false,
       pollInterval: 30000,
-      offlineCacheVersion: 'fd-v1.8.87',
+      offlineCacheVersion: 'fd-v1.8.97',
     };
 
     const COLORS = {
@@ -323,6 +340,7 @@
     function fetchGitHubSVGCacheFirst(fileUrl) {
       return FD.FloorplanCacheService.fetchSVGCacheFirst(fileUrl, {
         cacheVersion: CONFIG.offlineCacheVersion,
+        config: CONFIG,
       });
     }
 
@@ -889,6 +907,9 @@
         const fileUrl = getFloorplanApiUrl(fp);
 
         const updateResult = await FD.DataService.saveFloorplanSVG(fileUrl, svgText, {
+          config: CONFIG,
+          customerName: currentCustomer,
+          floorplanName: currentFloorplan,
           message: 'Markers bijgewerkt: ' + currentCustomer + ' - ' + currentFloorplan,
           fetchErrorMessage: 'Kon bestand niet ophalen',
           saveErrorMessage: 'Kon niet opslaan',
@@ -2665,6 +2686,9 @@
         });
         const fileUrl = CONFIG.svgUploadsUrl + encodeURIComponent(fp.file);
         await FD.DataService.saveFloorplanSVG(fileUrl, svgText, {
+          config: CONFIG,
+          customerName: currentCustomer,
+          floorplanName: currentFloorplan,
           message: 'Afbeelding bewerkt: ' + currentCustomer + ' - ' + currentFloorplan,
           fetchErrorMessage: 'Kon bestand niet ophalen ({status})',
           saveErrorMessage: 'Opslaan mislukt ({status})',

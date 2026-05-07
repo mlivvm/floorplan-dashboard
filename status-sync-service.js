@@ -162,7 +162,7 @@
           scheduleRetry();
           return { synced: false, skipped: true, queue, offline: true };
         }
-        await DataService.saveStatus(config, mergedStatus, queue[queue.length - 1]?.customer);
+        await DataService.saveStatus(config, mergedStatus, queue[queue.length - 1]?.customer, { operations: queue });
 
         const remainingQueue = StatusService.removeSyncedOperations(readQueue(), queue);
         const nextStatus = applyQueuedStatusOperations(mergedStatus, remainingQueue);
