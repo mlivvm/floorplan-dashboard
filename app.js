@@ -29,7 +29,7 @@
       jotformFormId: '250122093908351',
       loginEmailNotificationsEnabled: false,
       pollInterval: 30000,
-      offlineCacheVersion: 'fd-v1.8.102',
+      offlineCacheVersion: 'fd-v1.8.103',
     };
 
     const COLORS = {
@@ -116,6 +116,7 @@
     const topbarMenu = document.getElementById('topbar-menu');
     const btnTopbarMenu = document.getElementById('btn-menu');
     const btnMenuLabels = document.getElementById('btn-menu-labels');
+    const btnReportProblem = document.getElementById('btn-report-problem');
     const topbarMenuController = FD.UIShellService.createTopbarMenu({
       toggleButtonEl: btnTopbarMenu,
       menuEl: topbarMenu,
@@ -190,10 +191,39 @@
 
     const toastEl = document.getElementById('toast');
     const toastController = FD.UIShellService.createToastController(toastEl);
+    let lastToast = null;
 
     function showToast(message, type) {
+      lastToast = { message: String(message || ''), type: String(type || ''), at: new Date().toISOString() };
       toastController.show(message, type);
     }
+
+    function getDiagnosticsContext() {
+      const selection = getSelectedFloorplan();
+      return {
+        customer: currentCustomer || selection.customer?.customer || '',
+        floorplan: currentFloorplan || selection.floorplan?.name || '',
+        doorId: selectedDoor || '',
+        appMode: appMode.current,
+        syncQueueCount: statusSync ? statusSync.getQueueCount() : 0,
+        lastToast: lastToast ? `${lastToast.type}: ${lastToast.message}` : '',
+      };
+    }
+
+    const diagnostics = FD.DiagnosticsService.create(CONFIG, {
+      getContext: getDiagnosticsContext,
+      logger: console,
+    });
+
+    btnReportProblem.addEventListener('click', async () => {
+      hideTopbarMenu();
+      const result = await diagnostics.reportManual();
+      if (result?.sent) {
+        showToast('Probleemmelding verstuurd', 'success');
+      } else {
+        showToast('Probleemmelding bewaard voor later', 'error');
+      }
+    });
 
     function updateConnectionIndicator() {
       const isOnline = navigator.onLine;

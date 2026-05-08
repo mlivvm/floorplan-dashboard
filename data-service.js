@@ -142,70 +142,104 @@
     return error;
   }
 
+  function reportWorkerFailure(path, method, err) {
+    try {
+      FD.DiagnosticsService?.record?.({
+        level: 'error',
+        eventType: 'api_failure',
+        message: err?.code || err?.message || 'Worker request failed',
+        source: 'data-service',
+        endpoint: path,
+        status: err?.status || null,
+        details: { method },
+      });
+    } catch {}
+  }
+
   async function fetchWorkerJSON(config, path, options) {
-    const response = await fetch(workerUrl(config, path), {
-      cache: 'no-store',
-      signal: options?.signal,
-    });
-    const data = await response.json().catch(() => null);
-    if (!response.ok || data?.ok === false) {
-      throw workerError(response.status, data?.error || 'worker_json_failed');
+    try {
+      const response = await fetch(workerUrl(config, path), {
+        cache: 'no-store',
+        signal: options?.signal,
+      });
+      const data = await response.json().catch(() => null);
+      if (!response.ok || data?.ok === false) {
+        throw workerError(response.status, data?.error || 'worker_json_failed');
+      }
+      return data;
+    } catch (err) {
+      if (err?.name !== 'AbortError') reportWorkerFailure(path, 'GET', err);
+      throw err;
     }
-    return data;
   }
 
   async function postWorkerJSON(config, path, data, options) {
-    const response = await fetch(workerUrl(config, path), {
-      method: 'POST',
-      cache: 'no-store',
-      signal: options?.signal,
-      headers: {
-        'Content-Type': 'application/json',
-        ...(options?.headers || {}),
-      },
-      body: JSON.stringify(data),
-    });
-    const responseData = await response.json().catch(() => null);
-    if (!response.ok || responseData?.ok === false) {
-      throw workerError(response.status, responseData?.error || 'worker_post_failed');
+    try {
+      const response = await fetch(workerUrl(config, path), {
+        method: 'POST',
+        cache: 'no-store',
+        signal: options?.signal,
+        headers: {
+          'Content-Type': 'application/json',
+          ...(options?.headers || {}),
+        },
+        body: JSON.stringify(data),
+      });
+      const responseData = await response.json().catch(() => null);
+      if (!response.ok || responseData?.ok === false) {
+        throw workerError(response.status, responseData?.error || 'worker_post_failed');
+      }
+      return responseData;
+    } catch (err) {
+      if (err?.name !== 'AbortError') reportWorkerFailure(path, 'POST', err);
+      throw err;
     }
-    return responseData;
   }
 
   async function putWorkerJSON(config, path, data, options) {
-    const response = await fetch(workerUrl(config, path), {
-      method: 'PUT',
-      cache: 'no-store',
-      signal: options?.signal,
-      headers: {
-        'Content-Type': 'application/json',
-        ...(options?.headers || {}),
-      },
-      body: JSON.stringify(data),
-    });
-    const responseData = await response.json().catch(() => null);
-    if (!response.ok || responseData?.ok === false) {
-      throw workerError(response.status, responseData?.error || 'worker_put_failed');
+    try {
+      const response = await fetch(workerUrl(config, path), {
+        method: 'PUT',
+        cache: 'no-store',
+        signal: options?.signal,
+        headers: {
+          'Content-Type': 'application/json',
+          ...(options?.headers || {}),
+        },
+        body: JSON.stringify(data),
+      });
+      const responseData = await response.json().catch(() => null);
+      if (!response.ok || responseData?.ok === false) {
+        throw workerError(response.status, responseData?.error || 'worker_put_failed');
+      }
+      return responseData;
+    } catch (err) {
+      if (err?.name !== 'AbortError') reportWorkerFailure(path, 'PUT', err);
+      throw err;
     }
-    return responseData;
   }
 
   async function deleteWorkerJSON(config, path, data, options) {
-    const response = await fetch(workerUrl(config, path), {
-      method: 'DELETE',
-      cache: 'no-store',
-      signal: options?.signal,
-      headers: {
-        'Content-Type': 'application/json',
-        ...(options?.headers || {}),
-      },
-      body: JSON.stringify(data),
-    });
-    const responseData = await response.json().catch(() => null);
-    if (!response.ok || responseData?.ok === false) {
-      throw workerError(response.status, responseData?.error || 'worker_delete_failed');
+    try {
+      const response = await fetch(workerUrl(config, path), {
+        method: 'DELETE',
+        cache: 'no-store',
+        signal: options?.signal,
+        headers: {
+          'Content-Type': 'application/json',
+          ...(options?.headers || {}),
+        },
+        body: JSON.stringify(data),
+      });
+      const responseData = await response.json().catch(() => null);
+      if (!response.ok || responseData?.ok === false) {
+        throw workerError(response.status, responseData?.error || 'worker_delete_failed');
+      }
+      return responseData;
+    } catch (err) {
+      if (err?.name !== 'AbortError') reportWorkerFailure(path, 'DELETE', err);
+      throw err;
     }
-    return responseData;
   }
 
   function floorplanTargetFromContentsUrl(config, fileUrl) {
@@ -240,17 +274,22 @@
     const url = getWorkerFloorplanUrl(config, fileUrl);
     if (!url) return null;
 
-    const response = await fetch(url, {
-      cache: 'no-store',
-      signal: options?.signal,
-    });
-    if (!response.ok) {
-      throw workerError(response.status, 'worker_floorplan_failed');
+    try {
+      const response = await fetch(url, {
+        cache: 'no-store',
+        signal: options?.signal,
+      });
+      if (!response.ok) {
+        throw workerError(response.status, 'worker_floorplan_failed');
+      }
+      return {
+        text: await response.text(),
+        sha: response.headers.get('X-FD-Sha') || '',
+      };
+    } catch (err) {
+      if (err?.name !== 'AbortError') reportWorkerFailure(floorplanRouteFromContentsUrl(config, fileUrl) || '/api/floorplan', 'GET', err);
+      throw err;
     }
-    return {
-      text: await response.text(),
-      sha: response.headers.get('X-FD-Sha') || '',
-    };
   }
 
   function floorplanRepoKeyFromFullRepo(repo) {

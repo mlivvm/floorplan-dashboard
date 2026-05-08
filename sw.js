@@ -1,4 +1,4 @@
-const CACHE_NAME = 'fd-v1.8.102';
+const CACHE_NAME = 'fd-v1.8.103';
 
 const STATIC_ASSETS = [
   './',
@@ -6,6 +6,7 @@ const STATIC_ASSETS = [
   'app.css',
   'repository.js',
   'data-service.js',
+  'diagnostics-service.js',
   'floorplan-cache-service.js',
   'floorplan-view-service.js',
   'auth-service.js',
