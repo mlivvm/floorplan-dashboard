@@ -2,7 +2,7 @@
   const FD = global.FD = global.FD || {};
 
   const AUTHENTICATED = 'authenticated';
-  const GITHUB_TOKEN_KEY = 'fd_github_token';
+  const LEGACY_DIRECT_TOKEN_KEY = ['fd', 'github', 'token'].join('_');
   const REMEMBER_KEY = 'fd_remember_pw';
   const SAVED_PASSWORD_KEY = 'fd_saved_password';
   const WORKER_SESSION_TOKEN_KEY = 'fd_worker_session_token';
@@ -14,29 +14,6 @@
     const hashBuffer = await crypto.subtle.digest('SHA-256', data);
     const hashArray = Array.from(new Uint8Array(hashBuffer));
     return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
-  }
-
-  async function decryptToken(password, encryptedToken, {
-    salt = 'fd_salt',
-    iterations = 100000,
-  } = {}) {
-    const enc = new TextEncoder();
-    const keyMaterial = await crypto.subtle.importKey('raw', enc.encode(password), 'PBKDF2', false, ['deriveKey']);
-    const key = await crypto.subtle.deriveKey(
-      { name: 'PBKDF2', salt: enc.encode(salt), iterations, hash: 'SHA-256' },
-      keyMaterial,
-      { name: 'AES-GCM', length: 256 },
-      false,
-      ['decrypt']
-    );
-    const iv = Uint8Array.from(atob(encryptedToken.iv), c => c.charCodeAt(0));
-    const data = Uint8Array.from(atob(encryptedToken.data), c => c.charCodeAt(0));
-    const tag = Uint8Array.from(atob(encryptedToken.tag), c => c.charCodeAt(0));
-    const combined = new Uint8Array(data.length + tag.length);
-    combined.set(data);
-    combined.set(tag, data.length);
-    const decrypted = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, combined);
-    return new TextDecoder().decode(decrypted);
   }
 
   function getAttempts(config, storage = localStorage) {
@@ -83,26 +60,26 @@
   function clearSession(config, local = localStorage, session = sessionStorage) {
     local.removeItem(config.tokenKey);
     local.removeItem(config.tokenTimeKey);
-    local.removeItem(GITHUB_TOKEN_KEY);
+    local.removeItem(LEGACY_DIRECT_TOKEN_KEY);
     local.removeItem(WORKER_SESSION_TOKEN_KEY);
     local.removeItem(WORKER_SESSION_EXPIRES_KEY);
     session.removeItem(config.tokenKey);
     session.removeItem(config.tokenTimeKey);
-    session.removeItem(GITHUB_TOKEN_KEY);
+    session.removeItem(LEGACY_DIRECT_TOKEN_KEY);
     session.removeItem(WORKER_SESSION_TOKEN_KEY);
     session.removeItem(WORKER_SESSION_EXPIRES_KEY);
   }
 
-  function recordSuccessfulLogin(config, githubToken, rememberPassword, passwordOrNow = Date.now(), local = localStorage, session = sessionStorage) {
+  function recordSuccessfulLogin(config, rememberPassword, passwordOrNow = Date.now(), local = localStorage, session = sessionStorage) {
     const now = typeof passwordOrNow === 'number' ? passwordOrNow : Date.now();
     const savedPassword = typeof passwordOrNow === 'number' ? '' : String(passwordOrNow || '');
     const priorAttempts = getAttempts(config, local);
     local.setItem(config.tokenKey, AUTHENTICATED);
     local.setItem(config.tokenTimeKey, now.toString());
-    local.setItem(GITHUB_TOKEN_KEY, githubToken);
+    local.removeItem(LEGACY_DIRECT_TOKEN_KEY);
     session.removeItem(config.tokenKey);
     session.removeItem(config.tokenTimeKey);
-    session.removeItem(GITHUB_TOKEN_KEY);
+    session.removeItem(LEGACY_DIRECT_TOKEN_KEY);
     clearLockout(config, local);
     if (rememberPassword) {
       local.setItem(REMEMBER_KEY, '1');
@@ -118,18 +95,18 @@
     if (session.getItem(config.tokenKey) !== AUTHENTICATED) return;
     local.setItem(config.tokenKey, AUTHENTICATED);
     local.setItem(config.tokenTimeKey, session.getItem(config.tokenTimeKey) || Date.now().toString());
-    const legacyGitHubToken = session.getItem(GITHUB_TOKEN_KEY);
-    if (legacyGitHubToken) local.setItem(GITHUB_TOKEN_KEY, legacyGitHubToken);
+    local.removeItem(LEGACY_DIRECT_TOKEN_KEY);
     session.removeItem(config.tokenKey);
     session.removeItem(config.tokenTimeKey);
-    session.removeItem(GITHUB_TOKEN_KEY);
+    session.removeItem(LEGACY_DIRECT_TOKEN_KEY);
   }
 
   function isSessionValid(config, local = localStorage, session = sessionStorage) {
     migrateLegacySession(config, local, session);
     const token = local.getItem(config.tokenKey);
-    const githubToken = local.getItem(GITHUB_TOKEN_KEY);
-    if (token !== AUTHENTICATED || !githubToken) {
+    local.removeItem(LEGACY_DIRECT_TOKEN_KEY);
+    session.removeItem(LEGACY_DIRECT_TOKEN_KEY);
+    if (token !== AUTHENTICATED) {
       clearSession(config, local, session);
       return false;
     }
@@ -142,23 +119,6 @@
 
   function getSavedPassword(storage = localStorage) {
     return isRememberPasswordEnabled(storage) ? (storage.getItem(SAVED_PASSWORD_KEY) || '') : '';
-  }
-
-  async function validateGitHubToken(config, token, dataService = FD.DataService) {
-    if (global.navigator?.onLine === false) {
-      return { ok: true, offline: true };
-    }
-
-    try {
-      const testResp = await dataService.validateTokenForCustomers(config, token);
-      if (testResp.ok) return { ok: true, offline: false };
-      if (testResp.status === 401 || testResp.status === 403) {
-        return { ok: false, message: 'GitHub token is ongeldig of verlopen.' };
-      }
-      return { ok: false, message: 'GitHub controle mislukt: ' + testResp.status };
-    } catch {
-      return { ok: true, offline: true };
-    }
   }
 
   async function sendLoginNotification({
@@ -192,7 +152,6 @@
   function createAuthController({
     loginConfig,
     appConfig,
-    encryptedToken,
     elements,
     logoutControls,
     modeController,
@@ -352,48 +311,39 @@
       elements.loginButton.disabled = true;
       elements.loginButton.textContent = 'Controleren...';
 
-      let token;
-      try {
-        token = await decryptToken(password, encryptedToken);
-      } catch {
-        elements.loginButton.disabled = false;
-        elements.loginButton.textContent = 'Inloggen';
-        elements.errorEl.textContent = 'Kon token niet ontsleutelen.';
-        return;
-      }
-
-      const validation = await validateGitHubToken(appConfig, token);
-      if (!validation.ok) {
-        elements.loginButton.disabled = false;
-        elements.loginButton.textContent = 'Inloggen';
-        elements.errorEl.textContent = validation.message;
-        return;
-      }
-
       if (needsWorkerSession()) {
-        try {
-          await FD.DataService.loginWorkerSession(appConfig, password);
-        } catch (err) {
-          elements.loginButton.disabled = false;
-          elements.loginButton.textContent = 'Inloggen';
-          elements.errorEl.textContent = err?.status === 429
-            ? 'Te veel loginpogingen via server. Probeer later opnieuw.'
-            : 'Server-login mislukt.';
-          logger.warn('Worker sessie-login mislukt:', err);
-          return;
+        if (global.navigator?.onLine === false) {
+          if (!hasValidWorkerSession()) {
+            elements.loginButton.disabled = false;
+            elements.loginButton.textContent = 'Inloggen';
+            elements.errorEl.textContent = 'Maak eerst online verbinding om een server-sessie te starten.';
+            return;
+          }
+        } else {
+          try {
+            await FD.DataService.loginWorkerSession(appConfig, password);
+          } catch (err) {
+            elements.loginButton.disabled = false;
+            elements.loginButton.textContent = 'Inloggen';
+            elements.errorEl.textContent = err?.status === 429
+              ? 'Te veel loginpogingen via server. Probeer later opnieuw.'
+              : 'Server-login mislukt.';
+            logger.warn('Worker sessie-login mislukt:', err);
+            return;
+          }
         }
+      } else if (global.navigator?.onLine === false) {
+        showToast('Offline ingelogd', 'success');
       }
 
       const { priorAttempts } = recordSuccessfulLogin(
         loginConfig,
-        token,
         elements.rememberCheckbox.checked,
         password
       );
 
       elements.loginButton.textContent = 'Inloggen';
       notifyLogin('Succesvol ingelogd', priorAttempts > 0 ? priorAttempts + ' foute pogingen vooraf' : '0');
-      if (validation.offline) showToast('Offline ingelogd', 'success');
       onShowApp();
     }
 
@@ -409,15 +359,6 @@
       }
 
       onShowApp();
-      validateGitHubToken(appConfig, FD.Repository.getToken()).then(validation => {
-        if (!validation.ok && !validation.offline) {
-          clearSession(loginConfig);
-          onSessionExpired();
-          showLoginScreen({ message: validation.message || 'Sessie verlopen. Log opnieuw in.' });
-        }
-      }).catch(() => {
-        // Network error: stay in app for offline use.
-      });
     }
 
     function showLogoutConfirm() {
@@ -430,54 +371,51 @@
     }
 
     function logout() {
-      hideLogoutConfirm();
-      onLogout();
       clearSession(loginConfig);
+      FD.DataService?.clearWorkerSession?.(appConfig);
+      clearLockoutTimer();
+      hideLogoutConfirm();
+      notifyLogin('Uitgelogd', '-');
+      onLogout();
       showLoginScreen({ clearPassword: true, restorePassword: true });
     }
 
     function bind() {
       if (bound) return;
       bound = true;
+      initEmail();
+      restoreSavedPassword();
+      elements.loginButton.addEventListener('click', handleLogin);
+      elements.passwordInput.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') handleLogin();
+      });
       logoutControls.openButton.addEventListener('click', showLogoutConfirm);
       logoutControls.confirmButton.addEventListener('click', logout);
       logoutControls.cancelButton.addEventListener('click', hideLogoutConfirm);
       logoutControls.overlay.addEventListener('click', hideLogoutConfirm);
-      elements.loginButton.addEventListener('click', handleLogin);
-      elements.passwordInput.addEventListener('keydown', (event) => {
-        if (event.key === 'Enter') handleLogin();
-      });
+      checkLockoutState();
     }
 
-    function start() {
-      initEmail();
-      restoreSavedPassword();
-      try {
-        if (isSessionValid(loginConfig)) {
-          resumeStoredSession();
-        } else {
-          showLoginScreen();
-        }
-      } catch (err) {
-        showLoginScreen();
-        logger.error('Startup fout:', err);
+    async function start() {
+      if (isSessionValid(loginConfig)) {
+        await resumeStoredSession();
+      } else {
+        showLoginScreen({ restorePassword: true });
       }
     }
 
     return {
       bind,
-      checkLockoutState,
-      handleLogin,
-      logout,
-      restoreSavedPassword,
       start,
+      showLoginScreen,
+      logout,
     };
   }
 
   FD.AuthService = {
+    clearLockout,
     clearSession,
     createAuthController,
-    decryptToken,
     getAttempts,
     getLockoutMinutes,
     getSavedPassword,
@@ -485,10 +423,7 @@
     isLockedOut,
     isRememberPasswordEnabled,
     isSessionValid,
-    migrateLegacySession,
     recordFailedAttempt,
     recordSuccessfulLogin,
-    sendLoginNotification,
-    validateGitHubToken,
   };
 })(window);

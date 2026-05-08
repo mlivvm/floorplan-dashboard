@@ -1,10 +1,9 @@
-const CACHE_NAME = 'fd-v1.8.105';
+const CACHE_NAME = 'fd-v1.8.106';
 
 const STATIC_ASSETS = [
   './',
   'index.html',
   'app.css',
-  'repository.js',
   'data-service.js',
   'diagnostics-service.js',
   'floorplan-cache-service.js',
@@ -60,26 +59,6 @@ self.addEventListener('activate', (e) => {
 
 self.addEventListener('fetch', (e) => {
   const url = new URL(e.request.url);
-
-  // GitHub writes must always go straight to the network. Safe GETs are
-  // cached so customers, statuses, SVG metadata, and SVG blobs remain
-  // available after they have been loaded once.
-  if (url.hostname === 'api.github.com') {
-    if (e.request.method !== 'GET') return;
-
-    e.respondWith(
-      fetch(e.request)
-        .then(resp => {
-          if (resp.ok) {
-            const clone = resp.clone();
-            caches.open(CACHE_NAME).then(cache => cache.put(e.request, clone));
-          }
-          return resp;
-        })
-        .catch(() => cacheFallback(e.request))
-    );
-    return;
-  }
 
   // Never cache external services with mutable/auth side effects
   if (url.hostname === 'eu.jotform.com' ||

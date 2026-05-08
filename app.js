@@ -3,33 +3,26 @@
     // ============================================================
 
     const CONFIG = {
-      customersUrl: 'https://api.github.com/repos/mlivvm/floorplan-dashboard-data/contents/customers.json',
-      statusUrl: 'https://api.github.com/repos/mlivvm/floorplan-dashboard-data/contents/status.json',
-      svgBaseUrl: 'https://api.github.com/repos/mlivvm/gallery/contents/',
-      svgUploadsUrl: 'https://api.github.com/repos/mlivvm/floorplan-uploads/contents/',
+      svgBaseUrl: 'fd-floorplan://gallery/',
+      svgUploadsUrl: 'fd-floorplan://uploads/',
       workerApiBaseUrl: 'https://floorplan-dashboard-api.mko-floorplan-dashboard.workers.dev',
       workerReadProxyFlagKey: 'fd_use_worker_read_proxy',
-      workerReadProxyDisableFlagKey: 'fd_disable_worker_read_proxy',
       workerReadProxyEnabled: true,
       workerSessionAuthFlagKey: 'fd_use_worker_auth',
-      workerSessionAuthDisableFlagKey: 'fd_disable_worker_auth',
       workerSessionTokenKey: 'fd_worker_session_token',
       workerSessionExpiresKey: 'fd_worker_session_expires_at',
       workerStatusWriteFlagKey: 'fd_use_worker_status_write',
-      workerStatusWriteDisableFlagKey: 'fd_disable_worker_status_write',
       workerStatusWriteEnabled: true,
       workerFloorplanWriteFlagKey: 'fd_use_worker_floorplan_write',
-      workerFloorplanWriteDisableFlagKey: 'fd_disable_worker_floorplan_write',
       workerFloorplanWriteEnabled: true,
       workerUploadWriteFlagKey: 'fd_use_worker_upload_write',
-      workerUploadWriteDisableFlagKey: 'fd_disable_worker_upload_write',
       workerUploadWriteEnabled: true,
       workerStatusWriteTestCustomer: '--- TEST ---',
       jotformBaseUrl: 'https://eu.jotform.com/',
       jotformFormId: '250122093908351',
       loginEmailNotificationsEnabled: false,
       pollInterval: 30000,
-      offlineCacheVersion: 'fd-v1.8.105',
+      offlineCacheVersion: 'fd-v1.8.106',
     };
 
     const COLORS = {
@@ -281,10 +274,6 @@
     const CUSTOMERS_CACHE_KEY = 'fd_customers_cache';
     const JOTFORM_RETURN_CONTEXT_KEY = 'fd_jotform_return_context';
 
-    function getGitHubToken() {
-      return FD.Repository.getToken();
-    }
-
     function readCachedCustomers() {
       try {
         const cached = JSON.parse(localStorage.getItem(CUSTOMERS_CACHE_KEY) || '[]');
@@ -378,12 +367,11 @@
     const floorplanCache = FD.FloorplanCacheService.createWarmupController({
       config: CONFIG,
       getCustomers: () => customers,
-      getToken: getGitHubToken,
       isOnline: () => navigator.onLine,
       logger: console,
     });
 
-    function fetchGitHubSVGCacheFirst(fileUrl) {
+    function fetchFloorplanSVGCacheFirst(fileUrl) {
       return FD.FloorplanCacheService.fetchSVGCacheFirst(fileUrl, {
         cacheVersion: CONFIG.offlineCacheVersion,
         config: CONFIG,
@@ -624,7 +612,7 @@
         customerIndex: customerSelect.value,
         floorplanIndex: floorplanSelect.value,
       }),
-      fetchSvg: ({ floorplan }, options) => fetchGitHubSVGCacheFirst(getFloorplanApiUrl(floorplan), options),
+      fetchSvg: ({ floorplan }, options) => fetchFloorplanSVGCacheFirst(getFloorplanApiUrl(floorplan), options),
       setLoadingState,
       onBeforeLoad: () => {
         stopPolling();
@@ -952,7 +940,7 @@
       const svgEl = svgContainer.querySelector('svg');
       const svgText = FD.MarkerService.serializeCleanSVG(svgEl);
 
-      // Upload to GitHub
+      // Save via Worker
       const btnSave = document.getElementById('btn-edit-save');
       btnSave.textContent = 'Opslaan...';
       btnSave.disabled = true;
@@ -1990,13 +1978,6 @@
     // LOGIN
     // ============================================================
 
-    // Encrypted GitHub token (AES-256-GCM, key derived from password)
-    const ENCRYPTED_TOKEN = {
-      iv: 'V1BeyMFSJuUhGC9Q',
-      tag: 'I+8b6Ih0dVsiQgDfip5xGQ==',
-      data: 'vWek2PmH1d2ddAsF1rAMWhRAQN5WSrQgcGYhpcmLTKV8w0eIRfDLOw==',
-    };
-
     const LOGIN_CONFIG = {
       passwordHash: '0123940987a658e40d82d640ba2084a0f11828593a9a3be547e3e764d45f5ed7',
       maxAttempts: 3,
@@ -2027,7 +2008,6 @@
     const authController = FD.AuthService.createAuthController({
       loginConfig: LOGIN_CONFIG,
       appConfig: CONFIG,
-      encryptedToken: ENCRYPTED_TOKEN,
       elements: {
         splashScreen: document.getElementById('splash-screen'),
         loginScreen: document.getElementById('login-screen'),

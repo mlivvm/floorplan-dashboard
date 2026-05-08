@@ -1,9 +1,10 @@
 (function (global) {
   const FD = global.FD = global.FD || {};
-  const Repository = FD.Repository;
 
-  function requireRepository() {
-    if (!Repository) throw new Error('FD.Repository ontbreekt');
+  function workerOnlyError(code) {
+    const error = new Error(code || 'worker_route_required');
+    error.status = 503;
+    return error;
   }
 
   function getWorkerApiBaseUrl(config) {
@@ -27,10 +28,8 @@
 
     try {
       const flagKey = config?.workerReadProxyFlagKey || 'fd_use_worker_read_proxy';
-      const disableFlagKey = config?.workerReadProxyDisableFlagKey || 'fd_disable_worker_read_proxy';
       const paramValue = readUrlFlag('fd_worker_read_proxy');
       if (paramValue !== null) return paramValue;
-      if (readLocalFlag(disableFlagKey)) return false;
       if (readLocalFlag(flagKey)) return true;
       return config?.workerReadProxyEnabled === true;
     } catch {
@@ -43,10 +42,8 @@
 
     try {
       const flagKey = config?.workerStatusWriteFlagKey || 'fd_use_worker_status_write';
-      const disableFlagKey = config?.workerStatusWriteDisableFlagKey || 'fd_disable_worker_status_write';
       const paramValue = readUrlFlag('fd_worker_status_write');
       if (paramValue !== null) return paramValue;
-      if (readLocalFlag(disableFlagKey)) return false;
       if (readLocalFlag(flagKey)) return true;
       return config?.workerStatusWriteEnabled === true;
     } catch {
@@ -59,10 +56,8 @@
 
     try {
       const flagKey = config?.workerSessionAuthFlagKey || 'fd_use_worker_auth';
-      const disableFlagKey = config?.workerSessionAuthDisableFlagKey || 'fd_disable_worker_auth';
       const paramValue = readUrlFlag('fd_worker_auth');
       if (paramValue !== null) return paramValue;
-      if (readLocalFlag(disableFlagKey)) return false;
       if (readLocalFlag(flagKey)) return true;
       return config?.workerSessionAuthEnabled === true;
     } catch {
@@ -75,10 +70,8 @@
 
     try {
       const flagKey = config?.workerFloorplanWriteFlagKey || 'fd_use_worker_floorplan_write';
-      const disableFlagKey = config?.workerFloorplanWriteDisableFlagKey || 'fd_disable_worker_floorplan_write';
       const paramValue = readUrlFlag('fd_worker_floorplan_write');
       if (paramValue !== null) return paramValue;
-      if (readLocalFlag(disableFlagKey)) return false;
       if (readLocalFlag(flagKey)) return true;
       return config?.workerFloorplanWriteEnabled === true;
     } catch {
@@ -91,10 +84,8 @@
 
     try {
       const flagKey = config?.workerUploadWriteFlagKey || 'fd_use_worker_upload_write';
-      const disableFlagKey = config?.workerUploadWriteDisableFlagKey || 'fd_disable_worker_upload_write';
       const paramValue = readUrlFlag('fd_worker_upload_write');
       if (paramValue !== null) return paramValue;
-      if (readLocalFlag(disableFlagKey)) return false;
       if (readLocalFlag(flagKey)) return true;
       return config?.workerUploadWriteEnabled === true;
     } catch {
@@ -325,8 +316,7 @@
       return Array.isArray(data.customers) ? data.customers : [];
     }
 
-    requireRepository();
-    return Repository.fetchJSON(config.customersUrl);
+    throw workerOnlyError('worker_read_required');
   }
 
   async function loadStatus(config) {
@@ -335,8 +325,7 @@
       return data.status && typeof data.status === 'object' ? data.status : {};
     }
 
-    requireRepository();
-    return Repository.fetchJSON(config.statusUrl);
+    throw workerOnlyError('worker_status_read_required');
   }
 
   function canUseWorkerStatusWrite(config, operations) {
@@ -360,13 +349,7 @@
       });
     }
 
-    requireRepository();
-    const { meta } = await Repository.fetchJSONWithMeta(config.statusUrl, 'Kon status.json niet ophalen');
-    return Repository.putJSON(config.statusUrl, {
-      message: 'Status update: ' + (messageCustomer || 'offline queue'),
-      data: statusData,
-      sha: meta.sha,
-    }, 'Kon status niet opslaan');
+    throw workerOnlyError('worker_status_write_required');
   }
 
   async function loadFloorplanSVG(fileUrl, options) {
@@ -375,10 +358,7 @@
       if (floorplan) return floorplan.text;
     }
 
-    requireRepository();
-    const meta = await Repository.fetchContentMeta(fileUrl, 'Bestand niet gevonden', options);
-    const repo = Repository.repoFromContentsUrl(fileUrl, 'mlivvm/gallery');
-    return Repository.fetchBlobText(repo, meta.sha, 'Kon blob niet laden', options);
+    throw workerOnlyError('worker_floorplan_read_required');
   }
 
   async function revalidateFloorplanSVG(fileUrl, cachedSha, options) {
@@ -390,11 +370,7 @@
       }
     }
 
-    requireRepository();
-    const meta = await Repository.fetchContentMeta(fileUrl, null, options);
-    if (meta.sha === cachedSha) return null;
-    const repo = Repository.repoFromContentsUrl(fileUrl, 'mlivvm/gallery');
-    return Repository.fetchBlobText(repo, meta.sha, null, options);
+    throw workerOnlyError('worker_floorplan_read_required');
   }
 
   async function warmFloorplanSVG(fileUrl, options) {
@@ -410,10 +386,7 @@
       if (floorplan) return floorplan;
     }
 
-    requireRepository();
-    const meta = await Repository.fetchContentMeta(fileUrl, 'Metadata cache mislukt: {status}', options);
-    const repo = Repository.repoFromContentsUrl(fileUrl, 'mlivvm/gallery');
-    await Repository.fetchBlobText(repo, meta.sha, 'Blob cache mislukt: {status}', options);
+    throw workerOnlyError('worker_floorplan_read_required');
   }
 
   async function saveFloorplanSVG(fileUrl, svgText, options, legacyErrorMessage) {
@@ -445,13 +418,7 @@
       });
     }
 
-    requireRepository();
-    const meta = await Repository.fetchContentMeta(fileUrl, saveOptions.fetchErrorMessage || 'Kon bestand niet ophalen');
-    return Repository.putTextContent(fileUrl, {
-      message: saveOptions.message,
-      text: svgText,
-      sha: meta.sha,
-    }, saveOptions.saveErrorMessage || 'Kon niet opslaan');
+    throw workerOnlyError('worker_floorplan_write_required');
   }
 
   function uploadedFloorplanUrl(config, fileName) {
@@ -490,42 +457,7 @@
       };
     }
 
-    requireRepository();
-    let uploadedSvgSha = null;
-
-    try {
-      const uploadData = await Repository.putTextContent(uploadUrl, {
-        message: 'Upload: ' + customerName + ' - ' + floorplanName,
-        text: svgText,
-      }, 'SVG upload mislukt');
-      uploadedSvgSha = uploadData.content?.sha;
-
-      const { meta: customersMeta, data: currentCustomers } = await Repository.fetchJSONWithMeta(config.customersUrl, 'Kon customers.json niet ophalen');
-      const newEntry = { name: floorplanName, file: fileName, repo: 'uploads', uploaded: true };
-
-      if (isNewCustomer) {
-        currentCustomers.push({ customer: customerName, floorplans: [newEntry] });
-      } else {
-        const freshCi = currentCustomers.findIndex(c => c.customer === customerName);
-        if (freshCi < 0) throw new Error('Klant niet gevonden in customers.json');
-        currentCustomers[freshCi].floorplans.push(newEntry);
-      }
-
-      await Repository.putJSON(config.customersUrl, {
-        message: 'Plattegrond toegevoegd: ' + customerName + ' - ' + floorplanName,
-        data: currentCustomers,
-        sha: customersMeta.sha,
-      }, 'Kon customers.json niet bijwerken');
-
-      return { customers: currentCustomers, entry: newEntry, uploadUrl };
-    } catch (err) {
-      if (uploadedSvgSha) {
-        try {
-          await Repository.deleteContent(uploadUrl, { message: 'Rollback: upload mislukt', sha: uploadedSvgSha });
-        } catch (e) {}
-      }
-      throw err;
-    }
+    throw workerOnlyError('worker_upload_write_required');
   }
 
   async function deleteUploadedFloorplan(config, options) {
@@ -548,50 +480,7 @@
       return { customers: Array.isArray(data.customers) ? data.customers : [] };
     }
 
-    requireRepository();
-
-    const { meta: customersMeta, data: currentCustomers } = await Repository.fetchJSONWithMeta(config.customersUrl, 'Kon customers.json niet ophalen');
-
-    const freshCi = currentCustomers.findIndex(c => c.customer === customerName);
-    if (freshCi >= 0) {
-      const freshFi = currentCustomers[freshCi].floorplans.findIndex(f => f.file === fp.file);
-      if (freshFi >= 0) currentCustomers[freshCi].floorplans.splice(freshFi, 1);
-      if (currentCustomers[freshCi].floorplans.length === 0) currentCustomers.splice(freshCi, 1);
-    }
-
-    await Repository.putJSON(config.customersUrl, {
-      message: 'Plattegrond verwijderd: ' + customerName + ' - ' + fp.name,
-      data: currentCustomers,
-      sha: customersMeta.sha,
-    }, 'Kon customers.json niet bijwerken');
-
-    const fileUrl = uploadedFloorplanUrl(config, fp.file);
-    const meta = await Repository.fetchContentMeta(fileUrl, 'Kon bestand niet vinden');
-    try {
-      await Repository.deleteContent(fileUrl, {
-        message: 'Verwijderd: ' + customerName + ' - ' + fp.name,
-        sha: meta.sha,
-      }, 'Kon bestand niet verwijderen');
-    } catch (deleteErr) {
-      try {
-        const { meta: rollbackMeta, data: rollbackCustomers } = await Repository.fetchJSONWithMeta(config.customersUrl);
-        const rollbackCi = rollbackCustomers.findIndex(c => c.customer === customerName);
-        const rollbackEntry = { name: fp.name, file: fp.file, repo: 'uploads', uploaded: true };
-        if (rollbackCi >= 0) {
-          rollbackCustomers[rollbackCi].floorplans.push(rollbackEntry);
-        } else {
-          rollbackCustomers.push({ customer: customerName, floorplans: [rollbackEntry] });
-        }
-        await Repository.putJSON(config.customersUrl, {
-          message: 'Rollback: verwijderen mislukt',
-          data: rollbackCustomers,
-          sha: rollbackMeta.sha,
-        });
-      } catch (e) {}
-      throw deleteErr;
-    }
-
-    return { customers: currentCustomers };
+    throw workerOnlyError('worker_upload_write_required');
   }
 
   async function fetchFloorplanTreeMap(repo, options) {
@@ -600,13 +489,7 @@
       if (workerTreeMap) return workerTreeMap;
     }
 
-    requireRepository();
-    return Repository.fetchRepoTreeMap(repo, options);
-  }
-
-  async function validateTokenForCustomers(config, token) {
-    requireRepository();
-    return Repository.testTokenAccess(config.customersUrl, token);
+    throw workerOnlyError('worker_floorplan_manifest_required');
   }
 
   async function loginWorkerSession(config, password, options) {
@@ -635,6 +518,5 @@
     isWorkerSessionAuthEnabled,
     isWorkerStatusWriteEnabled,
     loginWorkerSession,
-    validateTokenForCustomers,
   };
 })(window);

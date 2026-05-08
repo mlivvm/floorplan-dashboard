@@ -11,7 +11,7 @@
   }
 
   function getFloorplanRepo(fp) {
-    return fp?.repo === 'uploads' ? 'mlivvm/floorplan-uploads' : 'mlivvm/gallery';
+    return fp?.repo === 'uploads' ? 'uploads' : 'gallery';
   }
 
   function getFloorplanPath(fp) {
@@ -28,13 +28,13 @@
   }
 
   function getRepoFromContentsUrl(fileUrl) {
-    return String(fileUrl || '').includes('/repos/mlivvm/floorplan-uploads/')
-      ? 'mlivvm/floorplan-uploads'
-      : 'mlivvm/gallery';
+    return String(fileUrl || '').startsWith('fd-floorplan://uploads/')
+      ? 'uploads'
+      : 'gallery';
   }
 
   function getPathFromContentsUrl(fileUrl) {
-    return decodeURIComponent(String(fileUrl || '').split('/contents/')[1] || '');
+    return decodeURIComponent(String(fileUrl || '').replace(/^fd-floorplan:\/\/(?:gallery|uploads)\//, '') || '');
   }
 
   function readManifest(cacheVersion) {
@@ -64,13 +64,6 @@
     } catch (err) {
       logger.warn('Offline cache manifest kon niet worden opgeslagen:', err);
     }
-  }
-
-  function getGitHubGetRequest(url) {
-    return new global.Request(url, {
-      headers: FD.Repository.headers(),
-      cache: 'no-store',
-    });
   }
 
   function isWorkerReadProxyEnabled(config) {
@@ -124,34 +117,7 @@
   }
 
   async function fetchSVGCacheFirst(fileUrl, { cacheVersion, signal, config } = {}) {
-    if (isWorkerReadProxyEnabled(config)) {
-      return fetchWorkerSVGCacheFirst(fileUrl, { cacheVersion, signal, config });
-    }
-
-    if (!global.caches) {
-      return { svgText: await FD.DataService.loadFloorplanSVG(fileUrl, { signal, config }), revalidate: null };
-    }
-
-    try {
-      const cache = await global.caches.open(cacheVersion);
-      const cachedMetaResp = await cache.match(fileUrl, { ignoreVary: true });
-      if (cachedMetaResp) {
-        const meta = await cachedMetaResp.clone().json();
-        const repo = FD.Repository.repoFromContentsUrl(fileUrl, 'mlivvm/gallery');
-        const blobUrl = FD.Repository.blobUrl(repo, meta.sha);
-        const cachedBlobResp = await cache.match(blobUrl, { ignoreVary: true });
-        if (cachedBlobResp) {
-          const blob = await cachedBlobResp.clone().json();
-          const svgText = FD.Repository.blobJSONToText(blob);
-          const revalidate = isOnline() ? revalidateSVGInBackground(fileUrl, meta.sha, { signal, config }) : null;
-          return { svgText, revalidate };
-        }
-      }
-    } catch (err) {
-      console.warn('Cache-first lookup mislukt:', err);
-    }
-
-    return { svgText: await FD.DataService.loadFloorplanSVG(fileUrl, { signal, config }), revalidate: null };
+    return fetchWorkerSVGCacheFirst(fileUrl, { cacheVersion, signal, config });
   }
 
   async function revalidateSVGInBackground(fileUrl, cachedSha, options) {
@@ -166,34 +132,15 @@
     const sha = updateResult?.content?.sha || updateResult?.sha || '';
     if (!global.caches || !sha) return;
     try {
-      if (isWorkerReadProxyEnabled(config)) {
-        const workerUrl = getWorkerFloorplanUrl(fileUrl, config);
-        if (workerUrl) {
-          const cache = await global.caches.open(cacheVersion);
-          await cache.put(workerUrl, new global.Response(svgText, {
-            headers: {
-              'Content-Type': 'image/svg+xml; charset=utf-8',
-              'X-FD-Sha': sha,
-            },
-          }));
-          updateManifestSha(cacheVersion, fileUrl, sha);
-          return;
-        }
-      }
-
-      const repo = FD.Repository.repoFromContentsUrl(fileUrl, 'mlivvm/gallery');
-      const blobUrl = FD.Repository.blobUrl(repo, sha);
+      const workerUrl = getWorkerFloorplanUrl(fileUrl, config);
+      if (!workerUrl) return;
       const cache = await global.caches.open(cacheVersion);
-
-      await Promise.all([
-        cache.put(fileUrl, new global.Response(JSON.stringify(updateResult.content), {
-          headers: { 'Content-Type': 'application/json' },
-        })),
-        cache.put(blobUrl, new global.Response(JSON.stringify(FD.Repository.textBlobJSON(svgText)), {
-          headers: { 'Content-Type': 'application/json' },
-        })),
-      ]);
-
+      await cache.put(workerUrl, new global.Response(svgText, {
+        headers: {
+          'Content-Type': 'image/svg+xml; charset=utf-8',
+          'X-FD-Sha': sha,
+        },
+      }));
       updateManifestSha(cacheVersion, fileUrl, sha);
     } catch (err) {
       console.warn('SVG cache kon niet direct worden bijgewerkt:', err);
@@ -203,20 +150,12 @@
   async function isFloorplanCached(item, { cacheVersion, config } = {}) {
     if (!item.sha || !global.caches) return false;
     try {
-      if (isWorkerReadProxyEnabled(config)) {
-        const workerUrl = getWorkerFloorplanUrl(item.fileUrl, config);
-        if (!workerUrl) return false;
-        const cache = await global.caches.open(cacheVersion || config?.offlineCacheVersion);
-        const cachedResp = await cache.match(workerUrl, { ignoreVary: true });
-        const cachedSha = cachedResp?.headers?.get('X-FD-Sha') || '';
-        return Boolean(cachedResp && cachedSha === item.sha);
-      }
-
-      const [metaCached, blobCached] = await Promise.all([
-        global.caches.match(getGitHubGetRequest(item.fileUrl)),
-        global.caches.match(getGitHubGetRequest(FD.Repository.blobUrl(item.repo, item.sha))),
-      ]);
-      return Boolean(metaCached && blobCached);
+      const workerUrl = getWorkerFloorplanUrl(item.fileUrl, config);
+      if (!workerUrl) return false;
+      const cache = await global.caches.open(cacheVersion || config?.offlineCacheVersion);
+      const cachedResp = await cache.match(workerUrl, { ignoreVary: true });
+      const cachedSha = cachedResp?.headers?.get('X-FD-Sha') || '';
+      return Boolean(cachedResp && cachedSha === item.sha);
     } catch (err) {
       console.warn('Offline cache controle mislukt:', item.fileUrl, err);
       return false;
@@ -237,7 +176,7 @@
     }
   }
 
-  function createWarmupController({ config, getCustomers, getToken, isOnline, logger = console } = {}) {
+  function createWarmupController({ config, getCustomers, isOnline, logger = console } = {}) {
     let started = false;
     let generation = 0;
     let controller = null;
@@ -258,16 +197,15 @@
       if (started || !customers.length) return;
       started = true;
       const runGeneration = ++generation;
-      const token = isWorkerReadProxyEnabled(config) ? '' : (getToken ? getToken() : FD.Repository.getToken());
       controller = new global.AbortController();
       const signal = controller.signal;
 
       const run = async () => {
-        if (shouldCancel(runGeneration, token, signal)) return;
+        if (shouldCancel(runGeneration, signal)) return;
         const swReady = await waitForServiceWorkerReady({ logger });
-        if (shouldCancel(runGeneration, token, signal)) return;
+        if (shouldCancel(runGeneration, signal)) return;
         if (!swReady) return;
-        await warmFloorplanCache({ customers, config, token, generation: runGeneration, signal });
+        await warmFloorplanCache({ customers, config, generation: runGeneration, signal });
       };
 
       const safeRun = () => run().catch(err => {
@@ -282,16 +220,14 @@
       }
     }
 
-    function shouldCancel(runGeneration, token, signal) {
+    function shouldCancel(runGeneration, signal) {
       const online = isOnline ? isOnline() : global.navigator?.onLine;
       if (signal?.aborted || !online || runGeneration !== generation) return true;
-      if (isWorkerReadProxyEnabled(config)) return false;
-      const currentToken = getToken ? getToken() : FD.Repository.getToken();
-      return !token || currentToken !== token;
+      return false;
     }
 
-    async function warmFloorplanCache({ customers, config, token, generation: runGeneration, signal }) {
-      if (shouldCancel(runGeneration, token, signal)) return;
+    async function warmFloorplanCache({ customers, config, generation: runGeneration, signal }) {
+      if (shouldCancel(runGeneration, signal)) return;
 
       const queue = [];
       customers.forEach(customer => {
@@ -319,7 +255,7 @@
       };
 
       await Promise.all(Array.from(new Set(queue.map(item => item.repo))).map(async repo => {
-        if (shouldCancel(runGeneration, token, signal)) return;
+        if (shouldCancel(runGeneration, signal)) return;
         try {
           repoTreeMaps[repo] = await FD.DataService.fetchFloorplanTreeMap(repo, { signal, config });
         } catch (err) {
@@ -329,11 +265,11 @@
             markRepoAuthSkipped(repo, err);
             return;
           }
-          logger.warn('GitHub tree niet beschikbaar, warmup valt terug op volledige check:', repo, err);
+          logger.warn('Worker floorplan manifest niet beschikbaar, warmup valt terug op volledige check:', repo, err);
         }
       }));
 
-      if (shouldCancel(runGeneration, token, signal)) return;
+      if (shouldCancel(runGeneration, signal)) return;
 
       const manifest = readManifest(config.offlineCacheVersion);
       const warmQueue = [];
@@ -343,7 +279,7 @@
       let transientFailed = 0;
 
       await Promise.all(queue.map(async item => {
-        if (shouldCancel(runGeneration, token, signal)) return;
+        if (shouldCancel(runGeneration, signal)) return;
         if (authSkippedRepos.has(item.repo)) {
           authSkipped++;
           return;
@@ -388,7 +324,7 @@
       async function worker() {
         while (next < warmQueue.length) {
           if (networkFailed) return;
-          if (shouldCancel(runGeneration, token, signal)) return;
+          if (shouldCancel(runGeneration, signal)) return;
           const item = warmQueue[next++];
           if (authSkippedRepos.has(item.repo)) {
             authSkipped++;
@@ -425,7 +361,7 @@
       }
 
       await Promise.all(Array.from({ length: workerCount }, worker));
-      if (shouldCancel(runGeneration, token, signal)) return;
+      if (shouldCancel(runGeneration, signal)) return;
 
       writeManifest(config.offlineCacheVersion, manifest, logger);
       const details = [];
