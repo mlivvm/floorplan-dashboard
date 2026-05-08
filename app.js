@@ -29,7 +29,7 @@
       jotformFormId: '250122093908351',
       loginEmailNotificationsEnabled: false,
       pollInterval: 30000,
-      offlineCacheVersion: 'fd-v1.8.104',
+      offlineCacheVersion: 'fd-v1.8.105',
     };
 
     const COLORS = {
@@ -597,12 +597,15 @@
         formId: CONFIG.jotformFormId,
       },
       colors: { done: COLORS.done, todo: COLORS.todo },
-      getState: () => ({
-        selectedDoor,
-        currentCustomer,
-        currentFloorplan,
-        online: navigator.onLine,
-      }),
+      getState: () => {
+        const selection = getSelectedFloorplan();
+        return {
+          selectedDoor,
+          currentCustomer: selection.customer || currentCustomer,
+          currentFloorplan: selection.floorplan || currentFloorplan,
+          online: navigator.onLine,
+        };
+      },
       setSelectedDoor: (doorId) => { selectedDoor = doorId; },
       getDoorStatus,
       refreshAllDoorColors,

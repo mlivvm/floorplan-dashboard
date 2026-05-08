@@ -48,10 +48,19 @@
     }
   }
 
-  function buildJotFormUrl({ baseUrl, formId, customer, doorId }) {
+  function buildJotFormUrl({ baseUrl, formId, customer, doorId, floorplan }) {
     const params = new URLSearchParams();
-    params.set('klant', customer);
+    const customerName = customer?.customer || customer || '';
+    const floorplanName = floorplan?.name || floorplan || '';
+    const floorplanFile = floorplan?.file || '';
+    const floorplanRepo = floorplan?.repo === 'uploads' ? 'uploads' : 'gallery';
+    params.set('klant', customerName);
     params.set('deurNummer', doorId);
+    params.set('fd_customer', customerName);
+    params.set('fd_floorplan', floorplanName);
+    params.set('fd_floorplan_file', floorplanFile);
+    params.set('fd_floorplan_repo', floorplanRepo);
+    params.set('fd_door_id', doorId);
     return `${baseUrl}${formId}?${params.toString()}`;
   }
 
@@ -168,7 +177,7 @@
     }
 
     function openJotForm() {
-      const { selectedDoor, currentCustomer, online } = state();
+      const { selectedDoor, currentCustomer, currentFloorplan, online } = state();
       if (!selectedDoor) return;
       if (online === false) {
         if (typeof showToast === 'function') {
@@ -182,6 +191,7 @@
         formId: config.formId,
         customer: currentCustomer,
         doorId: selectedDoor,
+        floorplan: currentFloorplan,
       });
       if (typeof onBeforeOpenJotForm === 'function') {
         onBeforeOpenJotForm({ url, selectedDoor, currentCustomer, currentFloorplan });
