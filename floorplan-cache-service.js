@@ -371,7 +371,19 @@
       let next = 0;
       let cached = 0;
       let networkFailed = false;
+      const transientSamples = [];
       const workerCount = Math.min(3, warmQueue.length);
+
+      function markTransientFailure(item, err) {
+        transientFailed++;
+        if (transientSamples.length >= 5) return;
+        transientSamples.push({
+          repo: item.repo,
+          path: item.path,
+          message: err?.message || String(err || ''),
+          status: err?.status || null,
+        });
+      }
 
       async function worker() {
         while (next < warmQueue.length) {
@@ -398,11 +410,11 @@
               continue;
             }
             if (err?.status >= 500 && err?.status < 600) {
-              transientFailed++;
+              markTransientFailure(item, err);
               continue;
             }
             if (isNetworkError(err)) {
-              transientFailed++;
+              markTransientFailure(item, err);
               networkFailed = true;
               return;
             }
@@ -422,6 +434,29 @@
       if (transientFailed) details.push(`${transientFailed} tijdelijk mislukt`);
       const detailText = details.length ? `, ${details.join(', ')}` : '';
       logger.info(`Offline cache warmup klaar: ${cached} vernieuwd, ${skipped} overgeslagen, ${queue.length} totaal${detailText}.`);
+
+      if (transientFailed || authSkipped) {
+        try {
+          FD.DiagnosticsService?.record?.({
+            level: transientFailed ? 'warn' : 'info',
+            eventType: 'offline_cache_warmup',
+            message: transientFailed
+              ? `Offline cache warmup deels mislukt: ${transientFailed} tijdelijk mislukt`
+              : `Offline cache warmup deels overgeslagen: ${authSkipped} auth overgeslagen`,
+            source: 'floorplan-cache-service',
+            details: {
+              cached,
+              skipped,
+              total: queue.length,
+              authSkipped,
+              missing,
+              transientFailed,
+              stoppedAfterNetworkError: networkFailed,
+              samples: transientSamples,
+            },
+          });
+        } catch {}
+      }
     }
 
     return { cancel, schedule };

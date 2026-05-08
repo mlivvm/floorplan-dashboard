@@ -142,16 +142,24 @@
     return error;
   }
 
-  function reportWorkerFailure(path, method, err) {
+  function reportWorkerFailure(path, method, err, options) {
+    const diagnostics = options?.diagnostics || {};
+    if (diagnostics.suppress) return;
+
     try {
       FD.DiagnosticsService?.record?.({
-        level: 'error',
-        eventType: 'api_failure',
+        level: diagnostics.level || 'error',
+        eventType: diagnostics.eventType || 'api_failure',
         message: err?.code || err?.message || 'Worker request failed',
         source: 'data-service',
         endpoint: path,
         status: err?.status || null,
-        details: { method },
+        details: {
+          method,
+          purpose: diagnostics.purpose || '',
+          background: diagnostics.background === true,
+          errorName: err?.name || '',
+        },
       });
     } catch {}
   }
@@ -168,7 +176,7 @@
       }
       return data;
     } catch (err) {
-      if (err?.name !== 'AbortError') reportWorkerFailure(path, 'GET', err);
+      if (err?.name !== 'AbortError') reportWorkerFailure(path, 'GET', err, options);
       throw err;
     }
   }
@@ -191,7 +199,7 @@
       }
       return responseData;
     } catch (err) {
-      if (err?.name !== 'AbortError') reportWorkerFailure(path, 'POST', err);
+      if (err?.name !== 'AbortError') reportWorkerFailure(path, 'POST', err, options);
       throw err;
     }
   }
@@ -214,7 +222,7 @@
       }
       return responseData;
     } catch (err) {
-      if (err?.name !== 'AbortError') reportWorkerFailure(path, 'PUT', err);
+      if (err?.name !== 'AbortError') reportWorkerFailure(path, 'PUT', err, options);
       throw err;
     }
   }
@@ -237,7 +245,7 @@
       }
       return responseData;
     } catch (err) {
-      if (err?.name !== 'AbortError') reportWorkerFailure(path, 'DELETE', err);
+      if (err?.name !== 'AbortError') reportWorkerFailure(path, 'DELETE', err, options);
       throw err;
     }
   }
@@ -287,7 +295,7 @@
         sha: response.headers.get('X-FD-Sha') || '',
       };
     } catch (err) {
-      if (err?.name !== 'AbortError') reportWorkerFailure(floorplanRouteFromContentsUrl(config, fileUrl) || '/api/floorplan', 'GET', err);
+      if (err?.name !== 'AbortError') reportWorkerFailure(floorplanRouteFromContentsUrl(config, fileUrl) || '/api/floorplan', 'GET', err, options);
       throw err;
     }
   }
@@ -391,7 +399,14 @@
 
   async function warmFloorplanSVG(fileUrl, options) {
     if (isWorkerReadProxyEnabled(options?.config)) {
-      const floorplan = await fetchWorkerFloorplan(options.config, fileUrl, options);
+      const floorplan = await fetchWorkerFloorplan(options.config, fileUrl, {
+        ...options,
+        diagnostics: {
+          suppress: true,
+          purpose: 'offline_cache_warmup',
+          background: true,
+        },
+      });
       if (floorplan) return floorplan;
     }
 

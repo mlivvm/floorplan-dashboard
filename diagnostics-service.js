@@ -57,6 +57,12 @@
 
   function buildPayload(config, event, getContext) {
     const context = typeof getContext === 'function' ? (getContext() || {}) : {};
+    const contextDetails = context.details && typeof context.details === 'object' && !Array.isArray(context.details)
+      ? context.details
+      : {};
+    const eventDetails = event.details && typeof event.details === 'object' && !Array.isArray(event.details)
+      ? event.details
+      : {};
     return {
       appVersion: appVersion(config),
       level: trimText(event.level || 'error', 16),
@@ -74,7 +80,7 @@
       syncQueueCount: Number.isFinite(Number(event.syncQueueCount ?? context.syncQueueCount))
         ? Number(event.syncQueueCount ?? context.syncQueueCount)
         : null,
-      details: sanitizeDetails(event.details || {}),
+      details: sanitizeDetails({ ...contextDetails, ...eventDetails }),
     };
   }
 

@@ -29,7 +29,7 @@
       jotformFormId: '250122093908351',
       loginEmailNotificationsEnabled: false,
       pollInterval: 30000,
-      offlineCacheVersion: 'fd-v1.8.103',
+      offlineCacheVersion: 'fd-v1.8.104',
     };
 
     const COLORS = {
@@ -200,13 +200,28 @@
 
     function getDiagnosticsContext() {
       const selection = getSelectedFloorplan();
+      const floorplan = selection.floorplan || {};
+      const selectedDoorStatus = selectedDoor ? (doorStatus[selectedDoor] || 'todo') : '';
       return {
         customer: currentCustomer || selection.customer?.customer || '',
-        floorplan: currentFloorplan || selection.floorplan?.name || '',
+        floorplan: currentFloorplan || floorplan.name || '',
         doorId: selectedDoor || '',
         appMode: appMode.current,
         syncQueueCount: statusSync ? statusSync.getQueueCount() : 0,
         lastToast: lastToast ? `${lastToast.type}: ${lastToast.message}` : '',
+        details: {
+          floorplanFile: floorplan.file || '',
+          floorplanRepo: floorplan.repo || 'gallery',
+          selectedDoorStatus,
+          locationPath: window.location.pathname,
+          locationQueryKeys: Array.from(new URLSearchParams(window.location.search).keys()),
+          serviceWorkerControlled: Boolean(navigator.serviceWorker?.controller),
+          viewport: {
+            width: window.innerWidth,
+            height: window.innerHeight,
+            devicePixelRatio: window.devicePixelRatio || 1,
+          },
+        },
       };
     }
 
