@@ -81,6 +81,12 @@
     return global.navigator?.onLine !== false;
   }
 
+  function isNetworkError(err) {
+    const message = String(err?.message || '');
+    return err?.name === 'TypeError' ||
+      /Failed to fetch|NetworkError|Load failed|ERR_INTERNET_DISCONNECTED/i.test(message);
+  }
+
   function getWorkerFloorplanUrl(fileUrl, config) {
     return FD.DataService?.getWorkerFloorplanUrl?.(config, fileUrl) || null;
   }
@@ -364,10 +370,12 @@
 
       let next = 0;
       let cached = 0;
+      let networkFailed = false;
       const workerCount = Math.min(3, warmQueue.length);
 
       async function worker() {
         while (next < warmQueue.length) {
+          if (networkFailed) return;
           if (shouldCancel(runGeneration, token, signal)) return;
           const item = warmQueue[next++];
           if (authSkippedRepos.has(item.repo)) {
@@ -392,6 +400,11 @@
             if (err?.status >= 500 && err?.status < 600) {
               transientFailed++;
               continue;
+            }
+            if (isNetworkError(err)) {
+              transientFailed++;
+              networkFailed = true;
+              return;
             }
             logger.warn('Plattegrond niet in offline cache:', item.fileUrl, err);
           }
