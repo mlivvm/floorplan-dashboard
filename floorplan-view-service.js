@@ -25,16 +25,13 @@
     if (!text) return '';
 
     try {
-      const parser = new DOMParser();
-      const doc = parser.parseFromString(text, 'image/svg+xml');
-      const parseError = doc.querySelector('parsererror');
-      const svgEl = doc.documentElement?.tagName?.toLowerCase() === 'svg'
-        ? doc.documentElement
-        : doc.querySelector('svg');
-      if (parseError || !svgEl) return text;
+      const template = document.createElement('template');
+      template.innerHTML = text;
+      const svgEl = template.content.querySelector('svg');
+      if (!svgEl) return '';
 
-      doc.querySelectorAll('script, foreignObject').forEach(node => node.remove());
-      doc.querySelectorAll('*').forEach(node => {
+      svgEl.querySelectorAll('script, foreignObject, iframe, object, embed').forEach(node => node.remove());
+      svgEl.querySelectorAll('*').forEach(node => {
         Array.from(node.attributes || []).forEach(attr => {
           const name = attr.name.toLowerCase();
           const value = String(attr.value || '').trim().toLowerCase();
@@ -44,9 +41,9 @@
         });
       });
 
-      return new XMLSerializer().serializeToString(svgEl);
+      return svgEl.outerHTML;
     } catch {
-      return text;
+      return '';
     }
   }
 
