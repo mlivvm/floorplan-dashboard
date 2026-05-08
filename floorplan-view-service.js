@@ -20,6 +20,36 @@
     return { width: vb.width, height: vb.height };
   }
 
+  function sanitizeSVGText(svgText) {
+    const text = String(svgText || '');
+    if (!text) return '';
+
+    try {
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(text, 'image/svg+xml');
+      const parseError = doc.querySelector('parsererror');
+      const svgEl = doc.documentElement?.tagName?.toLowerCase() === 'svg'
+        ? doc.documentElement
+        : doc.querySelector('svg');
+      if (parseError || !svgEl) return text;
+
+      doc.querySelectorAll('script, foreignObject').forEach(node => node.remove());
+      doc.querySelectorAll('*').forEach(node => {
+        Array.from(node.attributes || []).forEach(attr => {
+          const name = attr.name.toLowerCase();
+          const value = String(attr.value || '').trim().toLowerCase();
+          if (name.startsWith('on') || ((name === 'href' || name === 'xlink:href') && value.startsWith('javascript:'))) {
+            node.removeAttribute(attr.name);
+          }
+        });
+      });
+
+      return new XMLSerializer().serializeToString(svgEl);
+    } catch {
+      return text;
+    }
+  }
+
   function createLoadController({
     elements,
     getSelection,
@@ -83,7 +113,7 @@
         svgContainer.style.display = 'none';
       }
 
-      svgContainer.innerHTML = svgText;
+      svgContainer.innerHTML = sanitizeSVGText(svgText);
       const svgEl = svgContainer.querySelector('svg');
       if (!svgEl) throw new Error('Geen geldig SVG bestand.');
 
@@ -189,5 +219,6 @@
   FD.FloorplanViewService = {
     createLoadController,
     getConfiguredSvgSize,
+    sanitizeSVGText,
   };
 })(window);

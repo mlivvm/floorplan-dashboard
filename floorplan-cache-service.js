@@ -77,6 +77,10 @@
     return FD.DataService?.isWorkerReadProxyEnabled?.(config) === true;
   }
 
+  function isOnline() {
+    return global.navigator?.onLine !== false;
+  }
+
   function getWorkerFloorplanUrl(fileUrl, config) {
     return FD.DataService?.getWorkerFloorplanUrl?.(config, fileUrl) || null;
   }
@@ -103,7 +107,7 @@
       if (cachedResp) {
         const svgText = await cachedResp.clone().text();
         const cachedSha = cachedResp.headers.get('X-FD-Sha') || '';
-        const revalidate = revalidateSVGInBackground(fileUrl, cachedSha, { signal, config });
+        const revalidate = isOnline() ? revalidateSVGInBackground(fileUrl, cachedSha, { signal, config }) : null;
         return { svgText, revalidate };
       }
     } catch (err) {
@@ -133,7 +137,7 @@
         if (cachedBlobResp) {
           const blob = await cachedBlobResp.clone().json();
           const svgText = FD.Repository.blobJSONToText(blob);
-          const revalidate = revalidateSVGInBackground(fileUrl, meta.sha, { signal, config });
+          const revalidate = isOnline() ? revalidateSVGInBackground(fileUrl, meta.sha, { signal, config }) : null;
           return { svgText, revalidate };
         }
       }
@@ -146,7 +150,7 @@
 
   async function revalidateSVGInBackground(fileUrl, cachedSha, options) {
     try {
-      return FD.DataService.revalidateFloorplanSVG(fileUrl, cachedSha, options);
+      return await FD.DataService.revalidateFloorplanSVG(fileUrl, cachedSha, options);
     } catch {
       return null;
     }

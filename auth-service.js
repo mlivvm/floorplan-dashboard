@@ -145,6 +145,10 @@
   }
 
   async function validateGitHubToken(config, token, dataService = FD.DataService) {
+    if (global.navigator?.onLine === false) {
+      return { ok: true, offline: true };
+    }
+
     try {
       const testResp = await dataService.validateTokenForCustomers(config, token);
       if (testResp.ok) return { ok: true, offline: false };

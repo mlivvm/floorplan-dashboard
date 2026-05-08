@@ -29,7 +29,7 @@
       jotformFormId: '250122093908351',
       loginEmailNotificationsEnabled: false,
       pollInterval: 30000,
-      offlineCacheVersion: 'fd-v1.8.99',
+      offlineCacheVersion: 'fd-v1.8.100',
     };
 
     const COLORS = {
@@ -360,12 +360,24 @@
       floorplanCache.schedule();
     }
 
+    function loadCachedCustomersOffline() {
+      const cachedCustomers = readCachedCustomers();
+      if (!cachedCustomers.length) return false;
+      customers = cachedCustomers;
+      customerSelect.disabled = false;
+      populateCustomerDropdown();
+      if (selectionController.isOpen('customer')) renderSelectSheetItems();
+      setEmptyState('Offline klantgegevens geladen.<br>Kies een klant en plattegrond.', 'Controleer later online of alles actueel is');
+      return true;
+    }
+
     async function loadCustomers() {
       customersLoading = true;
       customerSelect.disabled = true;
       floorplanSelect.disabled = true;
       updatePickerButtons();
       try {
+        if (navigator.onLine === false && loadCachedCustomersOffline()) return;
         customers = await FD.DataService.loadCustomers(CONFIG);
         cacheCustomers();
         customerSelect.disabled = false;
@@ -373,14 +385,8 @@
         if (selectionController.isOpen('customer')) renderSelectSheetItems();
         scheduleFloorplanCacheWarmup();
       } catch (err) {
-        const cachedCustomers = readCachedCustomers();
-        if (cachedCustomers.length > 0) {
+        if (loadCachedCustomersOffline()) {
           console.warn('Kon klanten niet online laden, lokale cache gebruikt:', err);
-          customers = cachedCustomers;
-          customerSelect.disabled = false;
-          populateCustomerDropdown();
-          if (selectionController.isOpen('customer')) renderSelectSheetItems();
-          setEmptyState('Offline klantgegevens geladen.<br>Kies een klant en plattegrond.', 'Controleer later online of alles actueel is');
         } else {
           console.error('Kon klanten niet laden:', err);
           loadingEl.textContent = 'Fout bij laden van klantgegevens.';
