@@ -231,11 +231,16 @@
     return `/api/floorplan?repo=${encodeURIComponent(target.repo)}&file=${encodeURIComponent(target.file)}`;
   }
 
-  async function fetchWorkerFloorplan(config, fileUrl, options) {
+  function getWorkerFloorplanUrl(config, fileUrl) {
     const route = floorplanRouteFromContentsUrl(config, fileUrl);
-    if (!route) return null;
+    return route ? workerUrl(config, route) : null;
+  }
 
-    const response = await fetch(workerUrl(config, route), {
+  async function fetchWorkerFloorplan(config, fileUrl, options) {
+    const url = getWorkerFloorplanUrl(config, fileUrl);
+    if (!url) return null;
+
+    const response = await fetch(url, {
       cache: 'no-store',
       signal: options?.signal,
     });
@@ -246,6 +251,25 @@
       text: await response.text(),
       sha: response.headers.get('X-FD-Sha') || '',
     };
+  }
+
+  function floorplanRepoKeyFromFullRepo(repo) {
+    const normalized = String(repo || '').trim();
+    if (normalized === 'uploads' || normalized === 'mlivvm/floorplan-uploads') return 'uploads';
+    if (normalized === 'gallery' || normalized === 'mlivvm/gallery') return 'gallery';
+    return null;
+  }
+
+  async function fetchWorkerFloorplanTreeMap(config, repo, options) {
+    const repoKey = floorplanRepoKeyFromFullRepo(repo);
+    if (!repoKey) return null;
+    const data = await fetchWorkerJSON(
+      config,
+      `/api/floorplan-manifest?repo=${encodeURIComponent(repoKey)}`,
+      options,
+    );
+    const files = data.files && typeof data.files === 'object' ? data.files : {};
+    return new Map(Object.entries(files).filter(([, sha]) => typeof sha === 'string' && sha));
   }
 
   async function loadCustomers(config) {
@@ -327,6 +351,11 @@
   }
 
   async function warmFloorplanSVG(fileUrl, options) {
+    if (isWorkerReadProxyEnabled(options?.config)) {
+      const floorplan = await fetchWorkerFloorplan(options.config, fileUrl, options);
+      if (floorplan) return floorplan;
+    }
+
     requireRepository();
     const meta = await Repository.fetchContentMeta(fileUrl, 'Metadata cache mislukt: {status}', options);
     const repo = Repository.repoFromContentsUrl(fileUrl, 'mlivvm/gallery');
@@ -512,6 +541,11 @@
   }
 
   async function fetchFloorplanTreeMap(repo, options) {
+    if (isWorkerReadProxyEnabled(options?.config)) {
+      const workerTreeMap = await fetchWorkerFloorplanTreeMap(options.config, repo, options);
+      if (workerTreeMap) return workerTreeMap;
+    }
+
     requireRepository();
     return Repository.fetchRepoTreeMap(repo, options);
   }
@@ -539,6 +573,7 @@
     addUploadedFloorplan,
     deleteUploadedFloorplan,
     fetchFloorplanTreeMap,
+    getWorkerFloorplanUrl,
     isWorkerReadProxyEnabled,
     isWorkerFloorplanWriteEnabled,
     isWorkerUploadWriteEnabled,

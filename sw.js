@@ -1,4 +1,4 @@
-const CACHE_NAME = 'fd-v1.8.98';
+const CACHE_NAME = 'fd-v1.8.99';
 
 const STATIC_ASSETS = [
   './',
@@ -89,7 +89,7 @@ self.addEventListener('fetch', (e) => {
   }
 
   // Cloudflare Worker writes must remain network-only. Safe read endpoints are
-  // network-first with cache fallback for feature-flagged Worker integration.
+  // network-first with cache fallback for default Worker read integration.
   if (url.hostname === 'floorplan-dashboard-api.mko-floorplan-dashboard.workers.dev') {
     if (e.request.method !== 'GET') return;
 

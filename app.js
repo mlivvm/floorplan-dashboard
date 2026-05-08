@@ -10,6 +10,7 @@
       workerApiBaseUrl: 'https://floorplan-dashboard-api.mko-floorplan-dashboard.workers.dev',
       workerReadProxyFlagKey: 'fd_use_worker_read_proxy',
       workerReadProxyDisableFlagKey: 'fd_disable_worker_read_proxy',
+      workerReadProxyEnabled: true,
       workerSessionAuthFlagKey: 'fd_use_worker_auth',
       workerSessionAuthDisableFlagKey: 'fd_disable_worker_auth',
       workerSessionTokenKey: 'fd_worker_session_token',
@@ -28,7 +29,7 @@
       jotformFormId: '250122093908351',
       loginEmailNotificationsEnabled: false,
       pollInterval: 30000,
-      offlineCacheVersion: 'fd-v1.8.98',
+      offlineCacheVersion: 'fd-v1.8.99',
     };
 
     const COLORS = {
@@ -347,6 +348,7 @@
     function updateCachedSVGAfterSave(fileUrl, updateResult, svgText) {
       return FD.FloorplanCacheService.updateCachedSVGAfterSave(fileUrl, updateResult, svgText, {
         cacheVersion: CONFIG.offlineCacheVersion,
+        config: CONFIG,
       });
     }
 
