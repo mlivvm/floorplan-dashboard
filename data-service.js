@@ -173,15 +173,12 @@
   function getWorkerSessionUser(config) {
     const keys = getWorkerSessionKeys(config);
     const currentSession = getWorkerSession(config);
-    const stores = currentSession.storageType === 'session'
-      ? [global.sessionStorage, global.localStorage]
-      : [global.localStorage, global.sessionStorage];
-    for (const store of stores) {
-      try {
-        const user = JSON.parse(store?.getItem(keys.userKey) || 'null');
-        if (user && typeof user === 'object') return user;
-      } catch {}
-    }
+    if (!currentSession.token || !isWorkerSessionFresh(currentSession.expiresAt)) return null;
+    const store = currentSession.storageType === 'session' ? global.sessionStorage : global.localStorage;
+    try {
+      const user = JSON.parse(store?.getItem(keys.userKey) || 'null');
+      if (user && typeof user === 'object') return user;
+    } catch {}
     return null;
   }
 

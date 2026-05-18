@@ -8,6 +8,7 @@
   const SAVED_PASSWORD_KEY = 'fd_saved_password';
   const WORKER_SESSION_TOKEN_KEY = 'fd_worker_session_token';
   const WORKER_SESSION_EXPIRES_KEY = 'fd_worker_session_expires_at';
+  const WORKER_SESSION_USER_KEY = 'fd_worker_session_user';
   const LAST_USERNAME_KEY = 'fd_login_username';
 
   async function hashPassword(password) {
@@ -73,21 +74,27 @@
   function setWorkerSessionStorage(persistent, local = localStorage, session = sessionStorage) {
     const localToken = local.getItem(WORKER_SESSION_TOKEN_KEY);
     const localExpiresAt = local.getItem(WORKER_SESSION_EXPIRES_KEY);
+    const localUser = local.getItem(WORKER_SESSION_USER_KEY);
     const sessionToken = session.getItem(WORKER_SESSION_TOKEN_KEY);
     const sessionExpiresAt = session.getItem(WORKER_SESSION_EXPIRES_KEY);
+    const sessionUser = session.getItem(WORKER_SESSION_USER_KEY);
 
     if (persistent) {
       if (!localToken && sessionToken) local.setItem(WORKER_SESSION_TOKEN_KEY, sessionToken);
       if (!localExpiresAt && sessionExpiresAt) local.setItem(WORKER_SESSION_EXPIRES_KEY, sessionExpiresAt);
+      if (!localUser && sessionUser) local.setItem(WORKER_SESSION_USER_KEY, sessionUser);
       session.removeItem(WORKER_SESSION_TOKEN_KEY);
       session.removeItem(WORKER_SESSION_EXPIRES_KEY);
+      session.removeItem(WORKER_SESSION_USER_KEY);
       return;
     }
 
     if (localToken) session.setItem(WORKER_SESSION_TOKEN_KEY, localToken);
     if (localExpiresAt) session.setItem(WORKER_SESSION_EXPIRES_KEY, localExpiresAt);
+    if (localUser) session.setItem(WORKER_SESSION_USER_KEY, localUser);
     local.removeItem(WORKER_SESSION_TOKEN_KEY);
     local.removeItem(WORKER_SESSION_EXPIRES_KEY);
+    local.removeItem(WORKER_SESSION_USER_KEY);
   }
 
   function migrateLegacyRemember(local = localStorage, session = sessionStorage) {
@@ -104,10 +111,12 @@
     local.removeItem(config.tokenTimeKey);
     local.removeItem(WORKER_SESSION_TOKEN_KEY);
     local.removeItem(WORKER_SESSION_EXPIRES_KEY);
+    local.removeItem(WORKER_SESSION_USER_KEY);
     session.removeItem(config.tokenKey);
     session.removeItem(config.tokenTimeKey);
     session.removeItem(WORKER_SESSION_TOKEN_KEY);
     session.removeItem(WORKER_SESSION_EXPIRES_KEY);
+    session.removeItem(WORKER_SESSION_USER_KEY);
     clearLegacyAuth(local, session);
   }
 
