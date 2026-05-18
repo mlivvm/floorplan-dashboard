@@ -25,7 +25,7 @@
       pollInterval: 30000,
       jotformReturnRefreshInterval: 2000,
       jotformReturnRefreshMaxDuration: 20000,
-      offlineCacheVersion: 'fd-v1.8.116',
+      offlineCacheVersion: 'fd-v1.8.117',
     };
 
     const COLORS = {
@@ -512,6 +512,25 @@
     function refreshCurrentUser() {
       currentUser = FD.DataService.getWorkerSessionUser(CONFIG);
       return currentUser;
+    }
+
+    function refreshCurrentUserFromWorker() {
+      refreshCurrentUser();
+      if (navigator.onLine === false || typeof FD.DataService.refreshWorkerSessionUser !== 'function') return;
+
+      FD.DataService.refreshWorkerSessionUser(CONFIG, {
+        diagnostics: {
+          level: 'warn',
+          purpose: 'refresh session user metadata',
+          background: true,
+        },
+      }).then(() => {
+        refreshCurrentUser();
+        updateRoleActionButtons();
+        if (selectionController.isOpen('floorplan')) renderSelectSheetItems();
+      }).catch(err => {
+        console.warn('Worker gebruiker/rechten verversen mislukt:', err);
+      });
     }
 
     function canManageUploads() {
@@ -2128,7 +2147,7 @@
     };
 
     function showApp() {
-      refreshCurrentUser();
+      refreshCurrentUserFromWorker();
       appMode.enter(AppModes.VIEW);
       document.getElementById('login-screen').style.display = 'none';
       appContainer.style.display = 'block';

@@ -247,6 +247,9 @@
       const response = await fetch(workerUrl(config, path), {
         cache: 'no-store',
         signal: options?.signal,
+        headers: {
+          ...(options?.headers || {}),
+        },
       });
       const data = await response.json().catch(() => null);
       if (!response.ok || data?.ok === false) {
@@ -615,6 +618,27 @@
     return sessionData;
   }
 
+  async function refreshWorkerSessionUser(config, options = {}) {
+    const currentSession = getWorkerSession(config);
+    const token = currentSession.token;
+    if (!token) throw workerError(401, 'worker_session_required');
+
+    const persistent = currentSession.storageType !== 'session';
+    const sessionData = await fetchWorkerJSON(config, '/api/session/me', {
+      ...options,
+      headers: {
+        ...(options?.headers || {}),
+        Authorization: `Bearer ${token}`,
+      },
+    });
+    setWorkerSession(config, {
+      token,
+      expiresAt: sessionData.expiresAt || currentSession.expiresAt,
+      user: sessionData.user,
+    }, { persistent });
+    return sessionData;
+  }
+
   async function createJotFormContext(config, target, options = {}) {
     const token = getWorkerSessionToken(config);
     if (!token) throw workerError(401, 'worker_session_required');
@@ -652,6 +676,7 @@
     isWorkerSessionAuthEnabled,
     isWorkerStatusWriteEnabled,
     loginWorkerSession,
+    refreshWorkerSessionUser,
     renewWorkerSession,
   };
 })(window);
