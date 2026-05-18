@@ -11,14 +11,6 @@
   const WORKER_SESSION_USER_KEY = 'fd_worker_session_user';
   const LAST_USERNAME_KEY = 'fd_login_username';
 
-  async function hashPassword(password) {
-    const encoder = new TextEncoder();
-    const data = encoder.encode(password);
-    const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-    const hashArray = Array.from(new Uint8Array(hashBuffer));
-    return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
-  }
-
   function getAttempts(config, storage = localStorage) {
     return parseInt(storage.getItem(config.attemptsKey) || '0', 10);
   }
@@ -43,21 +35,6 @@
     const lockout = storage.getItem(config.lockoutKey);
     if (!lockout) return 0;
     return Math.ceil((parseInt(lockout, 10) - now) / 60000);
-  }
-
-  function recordFailedAttempt(config, now = Date.now(), storage = localStorage) {
-    const attempts = getAttempts(config, storage) + 1;
-    storage.setItem(config.attemptsKey, attempts.toString());
-    if (attempts >= config.maxAttempts) {
-      const lockoutUntil = now + (config.lockoutMinutes * 60000);
-      storage.setItem(config.lockoutKey, lockoutUntil.toString());
-      return { attempts, locked: true, lockoutUntil };
-    }
-    return {
-      attempts,
-      locked: false,
-      remaining: config.maxAttempts - attempts,
-    };
   }
 
   function clearStoredPassword(local = localStorage, session = sessionStorage) {
@@ -481,12 +458,10 @@
     createAuthController,
     getAttempts,
     getLockoutMinutes,
-    hashPassword,
     isLockedOut,
     isRememberPasswordEnabled: isRememberSessionEnabled,
     isRememberSessionEnabled,
     isSessionValid,
-    recordFailedAttempt,
     recordSuccessfulLogin,
   };
 })(window);

@@ -25,7 +25,7 @@
       pollInterval: 30000,
       jotformReturnRefreshInterval: 2000,
       jotformReturnRefreshMaxDuration: 20000,
-      offlineCacheVersion: 'fd-v1.8.114',
+      offlineCacheVersion: 'fd-v1.8.115',
     };
 
     const COLORS = {
@@ -2120,7 +2120,6 @@
     // ============================================================
 
     const LOGIN_CONFIG = {
-      maxAttempts: 3,
       lockoutMinutes: 10,
       tokenKey: 'fd_auth_token',
       tokenTimeKey: 'fd_auth_time',
