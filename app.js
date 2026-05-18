@@ -22,7 +22,9 @@
       jotformFormId: '250122093908351',
       loginEmailNotificationsEnabled: false,
       pollInterval: 30000,
-      offlineCacheVersion: 'fd-v1.8.110',
+      jotformReturnRefreshInterval: 2000,
+      jotformReturnRefreshMaxDuration: 20000,
+      offlineCacheVersion: 'fd-v1.8.111',
     };
 
     const COLORS = {
@@ -49,6 +51,7 @@
     const AppModes = FD.ModeService.MODES;
     const appMode = FD.ModeService.createModeController(AppModes.LOGIN);
     let statusSync = null;
+    let jotformReturnRefreshTimer = null;
 
     function setDocumentAppMode(mode) {
       document.documentElement.dataset.appMode = mode;
@@ -328,6 +331,40 @@
       return customers.findIndex(customer => customer.customer === context.customerName);
     }
 
+    function clearJotFormReturnFastRefresh() {
+      if (!jotformReturnRefreshTimer) return;
+      clearTimeout(jotformReturnRefreshTimer);
+      jotformReturnRefreshTimer = null;
+    }
+
+    function startJotFormReturnFastRefresh(doorId) {
+      clearJotFormReturnFastRefresh();
+      if (!doorId || navigator.onLine === false || typeof statusController?.poll !== 'function') return;
+
+      const deadline = Date.now() + CONFIG.jotformReturnRefreshMaxDuration;
+      const run = async () => {
+        if (selectedDoor !== doorId || !currentFloorplan || navigator.onLine === false || isEditModeActive()) {
+          clearJotFormReturnFastRefresh();
+          return;
+        }
+
+        try {
+          await statusController.poll();
+        } catch (err) {
+          console.warn('JotForm status-refresh mislukt:', err);
+        }
+
+        if (getDoorStatus(doorId) || Date.now() >= deadline) {
+          clearJotFormReturnFastRefresh();
+          return;
+        }
+
+        jotformReturnRefreshTimer = setTimeout(run, CONFIG.jotformReturnRefreshInterval);
+      };
+
+      run();
+    }
+
     async function restoreJotFormReturnIfNeeded() {
       if (!FD.DoorActionService.hasReturnParam(window.location)) return;
 
@@ -358,6 +395,7 @@
 
       if (FD.MarkerService.markerExists(svgContainer, context.doorId)) {
         selectDoor(context.doorId);
+        startJotFormReturnFastRefresh(context.doorId);
         showToast('Terug uit JotForm', 'success');
       } else {
         showToast('Terug uit JotForm, deur niet gevonden', 'error');
@@ -1713,6 +1751,7 @@
     }
 
     function stopPolling() {
+      clearJotFormReturnFastRefresh();
       statusController.stopPolling();
     }
 
