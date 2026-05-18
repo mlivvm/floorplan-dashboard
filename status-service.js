@@ -3,7 +3,6 @@
 
   const STATUS_CACHE_KEY = 'fd_status_cache';
   const STATUS_QUEUE_KEY = 'fd_status_sync_queue';
-  const STATUS_CYCLE_STARTED_KEY = '_cycleStartedAt';
   const DONE_AT_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/;
 
   function isDoneStatusValue(value) {
@@ -28,16 +27,6 @@
       statusData[customer][floorplan] = {};
     }
     return statusData[customer][floorplan];
-  }
-
-  function getCycleStartedMs(bucket) {
-    if (!bucket) return 0;
-    const started = Date.parse(bucket[STATUS_CYCLE_STARTED_KEY] || '');
-    return Number.isFinite(started) ? started : 0;
-  }
-
-  function setCycleStartedAt(bucket, timestamp) {
-    bucket[STATUS_CYCLE_STARTED_KEY] = new Date(timestamp).toISOString();
   }
 
   function isDoorDone(statusData, customer, floorplan, doorId) {
@@ -125,12 +114,9 @@
   }
 
   FD.StatusService = {
-    STATUS_CYCLE_STARTED_KEY,
     isDoneStatusValue,
     statusDoneAt,
     getFloorplanStatusBucket,
-    getCycleStartedMs,
-    setCycleStartedAt,
     isDoorDone,
     readCachedDoorStatus,
     cacheDoorStatus,
