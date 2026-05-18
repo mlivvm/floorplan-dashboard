@@ -89,7 +89,10 @@
     if (!baseUrl || global.navigator?.onLine === false) return false;
 
     const headers = { 'Content-Type': 'application/json' };
-    const token = global.localStorage?.getItem(config?.workerSessionTokenKey || 'fd_worker_session_token') || '';
+    const tokenKey = config?.workerSessionTokenKey || 'fd_worker_session_token';
+    const token = global.localStorage?.getItem(tokenKey) ||
+      global.sessionStorage?.getItem(tokenKey) ||
+      '';
     if (token) headers.Authorization = `Bearer ${token}`;
 
     const response = await fetch(`${baseUrl}/api/diagnostics`, {

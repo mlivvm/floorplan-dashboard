@@ -97,29 +97,69 @@
     return isWorkerReadProxyEnabled(config) || isWorkerStatusWriteEnabled(config);
   }
 
-  function getWorkerSessionToken(config) {
+  function getWorkerSessionKeys(config) {
+    return {
+      tokenKey: config?.workerSessionTokenKey || 'fd_worker_session_token',
+      expiresKey: config?.workerSessionExpiresKey || 'fd_worker_session_expires_at',
+    };
+  }
+
+  function readWorkerSessionFrom(storage, keys, storageType) {
     try {
-      return global.localStorage?.getItem(config?.workerSessionTokenKey || 'fd_worker_session_token') || '';
+      const token = storage?.getItem(keys.tokenKey) || '';
+      const expiresAt = storage?.getItem(keys.expiresKey) || '';
+      return { token, expiresAt, storageType };
     } catch {
-      return '';
+      return { token: '', expiresAt: '', storageType };
     }
   }
 
-  function setWorkerSession(config, sessionData) {
+  function isWorkerSessionFresh(expiresAt) {
+    const expiresTime = Date.parse(expiresAt || '');
+    return Number.isFinite(expiresTime) && expiresTime > Date.now() + 60000;
+  }
+
+  function getWorkerSession(config) {
+    const keys = getWorkerSessionKeys(config);
+    const localSession = readWorkerSessionFrom(global.localStorage, keys, 'local');
+    const tabSession = readWorkerSessionFrom(global.sessionStorage, keys, 'session');
+
+    if (localSession.token && isWorkerSessionFresh(localSession.expiresAt)) return localSession;
+    if (tabSession.token && isWorkerSessionFresh(tabSession.expiresAt)) return tabSession;
+    if (localSession.token) return localSession;
+    if (tabSession.token) return tabSession;
+    return { token: '', expiresAt: '', storageType: '' };
+  }
+
+  function getWorkerSessionToken(config) {
+    return getWorkerSession(config).token;
+  }
+
+  function setWorkerSession(config, sessionData, options = {}) {
+    const keys = getWorkerSessionKeys(config);
+    const persistent = options.persistent !== false;
+    const target = persistent ? global.localStorage : global.sessionStorage;
+    const other = persistent ? global.sessionStorage : global.localStorage;
+
     try {
+      other?.removeItem(keys.tokenKey);
+      other?.removeItem(keys.expiresKey);
       if (sessionData?.token) {
-        global.localStorage?.setItem(config?.workerSessionTokenKey || 'fd_worker_session_token', sessionData.token);
+        target?.setItem(keys.tokenKey, sessionData.token);
       }
       if (sessionData?.expiresAt) {
-        global.localStorage?.setItem(config?.workerSessionExpiresKey || 'fd_worker_session_expires_at', sessionData.expiresAt);
+        target?.setItem(keys.expiresKey, sessionData.expiresAt);
       }
     } catch {}
   }
 
   function clearWorkerSession(config) {
+    const keys = getWorkerSessionKeys(config);
     try {
-      global.localStorage?.removeItem(config?.workerSessionTokenKey || 'fd_worker_session_token');
-      global.localStorage?.removeItem(config?.workerSessionExpiresKey || 'fd_worker_session_expires_at');
+      global.localStorage?.removeItem(keys.tokenKey);
+      global.localStorage?.removeItem(keys.expiresKey);
+      global.sessionStorage?.removeItem(keys.tokenKey);
+      global.sessionStorage?.removeItem(keys.expiresKey);
     } catch {}
   }
 
@@ -494,7 +534,26 @@
 
   async function loginWorkerSession(config, password, options) {
     const sessionData = await postWorkerJSON(config, '/api/session/login', { password }, options);
-    setWorkerSession(config, sessionData);
+    setWorkerSession(config, sessionData, { persistent: options?.persistent !== false });
+    return sessionData;
+  }
+
+  async function renewWorkerSession(config, options = {}) {
+    const currentSession = getWorkerSession(config);
+    const token = currentSession.token;
+    if (!token) throw workerError(401, 'worker_session_required');
+
+    const persistent = typeof options.persistent === 'boolean'
+      ? options.persistent
+      : currentSession.storageType !== 'session';
+    const sessionData = await postWorkerJSON(config, '/api/session/renew', {}, {
+      ...options,
+      headers: {
+        ...(options?.headers || {}),
+        Authorization: `Bearer ${token}`,
+      },
+    });
+    setWorkerSession(config, sessionData, { persistent });
     return sessionData;
   }
 
@@ -518,5 +577,6 @@
     isWorkerSessionAuthEnabled,
     isWorkerStatusWriteEnabled,
     loginWorkerSession,
+    renewWorkerSession,
   };
 })(window);

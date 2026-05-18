@@ -3,7 +3,8 @@
 
   const AUTHENTICATED = 'authenticated';
   const LEGACY_DIRECT_TOKEN_KEY = ['fd', 'github', 'token'].join('_');
-  const REMEMBER_KEY = 'fd_remember_pw';
+  const REMEMBER_SESSION_KEY = 'fd_remember_session';
+  const LEGACY_REMEMBER_KEY = 'fd_remember_pw';
   const SAVED_PASSWORD_KEY = 'fd_saved_password';
   const WORKER_SESSION_TOKEN_KEY = 'fd_worker_session_token';
   const WORKER_SESSION_EXPIRES_KEY = 'fd_worker_session_expires_at';
@@ -57,68 +58,113 @@
     };
   }
 
+  function clearStoredPassword(local = localStorage, session = sessionStorage) {
+    local.removeItem(SAVED_PASSWORD_KEY);
+    session.removeItem(SAVED_PASSWORD_KEY);
+  }
+
+  function clearLegacyAuth(local = localStorage, session = sessionStorage) {
+    local.removeItem(LEGACY_DIRECT_TOKEN_KEY);
+    session.removeItem(LEGACY_DIRECT_TOKEN_KEY);
+    clearStoredPassword(local, session);
+  }
+
+  function setWorkerSessionStorage(persistent, local = localStorage, session = sessionStorage) {
+    const localToken = local.getItem(WORKER_SESSION_TOKEN_KEY);
+    const localExpiresAt = local.getItem(WORKER_SESSION_EXPIRES_KEY);
+    const sessionToken = session.getItem(WORKER_SESSION_TOKEN_KEY);
+    const sessionExpiresAt = session.getItem(WORKER_SESSION_EXPIRES_KEY);
+
+    if (persistent) {
+      if (!localToken && sessionToken) local.setItem(WORKER_SESSION_TOKEN_KEY, sessionToken);
+      if (!localExpiresAt && sessionExpiresAt) local.setItem(WORKER_SESSION_EXPIRES_KEY, sessionExpiresAt);
+      session.removeItem(WORKER_SESSION_TOKEN_KEY);
+      session.removeItem(WORKER_SESSION_EXPIRES_KEY);
+      return;
+    }
+
+    if (localToken) session.setItem(WORKER_SESSION_TOKEN_KEY, localToken);
+    if (localExpiresAt) session.setItem(WORKER_SESSION_EXPIRES_KEY, localExpiresAt);
+    local.removeItem(WORKER_SESSION_TOKEN_KEY);
+    local.removeItem(WORKER_SESSION_EXPIRES_KEY);
+  }
+
+  function migrateLegacyRemember(local = localStorage, session = sessionStorage) {
+    if (local.getItem(LEGACY_REMEMBER_KEY) === '1') {
+      local.setItem(REMEMBER_SESSION_KEY, '1');
+    }
+    local.removeItem(LEGACY_REMEMBER_KEY);
+    session.removeItem(LEGACY_REMEMBER_KEY);
+    clearStoredPassword(local, session);
+  }
+
   function clearSession(config, local = localStorage, session = sessionStorage) {
     local.removeItem(config.tokenKey);
     local.removeItem(config.tokenTimeKey);
-    local.removeItem(LEGACY_DIRECT_TOKEN_KEY);
     local.removeItem(WORKER_SESSION_TOKEN_KEY);
     local.removeItem(WORKER_SESSION_EXPIRES_KEY);
     session.removeItem(config.tokenKey);
     session.removeItem(config.tokenTimeKey);
-    session.removeItem(LEGACY_DIRECT_TOKEN_KEY);
     session.removeItem(WORKER_SESSION_TOKEN_KEY);
     session.removeItem(WORKER_SESSION_EXPIRES_KEY);
+    clearLegacyAuth(local, session);
   }
 
-  function recordSuccessfulLogin(config, rememberPassword, passwordOrNow = Date.now(), local = localStorage, session = sessionStorage) {
-    const now = typeof passwordOrNow === 'number' ? passwordOrNow : Date.now();
-    const savedPassword = typeof passwordOrNow === 'number' ? '' : String(passwordOrNow || '');
+  function recordSuccessfulLogin(config, rememberSession, now = Date.now(), local = localStorage, session = sessionStorage) {
     const priorAttempts = getAttempts(config, local);
-    local.setItem(config.tokenKey, AUTHENTICATED);
-    local.setItem(config.tokenTimeKey, now.toString());
-    local.removeItem(LEGACY_DIRECT_TOKEN_KEY);
-    session.removeItem(config.tokenKey);
-    session.removeItem(config.tokenTimeKey);
-    session.removeItem(LEGACY_DIRECT_TOKEN_KEY);
+    const target = rememberSession ? local : session;
+    const other = rememberSession ? session : local;
+
+    target.setItem(config.tokenKey, AUTHENTICATED);
+    target.setItem(config.tokenTimeKey, now.toString());
+    other.removeItem(config.tokenKey);
+    other.removeItem(config.tokenTimeKey);
+    clearLegacyAuth(local, session);
     clearLockout(config, local);
-    if (rememberPassword) {
-      local.setItem(REMEMBER_KEY, '1');
-      if (savedPassword) local.setItem(SAVED_PASSWORD_KEY, savedPassword);
+    setWorkerSessionStorage(rememberSession, local, session);
+
+    if (rememberSession) {
+      local.setItem(REMEMBER_SESSION_KEY, '1');
     } else {
-      local.removeItem(REMEMBER_KEY);
-      local.removeItem(SAVED_PASSWORD_KEY);
+      local.removeItem(REMEMBER_SESSION_KEY);
     }
     return { priorAttempts };
   }
 
   function migrateLegacySession(config, local = localStorage, session = sessionStorage) {
-    if (session.getItem(config.tokenKey) !== AUTHENTICATED) return;
-    local.setItem(config.tokenKey, AUTHENTICATED);
-    local.setItem(config.tokenTimeKey, session.getItem(config.tokenTimeKey) || Date.now().toString());
-    local.removeItem(LEGACY_DIRECT_TOKEN_KEY);
-    session.removeItem(config.tokenKey);
-    session.removeItem(config.tokenTimeKey);
-    session.removeItem(LEGACY_DIRECT_TOKEN_KEY);
+    migrateLegacyRemember(local, session);
+    const rememberSession = isRememberSessionEnabled(local, session);
+    if (local.getItem(config.tokenKey) === AUTHENTICATED && !rememberSession) {
+      session.setItem(config.tokenKey, AUTHENTICATED);
+      session.setItem(config.tokenTimeKey, local.getItem(config.tokenTimeKey) || Date.now().toString());
+      local.removeItem(config.tokenKey);
+      local.removeItem(config.tokenTimeKey);
+      setWorkerSessionStorage(false, local, session);
+    } else if (local.getItem(config.tokenKey) === AUTHENTICATED) {
+      session.removeItem(config.tokenKey);
+      session.removeItem(config.tokenTimeKey);
+      setWorkerSessionStorage(true, local, session);
+    } else if (session.getItem(config.tokenKey) === AUTHENTICATED) {
+      setWorkerSessionStorage(false, local, session);
+    }
+    clearLegacyAuth(local, session);
   }
 
   function isSessionValid(config, local = localStorage, session = sessionStorage) {
     migrateLegacySession(config, local, session);
-    const token = local.getItem(config.tokenKey);
-    local.removeItem(LEGACY_DIRECT_TOKEN_KEY);
-    session.removeItem(LEGACY_DIRECT_TOKEN_KEY);
-    if (token !== AUTHENTICATED) {
+    const hasAuth = local.getItem(config.tokenKey) === AUTHENTICATED ||
+      session.getItem(config.tokenKey) === AUTHENTICATED;
+    clearLegacyAuth(local, session);
+    if (!hasAuth) {
       clearSession(config, local, session);
       return false;
     }
     return true;
   }
 
-  function isRememberPasswordEnabled(storage = localStorage) {
-    return storage.getItem(REMEMBER_KEY) === '1';
-  }
-
-  function getSavedPassword(storage = localStorage) {
-    return isRememberPasswordEnabled(storage) ? (storage.getItem(SAVED_PASSWORD_KEY) || '') : '';
+  function isRememberSessionEnabled(local = localStorage, session = sessionStorage) {
+    migrateLegacyRemember(local, session);
+    return local.getItem(REMEMBER_SESSION_KEY) === '1';
   }
 
   async function sendLoginNotification({
@@ -195,14 +241,8 @@
       if (elements.splashScreen) elements.splashScreen.style.display = 'none';
     }
 
-    function restoreSavedPassword() {
-      if (isRememberPasswordEnabled()) {
-        elements.rememberCheckbox.checked = true;
-        const savedPassword = getSavedPassword();
-        if (savedPassword) elements.passwordInput.value = savedPassword;
-      } else {
-        elements.rememberCheckbox.checked = false;
-      }
+    function restoreRememberSession() {
+      elements.rememberCheckbox.checked = isRememberSessionEnabled();
     }
 
     function setLoginEnabled(enabled) {
@@ -224,26 +264,38 @@
 
     function hasValidWorkerSession() {
       try {
-        const token = localStorage.getItem(WORKER_SESSION_TOKEN_KEY);
-        const expiresAt = localStorage.getItem(WORKER_SESSION_EXPIRES_KEY);
-        if (!token || !expiresAt) return false;
-        const expiresTime = Date.parse(expiresAt);
-        return Number.isFinite(expiresTime) && expiresTime > Date.now() + 60000;
+        const sessions = [localStorage, sessionStorage];
+        return sessions.some(storage => {
+          const token = storage.getItem(WORKER_SESSION_TOKEN_KEY);
+          const expiresAt = storage.getItem(WORKER_SESSION_EXPIRES_KEY);
+          if (!token || !expiresAt) return false;
+          const expiresTime = Date.parse(expiresAt);
+          return Number.isFinite(expiresTime) && expiresTime > Date.now() + 60000;
+        });
+      } catch {
+        return false;
+      }
+    }
+
+    function hasPersistentStoredLogin() {
+      try {
+        return localStorage.getItem(loginConfig.tokenKey) === AUTHENTICATED &&
+          isRememberSessionEnabled();
       } catch {
         return false;
       }
     }
 
     async function ensureWorkerSessionForStoredLogin() {
-      if (!needsWorkerSession() || hasValidWorkerSession()) return true;
-      const savedPassword = getSavedPassword();
-      if (!savedPassword) return false;
+      if (!needsWorkerSession()) return true;
+      if (!hasPersistentStoredLogin()) return hasValidWorkerSession();
+      if (global.navigator?.onLine === false && hasValidWorkerSession()) return true;
 
       try {
-        await FD.DataService.loginWorkerSession(appConfig, savedPassword);
+        await FD.DataService.renewWorkerSession(appConfig, { persistent: true });
         return true;
       } catch (err) {
-        logger.warn('Worker sessie hervatten mislukt:', err);
+        logger.warn('Worker sessie hernieuwen mislukt:', err);
         return false;
       }
     }
@@ -267,7 +319,7 @@
       }, 30000);
     }
 
-    function showLoginScreen({ message = '', clearPassword = false, restorePassword = false } = {}) {
+    function showLoginScreen({ message = '', clearPassword = false, restoreRemember = false } = {}) {
       hideSplash();
       modeController.enter(modes.LOGIN);
       elements.appContainer.style.display = 'none';
@@ -277,7 +329,7 @@
       elements.loginButton.disabled = false;
       elements.loginButton.textContent = 'Inloggen';
       elements.passwordInput.disabled = false;
-      if (restorePassword) restoreSavedPassword();
+      if (restoreRemember) restoreRememberSession();
       checkLockoutState();
     }
 
@@ -310,6 +362,7 @@
 
       elements.loginButton.disabled = true;
       elements.loginButton.textContent = 'Controleren...';
+      const rememberSession = elements.rememberCheckbox.checked;
 
       if (needsWorkerSession()) {
         if (global.navigator?.onLine === false) {
@@ -321,7 +374,7 @@
           }
         } else {
           try {
-            await FD.DataService.loginWorkerSession(appConfig, password);
+            await FD.DataService.loginWorkerSession(appConfig, password, { persistent: rememberSession });
           } catch (err) {
             elements.loginButton.disabled = false;
             elements.loginButton.textContent = 'Inloggen';
@@ -338,8 +391,7 @@
 
       const { priorAttempts } = recordSuccessfulLogin(
         loginConfig,
-        elements.rememberCheckbox.checked,
-        password
+        rememberSession
       );
 
       elements.loginButton.textContent = 'Inloggen';
@@ -353,7 +405,7 @@
         clearSession(loginConfig);
         showLoginScreen({
           message: 'Log opnieuw in voor server-sessie.',
-          restorePassword: true,
+          restoreRemember: true,
         });
         return;
       }
@@ -377,14 +429,14 @@
       hideLogoutConfirm();
       notifyLogin('Uitgelogd', '-');
       onLogout();
-      showLoginScreen({ clearPassword: true, restorePassword: true });
+      showLoginScreen({ clearPassword: true, restoreRemember: true });
     }
 
     function bind() {
       if (bound) return;
       bound = true;
       initEmail();
-      restoreSavedPassword();
+      restoreRememberSession();
       elements.loginButton.addEventListener('click', handleLogin);
       elements.passwordInput.addEventListener('keypress', (e) => {
         if (e.key === 'Enter') handleLogin();
@@ -400,7 +452,7 @@
       if (isSessionValid(loginConfig)) {
         await resumeStoredSession();
       } else {
-        showLoginScreen({ restorePassword: true });
+        showLoginScreen({ restoreRemember: true });
       }
     }
 
@@ -418,10 +470,10 @@
     createAuthController,
     getAttempts,
     getLockoutMinutes,
-    getSavedPassword,
     hashPassword,
     isLockedOut,
-    isRememberPasswordEnabled,
+    isRememberPasswordEnabled: isRememberSessionEnabled,
+    isRememberSessionEnabled,
     isSessionValid,
     recordFailedAttempt,
     recordSuccessfulLogin,
