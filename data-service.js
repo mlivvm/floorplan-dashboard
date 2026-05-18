@@ -1,5 +1,6 @@
 (function (global) {
   const FD = global.FD = global.FD || {};
+  const CUSTOMER_WIDE_FLOORPLAN_PERMISSION = '*';
 
   function workerOnlyError(code) {
     const error = new Error(code || 'worker_route_required');
@@ -186,7 +187,10 @@
     const permissions = Array.isArray(user?.permissions?.floorplans)
       ? user.permissions.floorplans
       : [];
-    return permissions.some(item => item.customer === customer && item.floorplan === floorplan);
+    return permissions.some(item =>
+      item.customer === customer &&
+      (item.floorplan === floorplan || item.floorplan === CUSTOMER_WIDE_FLOORPLAN_PERMISSION)
+    );
   }
 
   function canManageUploads(config) {

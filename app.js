@@ -25,7 +25,7 @@
       pollInterval: 30000,
       jotformReturnRefreshInterval: 2000,
       jotformReturnRefreshMaxDuration: 20000,
-      offlineCacheVersion: 'fd-v1.8.115',
+      offlineCacheVersion: 'fd-v1.8.116',
     };
 
     const COLORS = {
