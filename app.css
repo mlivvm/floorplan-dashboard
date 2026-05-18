@@ -1364,6 +1364,25 @@
       word-break: break-word;
     }
 
+    .select-sheet-item.readonly {
+      color: #7a858f;
+      background: #f5f6f7;
+    }
+
+    .select-sheet-item-meta {
+      display: block;
+      margin-top: 4px;
+      font-size: 12px;
+      font-weight: 800;
+      color: #6b7280;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    .select-sheet-item:not(.readonly) .select-sheet-item-meta {
+      color: #188038;
+    }
+
     .select-sheet-item:active {
       background: #e8f0fe;
     }

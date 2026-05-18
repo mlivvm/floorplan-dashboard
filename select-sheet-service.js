@@ -26,8 +26,11 @@
     renderSelectOptions(selectEl, '-- Kies klant --', customers || [], customer => customer.customer);
   }
 
-  function renderFloorplanOptions(selectEl, floorplans) {
-    renderSelectOptions(selectEl, '-- Kies plattegrond --', floorplans || [], floorplan => floorplan.name);
+  function renderFloorplanOptions(selectEl, floorplans, options = {}) {
+    const labelForItem = typeof options.labelForItem === 'function'
+      ? options.labelForItem
+      : floorplan => floorplan.name;
+    renderSelectOptions(selectEl, '-- Kies plattegrond --', floorplans || [], labelForItem);
     if (selectEl) selectEl.disabled = false;
   }
 
@@ -118,7 +121,16 @@
         btn.type = 'button';
         btn.className = 'select-sheet-item';
         if (String(item.index) === currentValue) btn.classList.add('selected');
-        btn.textContent = item.label;
+        if (item.readOnly) btn.classList.add('readonly');
+        const label = document.createElement('span');
+        label.textContent = item.label;
+        btn.appendChild(label);
+        if (item.meta) {
+          const meta = document.createElement('span');
+          meta.className = 'select-sheet-item-meta';
+          meta.textContent = item.meta;
+          btn.appendChild(meta);
+        }
         btn.addEventListener('click', () => {
           if (typeof onSelect === 'function') onSelect(typeAtRender, item);
           close();

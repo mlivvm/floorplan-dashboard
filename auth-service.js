@@ -8,6 +8,7 @@
   const SAVED_PASSWORD_KEY = 'fd_saved_password';
   const WORKER_SESSION_TOKEN_KEY = 'fd_worker_session_token';
   const WORKER_SESSION_EXPIRES_KEY = 'fd_worker_session_expires_at';
+  const LAST_USERNAME_KEY = 'fd_login_username';
 
   async function hashPassword(password) {
     const encoder = new TextEncoder();
@@ -243,11 +244,15 @@
 
     function restoreRememberSession() {
       elements.rememberCheckbox.checked = isRememberSessionEnabled();
+      if (elements.usernameInput) {
+        elements.usernameInput.value = localStorage.getItem(LAST_USERNAME_KEY) || 'admin';
+      }
     }
 
     function setLoginEnabled(enabled) {
       elements.loginButton.disabled = !enabled;
       elements.passwordInput.disabled = !enabled;
+      if (elements.usernameInput) elements.usernameInput.disabled = !enabled;
     }
 
     function clearLockoutTimer() {
@@ -329,6 +334,7 @@
       elements.loginButton.disabled = false;
       elements.loginButton.textContent = 'Inloggen';
       elements.passwordInput.disabled = false;
+      if (elements.usernameInput) elements.usernameInput.disabled = false;
       if (restoreRemember) restoreRememberSession();
       checkLockoutState();
     }
@@ -339,24 +345,10 @@
         return;
       }
 
+      const username = (elements.usernameInput?.value || '').trim().toLowerCase();
       const password = elements.passwordInput.value;
-      if (!password) {
-        elements.errorEl.textContent = 'Vul het wachtwoord in.';
-        return;
-      }
-
-      const hash = await hashPassword(password);
-      if (hash !== loginConfig.passwordHash) {
-        const failedAttempt = recordFailedAttempt(loginConfig);
-        if (failedAttempt.locked) {
-          notifyLogin('Geblokkeerd na ' + failedAttempt.attempts + ' foute pogingen', failedAttempt.attempts);
-          elements.errorEl.textContent = `Te veel pogingen. Geblokkeerd voor ${loginConfig.lockoutMinutes} minuten.`;
-          setLoginEnabled(false);
-        } else {
-          elements.errorEl.textContent = `Onjuist wachtwoord. Nog ${failedAttempt.remaining} poging${failedAttempt.remaining === 1 ? '' : 'en'}.`;
-          notifyLogin('Fout wachtwoord (poging ' + failedAttempt.attempts + '/' + loginConfig.maxAttempts + ')', failedAttempt.attempts);
-        }
-        elements.passwordInput.value = '';
+      if (!username || !password) {
+        elements.errorEl.textContent = 'Vul gebruiker en wachtwoord in.';
         return;
       }
 
@@ -374,13 +366,17 @@
           }
         } else {
           try {
-            await FD.DataService.loginWorkerSession(appConfig, password, { persistent: rememberSession });
+            await FD.DataService.loginWorkerSession(appConfig, username, password, { persistent: rememberSession });
           } catch (err) {
             elements.loginButton.disabled = false;
             elements.loginButton.textContent = 'Inloggen';
-            elements.errorEl.textContent = err?.status === 429
-              ? 'Te veel loginpogingen via server. Probeer later opnieuw.'
-              : 'Server-login mislukt.';
+            if (err?.status === 429) {
+              elements.errorEl.textContent = 'Te veel loginpogingen via server. Probeer later opnieuw.';
+            } else if (err?.status === 403) {
+              elements.errorEl.textContent = 'Account is uitgeschakeld.';
+            } else {
+              elements.errorEl.textContent = 'Onjuiste gebruiker of wachtwoord.';
+            }
             logger.warn('Worker sessie-login mislukt:', err);
             return;
           }
@@ -393,6 +389,7 @@
         loginConfig,
         rememberSession
       );
+      localStorage.setItem(LAST_USERNAME_KEY, username);
 
       elements.loginButton.textContent = 'Inloggen';
       notifyLogin('Succesvol ingelogd', priorAttempts > 0 ? priorAttempts + ' foute pogingen vooraf' : '0');
@@ -438,6 +435,11 @@
       initEmail();
       restoreRememberSession();
       elements.loginButton.addEventListener('click', handleLogin);
+      if (elements.usernameInput) {
+        elements.usernameInput.addEventListener('keypress', (e) => {
+          if (e.key === 'Enter') handleLogin();
+        });
+      }
       elements.passwordInput.addEventListener('keypress', (e) => {
         if (e.key === 'Enter') handleLogin();
       });

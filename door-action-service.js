@@ -48,19 +48,21 @@
     }
   }
 
-  function buildJotFormUrl({ baseUrl, formId, customer, doorId, floorplan }) {
+  function buildJotFormUrl({ baseUrl, formId, customer, doorId, floorplan, context }) {
     const params = new URLSearchParams();
     const customerName = customer?.customer || customer || '';
     const floorplanName = floorplan?.name || floorplan || '';
     const floorplanFile = floorplan?.file || '';
     const floorplanRepo = floorplan?.repo === 'uploads' ? 'uploads' : 'gallery';
+    const signedDoorId = context?.signedDoorId || doorId;
     params.set('klant', customerName);
     params.set('deurNummer', doorId);
     params.set('fd_customer', customerName);
     params.set('fd_floorplan', floorplanName);
     params.set('fd_floorplan_file', floorplanFile);
     params.set('fd_floorplan_repo', floorplanRepo);
-    params.set('fd_door_id', doorId);
+    params.set('fd_door_id', signedDoorId);
+    if (context?.contextToken) params.set('fd_context_token', context.contextToken);
     return `${baseUrl}${formId}?${params.toString()}`;
   }
 
@@ -137,6 +139,7 @@
     showToast,
     openWindow,
     onBeforeOpenJotForm,
+    prepareJotFormContext,
   }) {
     function state() {
       return typeof getState === 'function' ? getState() : {};
@@ -176,7 +179,7 @@
       updateDoneButton();
     }
 
-    function openJotForm() {
+    async function openJotForm() {
       const { selectedDoor, currentCustomer, currentFloorplan, online } = state();
       if (!selectedDoor) return;
       if (online === false) {
@@ -186,12 +189,18 @@
         return;
       }
 
+      let context = null;
+      if (typeof prepareJotFormContext === 'function') {
+        context = await prepareJotFormContext({ selectedDoor, currentCustomer, currentFloorplan });
+      }
+
       const url = buildJotFormUrl({
         baseUrl: config.baseUrl,
         formId: config.formId,
         customer: currentCustomer,
         doorId: selectedDoor,
         floorplan: currentFloorplan,
+        context,
       });
       if (typeof onBeforeOpenJotForm === 'function') {
         onBeforeOpenJotForm({ url, selectedDoor, currentCustomer, currentFloorplan });

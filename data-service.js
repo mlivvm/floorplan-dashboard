@@ -101,6 +101,7 @@
     return {
       tokenKey: config?.workerSessionTokenKey || 'fd_worker_session_token',
       expiresKey: config?.workerSessionExpiresKey || 'fd_worker_session_expires_at',
+      userKey: config?.workerSessionUserKey || 'fd_worker_session_user',
     };
   }
 
@@ -144,11 +145,15 @@
     try {
       other?.removeItem(keys.tokenKey);
       other?.removeItem(keys.expiresKey);
+      other?.removeItem(keys.userKey);
       if (sessionData?.token) {
         target?.setItem(keys.tokenKey, sessionData.token);
       }
       if (sessionData?.expiresAt) {
         target?.setItem(keys.expiresKey, sessionData.expiresAt);
+      }
+      if (sessionData?.user) {
+        target?.setItem(keys.userKey, JSON.stringify(sessionData.user));
       }
     } catch {}
   }
@@ -158,9 +163,50 @@
     try {
       global.localStorage?.removeItem(keys.tokenKey);
       global.localStorage?.removeItem(keys.expiresKey);
+      global.localStorage?.removeItem(keys.userKey);
       global.sessionStorage?.removeItem(keys.tokenKey);
       global.sessionStorage?.removeItem(keys.expiresKey);
+      global.sessionStorage?.removeItem(keys.userKey);
     } catch {}
+  }
+
+  function getWorkerSessionUser(config) {
+    const keys = getWorkerSessionKeys(config);
+    const currentSession = getWorkerSession(config);
+    const stores = currentSession.storageType === 'session'
+      ? [global.sessionStorage, global.localStorage]
+      : [global.localStorage, global.sessionStorage];
+    for (const store of stores) {
+      try {
+        const user = JSON.parse(store?.getItem(keys.userKey) || 'null');
+        if (user && typeof user === 'object') return user;
+      } catch {}
+    }
+    return null;
+  }
+
+  function userHasFloorplanPermission(user, customer, floorplan) {
+    const permissions = Array.isArray(user?.permissions?.floorplans)
+      ? user.permissions.floorplans
+      : [];
+    return permissions.some(item => item.customer === customer && item.floorplan === floorplan);
+  }
+
+  function canManageUploads(config) {
+    return getWorkerSessionUser(config)?.role === 'admin';
+  }
+
+  function canWriteFloorplan(config, customer, floorplan) {
+    const user = getWorkerSessionUser(config);
+    if (!user) return false;
+    if (user.role === 'admin' || user.role === 'monteur') return true;
+    if (user.role === 'viewer') return userHasFloorplanPermission(user, customer, floorplan);
+    return false;
+  }
+
+  function isViewerReadOnlyFloorplan(config, customer, floorplan) {
+    const user = getWorkerSessionUser(config);
+    return user?.role === 'viewer' && !userHasFloorplanPermission(user, customer, floorplan);
   }
 
   function workerUrl(config, path) {
@@ -532,9 +578,20 @@
     throw workerOnlyError('worker_floorplan_manifest_required');
   }
 
-  async function loginWorkerSession(config, password, options) {
-    const sessionData = await postWorkerJSON(config, '/api/session/login', { password }, options);
-    setWorkerSession(config, sessionData, { persistent: options?.persistent !== false });
+  async function loginWorkerSession(config, username, password, options) {
+    let resolvedUsername = username;
+    let resolvedPassword = password;
+    let resolvedOptions = options;
+    if (typeof password === 'object' && options === undefined) {
+      resolvedOptions = password;
+      resolvedPassword = username;
+      resolvedUsername = 'admin';
+    }
+    const sessionData = await postWorkerJSON(config, '/api/session/login', {
+      username: resolvedUsername || 'admin',
+      password: resolvedPassword,
+    }, resolvedOptions);
+    setWorkerSession(config, sessionData, { persistent: resolvedOptions?.persistent !== false });
     return sessionData;
   }
 
@@ -557,8 +614,25 @@
     return sessionData;
   }
 
+  async function createJotFormContext(config, target, options = {}) {
+    const token = getWorkerSessionToken(config);
+    if (!token) throw workerError(401, 'worker_session_required');
+    return postWorkerJSON(config, '/api/jotform-context', target, {
+      ...options,
+      headers: {
+        ...(options?.headers || {}),
+        Authorization: `Bearer ${token}`,
+      },
+    });
+  }
+
   FD.DataService = {
+    canManageUploads,
+    canWriteFloorplan,
     clearWorkerSession,
+    createJotFormContext,
+    getWorkerSessionUser,
+    isViewerReadOnlyFloorplan,
     loadCustomers,
     loadStatus,
     saveStatus,

@@ -11,6 +11,7 @@
       workerSessionAuthFlagKey: 'fd_use_worker_auth',
       workerSessionTokenKey: 'fd_worker_session_token',
       workerSessionExpiresKey: 'fd_worker_session_expires_at',
+      workerSessionUserKey: 'fd_worker_session_user',
       workerStatusWriteFlagKey: 'fd_use_worker_status_write',
       workerStatusWriteEnabled: true,
       workerFloorplanWriteFlagKey: 'fd_use_worker_floorplan_write',
@@ -24,7 +25,7 @@
       pollInterval: 30000,
       jotformReturnRefreshInterval: 2000,
       jotformReturnRefreshMaxDuration: 20000,
-      offlineCacheVersion: 'fd-v1.8.112',
+      offlineCacheVersion: 'fd-v1.8.113',
     };
 
     const COLORS = {
@@ -47,6 +48,7 @@
     let currentCustomer = null;
     let currentFloorplan = null;
     let selectedDoor = null;
+    let currentUser = null;
     let customersLoading = false;
     const AppModes = FD.ModeService.MODES;
     const appMode = FD.ModeService.createModeController(AppModes.LOGIN);
@@ -492,7 +494,9 @@
 
     function populateFloorplanDropdown(customerIndex) {
       const c = customers[customerIndex];
-      FD.SelectSheetService.renderFloorplanOptions(floorplanSelect, c.floorplans);
+      FD.SelectSheetService.renderFloorplanOptions(floorplanSelect, c.floorplans, {
+        labelForItem: floorplan => floorplanPickerLabel(c, floorplan),
+      });
       updatePickerButtons();
     }
 
@@ -503,6 +507,65 @@
 
     function getSelectedFloorplan() {
       return FD.SelectSheetService.getSelectedFloorplan(customers, customerSelect, floorplanSelect);
+    }
+
+    function refreshCurrentUser() {
+      currentUser = FD.DataService.getWorkerSessionUser(CONFIG);
+      return currentUser;
+    }
+
+    function canManageUploads() {
+      return FD.DataService.canManageUploads(CONFIG);
+    }
+
+    function canWriteFloorplanByName(customer, floorplan) {
+      return FD.DataService.canWriteFloorplan(CONFIG, customer, floorplan);
+    }
+
+    function canWriteCurrentFloorplan() {
+      const selection = getSelectedFloorplan();
+      const customerName = selection.customer?.customer || currentCustomer;
+      const floorplanName = selection.floorplan?.name || currentFloorplan;
+      return canWriteFloorplanByName(customerName, floorplanName);
+    }
+
+    function isViewerReadOnlyFloorplan(customer, floorplan) {
+      return FD.DataService.isViewerReadOnlyFloorplan(CONFIG, customer, floorplan);
+    }
+
+    function floorplanPickerLabel(customer, floorplan) {
+      if (!floorplan) return '';
+      if (isViewerReadOnlyFloorplan(customer?.customer || customer, floorplan.name)) {
+        return floorplan.name + ' · alleen kijken';
+      }
+      if (currentUser?.role === 'viewer') {
+        return floorplan.name + ' · testen toegestaan';
+      }
+      return floorplan.name;
+    }
+
+    function applyDoorActionPermissions() {
+      if (!selectedDoor) return;
+      const allowed = canWriteCurrentFloorplan();
+      [btnDone, btnJotform].forEach(button => {
+        button.classList.toggle('disabled', !allowed);
+        button.title = allowed ? '' : 'Alleen kijken op deze plattegrond';
+      });
+    }
+
+    function updateRoleActionButtons() {
+      const uploadButton = document.getElementById('btn-upload');
+      if (uploadButton) uploadButton.style.display = canManageUploads() ? 'block' : 'none';
+
+      const selected = getSelectedFloorplan();
+      const hasFloorplan = Boolean(selected.floorplan || currentFloorplan);
+      const canWrite = hasFloorplan && canWriteCurrentFloorplan();
+      const editButton = document.getElementById('btn-edit');
+      if (editButton) {
+        editButton.style.display = hasFloorplan && canWrite ? 'inline-block' : 'none';
+        editButton.title = canWrite ? '' : 'Alleen kijken op deze plattegrond';
+      }
+      applyDoorActionPermissions();
     }
 
     const customerPickerBtn = document.getElementById('customer-picker-btn');
@@ -523,7 +586,12 @@
       }
       const ci = FD.SelectSheetService.selectedIndex(customerSelect);
       if (ci === null || !customers[ci]) return [];
-      return customers[ci].floorplans.map((fp, index) => ({ index, label: fp.name }));
+      return customers[ci].floorplans.map((fp, index) => ({
+        index,
+        label: fp.name,
+        meta: isViewerReadOnlyFloorplan(customers[ci].customer, fp.name) ? 'Alleen kijken' : (currentUser?.role === 'viewer' ? 'Testen toegestaan' : ''),
+        readOnly: isViewerReadOnlyFloorplan(customers[ci].customer, fp.name),
+      }));
     }
 
     const selectionController = FD.SelectSheetService.createSelectionController({
@@ -573,6 +641,7 @@
           setEmptyState('Kies een plattegrond<br>uit het dropdown menu.');
           loadingEl.classList.remove('hidden');
           updateDeleteButton();
+          updateRoleActionButtons();
           return;
         }
         loadFloorplan(customerIndex, floorplanIndex);
@@ -639,6 +708,13 @@
       showToast,
       openWindow: (url, target) => window.open(url, target),
       onBeforeOpenJotForm: saveJotFormReturnContext,
+      prepareJotFormContext: ({ selectedDoor, currentCustomer, currentFloorplan }) => FD.DataService.createJotFormContext(CONFIG, {
+        customer: currentCustomer.customer || currentCustomer,
+        floorplan: currentFloorplan.name || currentFloorplan,
+        repo: currentFloorplan.repo === 'uploads' ? 'uploads' : 'gallery',
+        file: currentFloorplan.file,
+        doorId: selectedDoor,
+      }),
     });
 
     const floorplanLoadController = FD.FloorplanViewService.createLoadController({
@@ -671,9 +747,9 @@
         infoPanel.style.display = 'flex';
         btnPanelToggle.style.display = 'block';
         btnReset.style.display = 'inline-block';
-        btnEdit.style.display = 'inline-block';
         populateSidePanel();
         updateDeleteButton();
+        updateRoleActionButtons();
         startPolling();
       },
       onBeforeReveal: ({ size }) => fitToScreen(size.width, size.height),
@@ -709,6 +785,7 @@
       doorStatus = {};
       currentCustomer = null;
       currentFloorplan = null;
+      currentUser = FD.DataService.getWorkerSessionUser(CONFIG);
       pendingDoor = null;
       customerSelect.disabled = false;
       FD.SelectSheetService.renderCustomerOptions(customerSelect, []);
@@ -718,6 +795,7 @@
       hideTopbarMenu();
       updatePickerButtons();
       updateDeleteButton();
+      updateRoleActionButtons();
       setEmptyState('Kies een klant en plattegrond<br>om te beginnen.', 'Gebruik de dropdowns bovenaan');
       loadingEl.classList.remove('hidden');
     }
@@ -795,6 +873,7 @@
 
     function selectDoor(doorId) {
       doorActionController.selectDoor(doorId);
+      applyDoorActionPermissions();
     }
 
     function deselectDoor() {
@@ -805,8 +884,17 @@
     // JOTFORM LINK
     // ============================================================
 
-    function openJotForm() {
-      doorActionController.openJotForm();
+    async function openJotForm() {
+      if (!canWriteCurrentFloorplan()) {
+        showToast('Alleen kijken op deze plattegrond', 'error');
+        return;
+      }
+      try {
+        await doorActionController.openJotForm();
+      } catch (err) {
+        showToast(err?.status === 403 ? 'Geen rechten voor JotForm op deze plattegrond' : 'JotForm openen mislukt', 'error');
+        console.warn('JotForm context aanmaken mislukt:', err);
+      }
     }
 
     // ============================================================
@@ -905,6 +993,10 @@
 
     function enterEditMode() {
       if (!currentFloorplan) return;
+      if (!canWriteCurrentFloorplan()) {
+        showToast('Alleen kijken op deze plattegrond', 'error');
+        return;
+      }
       if (appMode.is(AppModes.EDIT)) return;
       if (!appMode.isInteractiveView()) {
         showToast('Sluit eerst het huidige scherm', 'error');
@@ -949,11 +1041,12 @@
       document.getElementById('auto-number-row').style.display = 'none';
       if (showLabels) updateEditLabels(); else removeEditLabels();
       infoPanel.style.display = 'flex';
-      btnEdit.style.display = 'inline-block';
+      btnEdit.style.display = canWriteCurrentFloorplan() ? 'inline-block' : 'none';
       btnReset.style.display = 'inline-block';
       customerSelect.disabled = false;
       floorplanSelect.disabled = false;
       updatePickerButtons();
+      updateRoleActionButtons();
       closeEditPopup();
       requestAnimationFrame(updateTopbarHeight);
     }
@@ -1479,11 +1572,16 @@
     }
 
     async function toggleDoorStatus() {
+      if (!canWriteCurrentFloorplan()) {
+        showToast('Alleen kijken op deze plattegrond', 'error');
+        return null;
+      }
       return statusController.toggleDoorStatus();
     }
 
     function updateDoneButton() {
       doorActionController.updateDoneButton();
+      applyDoorActionPermissions();
     }
 
     // ============================================================
@@ -1938,6 +2036,10 @@
 
     function updateDeleteButton() {
       uploadActionsController.updateButtons();
+      const deleteButton = document.getElementById('btn-delete-fp');
+      const editImageButton = document.getElementById('btn-edit-image');
+      if (deleteButton && !canManageUploads()) deleteButton.style.display = 'none';
+      if (editImageButton && !canWriteCurrentFloorplan()) editImageButton.style.display = 'none';
     }
 
     uploadActionsController.bind();
@@ -2018,7 +2120,6 @@
     // ============================================================
 
     const LOGIN_CONFIG = {
-      passwordHash: '0123940987a658e40d82d640ba2084a0f11828593a9a3be547e3e764d45f5ed7',
       maxAttempts: 3,
       lockoutMinutes: 10,
       tokenKey: 'fd_auth_token',
@@ -2028,6 +2129,7 @@
     };
 
     function showApp() {
+      refreshCurrentUser();
       appMode.enter(AppModes.VIEW);
       document.getElementById('login-screen').style.display = 'none';
       appContainer.style.display = 'block';
@@ -2051,6 +2153,7 @@
         splashScreen: document.getElementById('splash-screen'),
         loginScreen: document.getElementById('login-screen'),
         appContainer,
+        usernameInput: document.getElementById('login-username'),
         passwordInput: document.getElementById('login-password'),
         rememberCheckbox: document.getElementById('login-remember'),
         loginButton: document.getElementById('login-btn'),
