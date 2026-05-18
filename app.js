@@ -22,7 +22,7 @@
       jotformFormId: '250122093908351',
       loginEmailNotificationsEnabled: false,
       pollInterval: 30000,
-      offlineCacheVersion: 'fd-v1.8.109',
+      offlineCacheVersion: 'fd-v1.8.110',
     };
 
     const COLORS = {
