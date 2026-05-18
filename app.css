@@ -222,8 +222,10 @@
       right: 0;
       top: calc(env(safe-area-inset-top) + var(--topbar-h, 52px));
       box-shadow: 0 2px 8px rgba(0,0,0,0.15);
-      flex-wrap: wrap;
-      gap: 6px;
+      flex-wrap: nowrap;
+      gap: 8px;
+      min-height: 52px;
+      overflow: hidden;
       transition: right 0.25s ease;
     }
 
@@ -239,15 +241,48 @@
       }
     }
 
+    .info-panel-door {
+      display: flex;
+      align-items: baseline;
+      gap: 8px;
+      min-width: 0;
+      overflow: hidden;
+      flex: 1 1 auto;
+    }
+
     .info-panel .door-name {
       font-size: 18px;
       font-weight: 700;
       color: #333;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
 
     .info-panel .door-status {
       font-size: 14px;
-      margin-left: 12px;
+      flex: 0 0 auto;
+      white-space: nowrap;
+    }
+
+    .info-panel-count {
+      flex: 0 1 auto;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-size: 16px;
+      font-weight: 600;
+      color: #555;
+    }
+
+    .info-panel-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex: 0 0 auto;
+      white-space: nowrap;
     }
 
     .info-panel .btn {
@@ -257,6 +292,8 @@
       border-radius: 8px;
       cursor: pointer;
       font-weight: 600;
+      flex: 0 0 auto;
+      white-space: nowrap;
     }
 
     .info-panel .btn-jotform {
@@ -279,13 +316,22 @@
       background: #e0e0e0;
       color: #333;
       padding: 8px 14px;
-      margin-left: 8px;
     }
 
     .info-panel .btn.disabled {
       opacity: 0.4;
       cursor: default;
       pointer-events: none;
+    }
+
+    @media (max-width: 560px) {
+      .info-panel-count {
+        display: none;
+      }
+
+      .info-panel .btn {
+        padding: 8px 12px;
+      }
     }
 
     /* Side panel toggle button */
