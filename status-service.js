@@ -4,6 +4,19 @@
   const STATUS_CACHE_KEY = 'fd_status_cache';
   const STATUS_QUEUE_KEY = 'fd_status_sync_queue';
   const STATUS_CYCLE_STARTED_KEY = '_cycleStartedAt';
+  const DONE_AT_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/;
+
+  function isDoneStatusValue(value) {
+    if (value === 'done') return true;
+    if (typeof value !== 'string') return false;
+    return DONE_AT_RE.test(value) && Number.isFinite(Date.parse(value));
+  }
+
+  function statusDoneAt(timestamp) {
+    const parsed = Number(timestamp || Date.now());
+    const safeTimestamp = Number.isFinite(parsed) && parsed > 0 ? parsed : Date.now();
+    return new Date(safeTimestamp).toISOString();
+  }
 
   function getFloorplanStatusBucket(statusData, customer, floorplan, create = false) {
     if (!statusData[customer]) {
@@ -29,7 +42,7 @@
 
   function isDoorDone(statusData, customer, floorplan, doorId) {
     const bucket = getFloorplanStatusBucket(statusData, customer, floorplan);
-    return Boolean(bucket && bucket[doorId] === 'done');
+    return Boolean(bucket && isDoneStatusValue(bucket[doorId]));
   }
 
   function readCachedDoorStatus() {
@@ -69,8 +82,7 @@
     const bucket = getFloorplanStatusBucket(statusData, op.customer, op.floorplan, true);
 
     if (op.status === 'done') {
-      if (!getCycleStartedMs(bucket)) setCycleStartedAt(bucket, op.ts || Date.now());
-      bucket[op.doorId] = 'done';
+      bucket[op.doorId] = statusDoneAt(op.ts);
     } else {
       delete bucket[op.doorId];
     }
@@ -114,6 +126,8 @@
 
   FD.StatusService = {
     STATUS_CYCLE_STARTED_KEY,
+    isDoneStatusValue,
+    statusDoneAt,
     getFloorplanStatusBucket,
     getCycleStartedMs,
     setCycleStartedAt,

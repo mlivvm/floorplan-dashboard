@@ -162,10 +162,13 @@
           scheduleRetry();
           return { synced: false, skipped: true, queue, offline: true };
         }
-        await DataService.saveStatus(config, mergedStatus, queue[queue.length - 1]?.customer, { operations: queue });
+        const saveResult = await DataService.saveStatus(config, mergedStatus, queue[queue.length - 1]?.customer, { operations: queue });
+        const syncedStatus = saveResult?.status && typeof saveResult.status === 'object'
+          ? saveResult.status
+          : mergedStatus;
 
         const remainingQueue = StatusService.removeSyncedOperations(readQueue(), queue);
-        const nextStatus = applyQueuedStatusOperations(mergedStatus, remainingQueue);
+        const nextStatus = applyQueuedStatusOperations(syncedStatus, remainingQueue);
         writeQueue(remainingQueue);
         cacheStatus(nextStatus);
         setCurrentStatus(nextStatus);

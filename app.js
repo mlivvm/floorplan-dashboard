@@ -22,7 +22,7 @@
       jotformFormId: '250122093908351',
       loginEmailNotificationsEnabled: false,
       pollInterval: 30000,
-      offlineCacheVersion: 'fd-v1.8.106',
+      offlineCacheVersion: 'fd-v1.8.107',
     };
 
     const COLORS = {
@@ -194,7 +194,7 @@
     function getDiagnosticsContext() {
       const selection = getSelectedFloorplan();
       const floorplan = selection.floorplan || {};
-      const selectedDoorStatus = selectedDoor ? (doorStatus[selectedDoor] || 'todo') : '';
+      const selectedDoorStatus = selectedDoor ? (getDoorStatus(selectedDoor) ? 'done' : 'todo') : '';
       return {
         customer: currentCustomer || selection.customer?.customer || '',
         floorplan: currentFloorplan || floorplan.name || '',
