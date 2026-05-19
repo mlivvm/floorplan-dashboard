@@ -138,10 +138,42 @@
       color: #1f2933;
     }
 
+    .account-indicator {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 32px;
+      max-width: 92px;
+      padding: 5px 10px;
+      border: 1px solid rgba(255,255,255,0.65);
+      border-radius: 6px;
+      background: rgba(255,255,255,0.18);
+      color: white;
+      font-size: 12px;
+      font-weight: 800;
+      line-height: 1;
+      text-transform: lowercase;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+
+    .account-indicator[hidden] {
+      display: none;
+    }
+
     @media (max-width: 760px) {
       .selector-pills {
         order: 2;
         flex-basis: 100%;
+      }
+
+      .account-indicator {
+        max-width: 76px;
+        padding-left: 8px;
+        padding-right: 8px;
       }
     }
 

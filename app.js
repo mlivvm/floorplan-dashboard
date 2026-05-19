@@ -25,7 +25,7 @@
       pollInterval: 30000,
       jotformReturnRefreshInterval: 2000,
       jotformReturnRefreshMaxDuration: 20000,
-      offlineCacheVersion: 'fd-v1.8.117',
+      offlineCacheVersion: 'fd-v1.8.118',
     };
 
     const COLORS = {
@@ -109,6 +109,8 @@
     const sidePanelHeader = document.getElementById('side-panel-header');
     const connectionIndicator = document.getElementById('connection-indicator');
     const connectionLabel = document.getElementById('connection-label');
+    const accountIndicator = document.getElementById('account-indicator');
+    const accountLabel = document.getElementById('account-label');
     const syncIndicator = document.getElementById('sync-indicator');
     const syncLabel = document.getElementById('sync-label');
     const topbarMenu = document.getElementById('topbar-menu');
@@ -509,8 +511,19 @@
       return FD.SelectSheetService.getSelectedFloorplan(customers, customerSelect, floorplanSelect);
     }
 
+    function updateAccountIndicator() {
+      if (!accountIndicator || !accountLabel) return;
+      const role = String(currentUser?.role || '').toLowerCase();
+      const label = ['admin', 'monteur', 'viewer'].includes(role) ? role : '';
+      accountLabel.textContent = label;
+      accountIndicator.hidden = !label;
+      accountIndicator.title = label ? `Ingelogd als ${label}` : 'Ingelogd account';
+      accountIndicator.dataset.role = label;
+    }
+
     function refreshCurrentUser() {
       currentUser = FD.DataService.getWorkerSessionUser(CONFIG);
+      updateAccountIndicator();
       return currentUser;
     }
 
@@ -804,7 +817,7 @@
       doorStatus = {};
       currentCustomer = null;
       currentFloorplan = null;
-      currentUser = FD.DataService.getWorkerSessionUser(CONFIG);
+      refreshCurrentUser();
       pendingDoor = null;
       customerSelect.disabled = false;
       FD.SelectSheetService.renderCustomerOptions(customerSelect, []);
