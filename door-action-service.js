@@ -189,23 +189,37 @@
         return;
       }
 
-      let context = null;
-      if (typeof prepareJotFormContext === 'function') {
-        context = await prepareJotFormContext({ selectedDoor, currentCustomer, currentFloorplan });
-      }
+      const jotFormWindow = typeof openWindow === 'function' ? openWindow('about:blank', '_blank') : null;
 
-      const url = buildJotFormUrl({
-        baseUrl: config.baseUrl,
-        formId: config.formId,
-        customer: currentCustomer,
-        doorId: selectedDoor,
-        floorplan: currentFloorplan,
-        context,
-      });
-      if (typeof onBeforeOpenJotForm === 'function') {
-        onBeforeOpenJotForm({ url, selectedDoor, currentCustomer, currentFloorplan });
+      let context = null;
+      try {
+        if (typeof prepareJotFormContext === 'function') {
+          context = await prepareJotFormContext({ selectedDoor, currentCustomer, currentFloorplan });
+        }
+
+        const url = buildJotFormUrl({
+          baseUrl: config.baseUrl,
+          formId: config.formId,
+          customer: currentCustomer,
+          doorId: selectedDoor,
+          floorplan: currentFloorplan,
+          context,
+        });
+        if (typeof onBeforeOpenJotForm === 'function') {
+          onBeforeOpenJotForm({ url, selectedDoor, currentCustomer, currentFloorplan });
+        }
+
+        if (jotFormWindow && !jotFormWindow.closed) {
+          jotFormWindow.location.href = url;
+        } else if (typeof openWindow === 'function') {
+          openWindow(url, '_blank');
+        }
+      } catch (err) {
+        if (jotFormWindow && !jotFormWindow.closed && typeof jotFormWindow.close === 'function') {
+          jotFormWindow.close();
+        }
+        throw err;
       }
-      if (typeof openWindow === 'function') openWindow(url, '_blank');
     }
 
     return {
