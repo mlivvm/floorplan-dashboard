@@ -25,7 +25,7 @@
       pollInterval: 30000,
       jotformReturnRefreshInterval: 2000,
       jotformReturnRefreshMaxDuration: 20000,
-      offlineCacheVersion: 'fd-v1.8.120',
+      offlineCacheVersion: 'fd-v1.8.130',
     };
 
     const COLORS = {
@@ -1963,6 +1963,7 @@
         stepChoose: document.getElementById('upload-step-choose'),
         stepPreview: document.getElementById('upload-step-preview'),
         stepForm: document.getElementById('upload-step-form'),
+        stepPdf: document.getElementById('upload-step-pdf'),
         previewImg: document.getElementById('upload-preview-img'),
         previewTitle: document.querySelector('#upload-step-preview h3'),
         previewRetakeBtn: document.querySelector('#upload-step-preview .upload-btn-grey'),
@@ -1972,6 +1973,31 @@
         newCustomerInput: document.getElementById('upload-new-customer'),
         floorplanNameInput: document.getElementById('upload-floorplan-name'),
         errorEl: document.getElementById('upload-error'),
+        pdfState: { pages: [] },
+        pdfTitle: document.getElementById('upload-pdf-title'),
+        pdfSummary: document.getElementById('upload-pdf-summary'),
+        pdfProcessing: document.getElementById('upload-pdf-processing'),
+        pdfOverview: document.getElementById('upload-pdf-overview'),
+        pdfEditor: document.getElementById('upload-pdf-editor'),
+        pdfForm: document.getElementById('upload-pdf-form'),
+        pdfPages: document.getElementById('upload-pdf-pages'),
+        pdfCount: document.getElementById('upload-pdf-count'),
+        pdfNextButton: document.getElementById('btn-upload-pdf-next'),
+        pdfEditorTitle: document.getElementById('upload-pdf-editor-title'),
+        pdfEditorImg: document.getElementById('upload-pdf-editor-img'),
+        pdfEditorLoading: document.getElementById('upload-pdf-editor-loading'),
+        pdfEditorSaveButton: document.getElementById('btn-upload-pdf-editor-save'),
+        pdfZoomOutButton: document.getElementById('btn-upload-pdf-zoom-out'),
+        pdfZoomFitButton: document.getElementById('btn-upload-pdf-zoom-fit'),
+        pdfZoomInButton: document.getElementById('btn-upload-pdf-zoom-in'),
+        pdfCustomerSelect: document.getElementById('upload-pdf-customer-select'),
+        pdfNewCustomerWrapper: document.getElementById('upload-pdf-new-customer-wrapper'),
+        pdfNewCustomerInput: document.getElementById('upload-pdf-new-customer'),
+        pdfNamesList: document.getElementById('upload-pdf-names-list'),
+        pdfProgress: document.getElementById('upload-pdf-progress'),
+        pdfProgressBar: document.getElementById('upload-pdf-progress-bar'),
+        pdfProgressText: document.getElementById('upload-pdf-progress-text'),
+        pdfErrorEl: document.getElementById('upload-pdf-error'),
       },
       controls: {
         overlay: document.getElementById('upload-overlay'),
@@ -1987,6 +2013,22 @@
         saveButton: document.getElementById('btn-upload-save'),
         cancelFormButton: document.getElementById('btn-upload-cancel-3'),
         backToSelectButton: document.getElementById('btn-back-to-select'),
+        pdfCloseButton: document.getElementById('btn-upload-pdf-close'),
+        pdfRetakeButton: document.getElementById('btn-upload-pdf-retake'),
+        pdfSelectAllButton: document.getElementById('btn-upload-pdf-select-all'),
+        pdfSelectNoneButton: document.getElementById('btn-upload-pdf-select-none'),
+        pdfNextButton: document.getElementById('btn-upload-pdf-next'),
+        pdfFormBackButton: document.getElementById('btn-upload-pdf-form-back'),
+        pdfEditorBackButton: document.getElementById('btn-upload-pdf-editor-back'),
+        pdfEditorCancelButton: document.getElementById('btn-upload-pdf-editor-cancel'),
+        pdfEditorSaveButton: document.getElementById('btn-upload-pdf-editor-save'),
+        pdfZoomOutButton: document.getElementById('btn-upload-pdf-zoom-out'),
+        pdfZoomFitButton: document.getElementById('btn-upload-pdf-zoom-fit'),
+        pdfZoomInButton: document.getElementById('btn-upload-pdf-zoom-in'),
+        pdfRotateLeftButton: document.getElementById('btn-upload-pdf-rotate-left'),
+        pdfRotateRightButton: document.getElementById('btn-upload-pdf-rotate-right'),
+        pdfBackToSelectButton: document.getElementById('btn-upload-pdf-back-to-select'),
+        pdfSaveButton: document.getElementById('btn-upload-pdf-save'),
         fullscreenImage: document.getElementById('img-fullscreen-img'),
         fullscreenOverlay: document.getElementById('img-fullscreen-overlay'),
         fullscreenCloseButton: document.getElementById('img-fullscreen-close'),
@@ -2284,10 +2326,90 @@
     let activeEditorPointers = new Map(), editorIsPinching = false, editorPinchDist = null, editorPinchMidX = 0, editorPinchMidY = 0;
     let editorCropper = null;
     let editorCropContext = null;
+    let editorCropRotation = 0;
     let pendingCropSave = null;
+
+    function normalizeEditorRotation(value) {
+      return ((Math.round(Number(value || 0) / 90) * 90) % 360 + 360) % 360;
+    }
 
     function getCurrentFloorplanObj() {
       return getSelectedFloorplan().floorplan;
+    }
+
+    function prepareEditorCropperForFullFit() {
+      if (!editorCropper?.getContainerData || !editorCropper?.setCropBoxData) return;
+      const containerData = editorCropper.getContainerData();
+      if (!containerData.width || !containerData.height) return;
+      const width = Math.max(24, Math.min(96, containerData.width * 0.2));
+      const height = Math.max(24, Math.min(96, containerData.height * 0.2));
+      editorCropper.setCropBoxData({
+        left: (containerData.width - width) / 2,
+        top: (containerData.height - height) / 2,
+        width,
+        height,
+      });
+    }
+
+    function fitEditorCropperCanvasToFullImage() {
+      if (!editorCropper?.getContainerData || !editorCropper?.getCanvasData || !editorCropper?.setCanvasData || !editorCropper?.getImageData) return;
+      const containerData = editorCropper.getContainerData();
+      const canvasData = editorCropper.getCanvasData();
+      const imageData = editorCropper.getImageData();
+      const naturalWidth = canvasData.naturalWidth || imageData.naturalWidth || canvasData.width || 1;
+      const naturalHeight = canvasData.naturalHeight || imageData.naturalHeight || canvasData.height || 1;
+      if (!containerData.width || !containerData.height || !naturalWidth || !naturalHeight) return;
+
+      const safeSpace = window.matchMedia?.('(pointer: coarse)')?.matches ? 72 : 56;
+      const maxWidth = Math.max(1, containerData.width - safeSpace);
+      const maxHeight = Math.max(1, containerData.height - safeSpace);
+      const scale = Math.min(maxWidth / naturalWidth, maxHeight / naturalHeight, 1);
+      const width = naturalWidth * scale;
+      const height = naturalHeight * scale;
+      editorCropper.setCanvasData({
+        left: (containerData.width - width) / 2,
+        top: (containerData.height - height) / 2,
+        width,
+        height,
+      });
+    }
+
+    function fitEditorCropperToFullImage() {
+      if (!editorCropper) return;
+      prepareEditorCropperForFullFit();
+      fitEditorCropperCanvasToFullImage();
+      if (typeof editorCropper.setCropBoxData === 'function') {
+        const canvasData = editorCropper.getCanvasData();
+        editorCropper.setCropBoxData({
+          left: canvasData.left,
+          top: canvasData.top,
+          width: canvasData.width,
+          height: canvasData.height,
+        });
+      }
+    }
+
+    function resetEditorCropperToRotation() {
+      if (!editorCropper) return;
+      const rotation = normalizeEditorRotation(editorCropRotation);
+      editorCropper.reset();
+      if (typeof editorCropper.rotateTo === 'function') {
+        editorCropper.rotateTo(rotation);
+      } else if (rotation && typeof editorCropper.rotate === 'function') {
+        editorCropper.rotate(rotation);
+      }
+
+      requestAnimationFrame(() => {
+        if (!editorCropper) return;
+        fitEditorCropperToFullImage();
+        requestAnimationFrame(() => {
+          if (!editorCropper) return;
+          fitEditorCropperToFullImage();
+          setTimeout(() => {
+            if (editorCropper) fitEditorCropperToFullImage();
+          }, 140);
+        });
+      });
     }
 
     function startCropperWhenEditorLayoutIsReady(cropImage, attempt = 0) {
@@ -2318,7 +2440,7 @@
         movable: true,
         zoomable: true,
         scalable: false,
-        rotatable: false,
+        rotatable: true,
         responsive: true,
         restore: false,
         guides: true,
@@ -2333,6 +2455,9 @@
             y: 0,
             width: naturalWidth,
             height: naturalHeight,
+          });
+          requestAnimationFrame(() => {
+            if (editorCropper && editorCropContext) fitEditorCropperToFullImage();
           });
         },
       });
@@ -2361,6 +2486,7 @@
       editorCtx = editorCanvas.getContext('2d');
       editorUndoStack = [];
       editorSaving = false;
+      editorCropRotation = 0;
       pendingCropSave = null;
       document.getElementById('img-editor-save').disabled = false;
       document.getElementById('img-editor-save').textContent = '\uD83D\uDCBE Opslaan';
@@ -2381,6 +2507,7 @@
 
     function enterImageEditorModeUI(imageHref) {
       if (editorCropper) { editorCropper.destroy(); editorCropper = null; }
+      editorCropRotation = 0;
       const cropImage = document.getElementById('img-editor-crop-image');
       cropImage.onload = null;
       cropImage.onerror = null;
@@ -2483,6 +2610,7 @@
       cropRect = null; activeCropHandle = null;
       editorSaving = false;
       editorCropContext = null;
+      editorCropRotation = 0;
       pendingCropSave = null;
       editorTool = 'pan';
       if (editorCanvas) editorCanvas.dataset.tool = 'pan';
@@ -2824,6 +2952,15 @@
       if (editorTool === 'crop') setEditorTool('crop');
     }
 
+    function rotateEditorImage90(direction) {
+      if (editorCropper) {
+        editorCropRotation = (editorCropRotation + direction * 90 + 360) % 360;
+        resetEditorCropperToRotation();
+        return;
+      }
+      rotateCanvas90(direction);
+    }
+
     function editorUndo() {
       if (editorCropper) return;
       if (!editorUndoStack.length) return;
@@ -2881,6 +3018,118 @@
       });
     }
 
+    function rotatedEditorPoint(relX, relY, rotation) {
+      const width = editorCropContext.imgW;
+      const height = editorCropContext.imgH;
+      if (rotation === 90) return { x: height - relY, y: relX };
+      if (rotation === 180) return { x: width - relX, y: height - relY };
+      if (rotation === 270) return { x: relY, y: width - relX };
+      return { x: relX, y: relY };
+    }
+
+    function markerRadii(marker, rotation) {
+      const r = parseFloat(marker.getAttribute('r'));
+      const rxAttr = parseFloat(marker.getAttribute('rx'));
+      const ryAttr = parseFloat(marker.getAttribute('ry'));
+      let rx = Number.isFinite(rxAttr) ? rxAttr : (Number.isFinite(r) ? r : 0);
+      let ry = Number.isFinite(ryAttr) ? ryAttr : (Number.isFinite(r) ? r : rx);
+      if (rotation === 90 || rotation === 270) [rx, ry] = [ry, rx];
+      return { rx, ry };
+    }
+
+    function rotatedEditorMarkerPlacement(marker, plan) {
+      const position = FD.MarkerService.markerPosition(marker);
+      if (!position) return null;
+      const relX = position.x - editorCropContext.imgX;
+      const relY = position.y - editorCropContext.imgY;
+      const rotated = rotatedEditorPoint(relX, relY, plan.rotation);
+      const radii = markerRadii(marker, plan.rotation);
+      return {
+        x: rotated.x,
+        y: rotated.y,
+        rx: radii.rx,
+        ry: radii.ry,
+      };
+    }
+
+    function markerFitsRotatedPlan(marker, plan) {
+      const placement = rotatedEditorMarkerPlacement(marker, plan);
+      if (!placement) return false;
+      return placement.x - placement.rx >= plan.cropX &&
+             placement.x + placement.rx <= plan.cropX + plan.cropW &&
+             placement.y - placement.ry >= plan.cropY &&
+             placement.y + placement.ry <= plan.cropY + plan.cropH;
+    }
+
+    function getRotatedCropSavePlan() {
+      if (!editorCropper || !editorCropContext) return null;
+      const cropData = editorCropper.getData(true);
+      const rotation = normalizeEditorRotation(cropData.rotate || editorCropRotation);
+      if (!rotation) return null;
+      const imageData = editorCropper.getImageData();
+      const naturalWidth = imageData.naturalWidth || document.getElementById('img-editor-crop-image').naturalWidth;
+      const naturalHeight = imageData.naturalHeight || document.getElementById('img-editor-crop-image').naturalHeight;
+      if (!naturalWidth || !naturalHeight || cropData.width < 10 || cropData.height < 10) return null;
+
+      const rotatedNaturalWidth = rotation === 90 || rotation === 270 ? naturalHeight : naturalWidth;
+      const rotatedNaturalHeight = rotation === 90 || rotation === 270 ? naturalWidth : naturalHeight;
+      const rotatedSvgWidth = rotation === 90 || rotation === 270 ? editorCropContext.imgH : editorCropContext.imgW;
+      const rotatedSvgHeight = rotation === 90 || rotation === 270 ? editorCropContext.imgW : editorCropContext.imgH;
+      const scaleX = rotatedSvgWidth / rotatedNaturalWidth;
+      const scaleY = rotatedSvgHeight / rotatedNaturalHeight;
+      const cropX = cropData.x * scaleX;
+      const cropY = cropData.y * scaleY;
+      const cropW = cropData.width * scaleX;
+      const cropH = cropData.height * scaleY;
+      const plan = { cropData, rotation, cropX, cropY, cropW, cropH, outsideDoorCodes: [] };
+
+      Array.from(svgContainer.querySelectorAll('[data-door-id]')).forEach(marker => {
+        if (!markerFitsRotatedPlan(marker, plan)) {
+          plan.outsideDoorCodes.push(FD.ImageEditorService.markerDoorCode(marker));
+        }
+      });
+      return plan;
+    }
+
+    function buildRotatedEditorSVGText({ imageDataUrl, plan }) {
+      if (!editorCropContext?.svgEl || !imageDataUrl || !plan) {
+        throw new Error('Rotatie-save data is incompleet.');
+      }
+      const width = Math.max(1, Math.round(plan.cropW));
+      const height = Math.max(1, Math.round(plan.cropH));
+      const svgClone = editorCropContext.svgEl.cloneNode(true);
+      svgClone.setAttribute('viewBox', `0 0 ${width} ${height}`);
+      svgClone.setAttribute('width', width.toString());
+      svgClone.setAttribute('height', height.toString());
+
+      const cloneImage = svgClone.querySelector('image');
+      if (!cloneImage) throw new Error('Afbeelding ontbreekt in plattegrond.');
+      cloneImage.setAttribute('href', imageDataUrl);
+      cloneImage.removeAttributeNS('http://www.w3.org/1999/xlink', 'href');
+      cloneImage.setAttribute('x', '0');
+      cloneImage.setAttribute('y', '0');
+      cloneImage.setAttribute('width', width.toString());
+      cloneImage.setAttribute('height', height.toString());
+
+      svgClone.querySelectorAll('[data-fd-label]').forEach(el => el.remove());
+      svgClone.querySelectorAll('[data-door-id]').forEach(marker => {
+        const placement = rotatedEditorMarkerPlacement(marker, plan);
+        if (!placement || !markerFitsRotatedPlan(marker, plan)) {
+          marker.remove();
+          return;
+        }
+        FD.MarkerService.setMarkerPosition(marker, placement.x - plan.cropX, placement.y - plan.cropY);
+        if ((plan.rotation === 90 || plan.rotation === 270) && marker.hasAttribute('rx') && marker.hasAttribute('ry')) {
+          const oldRx = marker.getAttribute('rx');
+          marker.setAttribute('rx', marker.getAttribute('ry'));
+          marker.setAttribute('ry', oldRx);
+        }
+        FD.MarkerService.clearRuntimeMarkerState(marker);
+      });
+
+      return new XMLSerializer().serializeToString(svgClone);
+    }
+
     function showCropOutsideConfirm(codes, onConfirm) {
       pendingCropSave = onConfirm;
       document.getElementById('crop-outside-codes').textContent = codes.join(', ');
@@ -2900,7 +3149,8 @@
       if (editorSaving) return;
       const fp = getCurrentFloorplanObj();
       if (!fp) { showToast('Geen plattegrond geselecteerd', 'error'); return; }
-      const plan = getCropSavePlan();
+      const rotatedPlan = normalizeEditorRotation(editorCropRotation) ? getRotatedCropSavePlan() : null;
+      const plan = rotatedPlan || getCropSavePlan();
       if (!plan) { showToast('Geen geldige uitsnede', 'error'); return; }
       if (plan.outsideDoorCodes.length && !confirmedOutsideDoors) {
         showCropOutsideConfirm(plan.outsideDoorCodes, () => saveEditorChanges({ confirmedOutsideDoors: true }));
@@ -2922,14 +3172,17 @@
           imageSmoothingQuality: 'high',
         });
         const newDataUrl = FD.ImageEditorService.canvasToLimitedJPEG(outputCanvas);
-        const svgText = FD.ImageEditorService.buildCroppedSVGText({
+        const svgText = rotatedPlan ? buildRotatedEditorSVGText({
+          imageDataUrl: newDataUrl,
+          plan: rotatedPlan,
+        }) : FD.ImageEditorService.buildCroppedSVGText({
           svgEl: editorCropContext.svgEl,
           imageDataUrl: newDataUrl,
           plan,
           markerService: FD.MarkerService,
         });
         const fileUrl = CONFIG.svgUploadsUrl + encodeURIComponent(fp.file);
-        await FD.DataService.saveFloorplanSVG(fileUrl, svgText, {
+        const updateResult = await FD.DataService.saveFloorplanSVG(fileUrl, svgText, {
           config: CONFIG,
           customerName: currentCustomer,
           floorplanName: currentFloorplan,
@@ -2937,13 +3190,15 @@
           fetchErrorMessage: 'Kon bestand niet ophalen ({status})',
           saveErrorMessage: 'Opslaan mislukt ({status})',
         });
+        await updateCachedSVGAfterSave(fileUrl, updateResult, svgText);
 
-        closeImageEditor();
-        showToast('Afbeelding opgeslagen', 'success');
+        btnSave.textContent = 'Bijwerken...';
         const { customerIndex, floorplanIndex, floorplan } = getSelectedFloorplan();
         if (customerIndex !== null && floorplanIndex !== null && floorplan) {
-          loadFloorplan(customerIndex, floorplanIndex);
+          await loadFloorplan(customerIndex, floorplanIndex);
         }
+        closeImageEditor();
+        showToast('Afbeelding opgeslagen', 'success');
 
       } catch (err) {
         showToast('Fout: ' + err.message, 'error');
@@ -2996,8 +3251,8 @@
     document.getElementById('img-editor-tool-pan').addEventListener('click', () => setEditorTool('pan'));
     document.getElementById('img-editor-tool-crop').addEventListener('click', () => showToast('Sleep de hoeken om de uitsnede aan te passen', 'success'));
     document.getElementById('img-editor-tool-erase').addEventListener('click', () => setEditorTool('erase'));
-    document.getElementById('img-editor-tool-rotate-left').addEventListener('click', () => rotateCanvas90(-1));
-    document.getElementById('img-editor-tool-rotate-right').addEventListener('click', () => rotateCanvas90(1));
+    document.getElementById('img-editor-tool-rotate-left').addEventListener('click', () => rotateEditorImage90(-1));
+    document.getElementById('img-editor-tool-rotate-right').addEventListener('click', () => rotateEditorImage90(1));
     document.getElementById('img-editor-apply-crop').addEventListener('click', applyEditorCrop);
     document.getElementById('img-editor-save').addEventListener('click', saveEditorChanges);
 

@@ -1,4 +1,4 @@
-const CACHE_NAME = 'fd-v1.8.120';
+const CACHE_NAME = 'fd-v1.8.130';
 
 const STATIC_ASSETS = [
   './',
@@ -18,6 +18,7 @@ const STATIC_ASSETS = [
   'door-action-service.js',
   'ui-shell-service.js',
   'edit-ui-service.js',
+  'pdf-import-service.js',
   'upload-service.js',
   'select-sheet-service.js',
   'side-panel-service.js',

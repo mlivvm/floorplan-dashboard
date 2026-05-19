@@ -25,7 +25,7 @@
 
   <!-- Login screen -->
   <div class="login-screen" id="login-screen" style="display:none;">
-    <div style="position:absolute; bottom:12px; left:16px; font-size:12px; color:#aaa;">v1.8.120</div>
+    <div style="position:absolute; bottom:12px; left:16px; font-size:12px; color:#aaa;">v1.8.130</div>
     <div class="login-box">
       <h1>Plattegrond Dashboard</h1>
       <p>Log in met je account</p>
@@ -41,7 +41,7 @@
 
   <!-- App (hidden until logged in) -->
   <div id="app-container" style="display:none;">
-  <div style="position:fixed; bottom:12px; left:16px; font-size:12px; color:#aaa; z-index:1000; pointer-events:none;">v1.8.120</div>
+  <div style="position:fixed; bottom:12px; left:16px; font-size:12px; color:#aaa; z-index:1000; pointer-events:none;">v1.8.130</div>
 
   <!-- Toast notification -->
   <div id="toast" style="display:none; position:fixed; top:calc(env(safe-area-inset-top) + var(--topbar-h, 52px) + 12px); left:50%; transform:translateX(-50%); padding:14px 28px; border-radius:10px; font-size:16px; font-weight:600; z-index:500; box-shadow:0 4px 16px rgba(0,0,0,0.25); cursor:pointer; max-width:90vw; text-align:center;"></div>
@@ -218,7 +218,7 @@
         <button id="btn-upload-photo" class="upload-btn upload-btn-green">Foto maken</button>
         <button id="btn-upload-cancel-1" class="upload-btn upload-btn-grey">Annuleren</button>
       </div>
-      <input type="file" id="upload-pdf-input" accept=".pdf" style="display:none;">
+      <input type="file" id="upload-pdf-input" accept=".pdf,application/pdf" style="display:none;">
       <input type="file" id="upload-photo-input" accept="image/*" capture="environment" style="display:none;">
     </div>
     <!-- Step 2: Preview -->
@@ -230,6 +230,86 @@
       <div style="display:flex; gap:8px; justify-content:center;">
         <button id="btn-upload-retake" class="upload-btn upload-btn-grey">Opnieuw</button>
         <button id="btn-upload-accept" class="upload-btn upload-btn-green">Akkoord</button>
+      </div>
+    </div>
+    <!-- Step 2b: Multi-page PDF import -->
+    <div id="upload-step-pdf" class="upload-pdf-flow" style="display:none;">
+      <div class="upload-pdf-header">
+        <div>
+          <div class="upload-pdf-kicker">PDF upload</div>
+          <h3 id="upload-pdf-title">Pagina's kiezen</h3>
+          <p id="upload-pdf-summary">PDF laden...</p>
+        </div>
+        <button id="btn-upload-pdf-close" type="button" class="upload-pdf-close" aria-label="PDF upload sluiten">&times;</button>
+      </div>
+
+      <div id="upload-pdf-processing" class="upload-pdf-processing">
+        <div class="upload-pdf-spinner"></div>
+        <p>PDF wordt verwerkt...</p>
+      </div>
+
+      <div id="upload-pdf-overview" class="upload-pdf-panel" style="display:none;">
+        <div class="upload-pdf-toolbar">
+          <div class="upload-pdf-count" id="upload-pdf-count">0 geselecteerd</div>
+          <div class="upload-pdf-toolbar-actions">
+            <button id="btn-upload-pdf-select-all" type="button" class="upload-pdf-secondary">Alles selecteren</button>
+            <button id="btn-upload-pdf-select-none" type="button" class="upload-pdf-secondary">Niets selecteren</button>
+          </div>
+        </div>
+        <div id="upload-pdf-pages" class="upload-pdf-grid"></div>
+        <div class="upload-pdf-footer">
+          <button id="btn-upload-pdf-retake" type="button" class="upload-btn upload-btn-grey">Andere PDF</button>
+          <button id="btn-upload-pdf-next" type="button" class="upload-btn upload-btn-green">Gegevens invullen</button>
+        </div>
+      </div>
+
+      <div id="upload-pdf-editor" class="upload-pdf-editor" style="display:none;">
+        <div class="upload-pdf-editor-bar">
+          <button id="btn-upload-pdf-editor-back" type="button" class="upload-pdf-secondary">Terug</button>
+          <strong id="upload-pdf-editor-title">Pagina bewerken</strong>
+          <div class="upload-pdf-editor-actions">
+            <button id="btn-upload-pdf-zoom-out" type="button" class="upload-pdf-secondary" aria-label="Uitzoomen">-</button>
+            <button id="btn-upload-pdf-zoom-fit" type="button" class="upload-pdf-secondary">Passend</button>
+            <button id="btn-upload-pdf-zoom-in" type="button" class="upload-pdf-secondary" aria-label="Inzoomen">+</button>
+            <button id="btn-upload-pdf-rotate-left" type="button" class="upload-pdf-secondary">90 links</button>
+            <button id="btn-upload-pdf-rotate-right" type="button" class="upload-pdf-secondary">90 rechts</button>
+          </div>
+        </div>
+        <div class="upload-pdf-crop-wrap">
+          <div id="upload-pdf-editor-loading" class="upload-pdf-editor-loading">
+            <div class="upload-pdf-spinner"></div>
+            <span>Pagina laden...</span>
+          </div>
+          <div class="upload-pdf-crop-stage img-editor-canvas-wrap">
+            <img id="upload-pdf-editor-img" alt="PDF pagina uitsnijden">
+          </div>
+        </div>
+        <div class="upload-pdf-footer">
+          <button id="btn-upload-pdf-editor-cancel" type="button" class="upload-btn upload-btn-grey">Annuleren</button>
+          <button id="btn-upload-pdf-editor-save" type="button" class="upload-btn upload-btn-green">Opslaan</button>
+        </div>
+      </div>
+
+      <div id="upload-pdf-form" class="upload-pdf-form" style="display:none;">
+        <div class="upload-pdf-form-top">
+          <select id="upload-pdf-customer-select" class="upload-input"></select>
+          <div id="upload-pdf-new-customer-wrapper" style="display:none;">
+            <input type="text" id="upload-pdf-new-customer" placeholder="Naam nieuwe klant" class="upload-input" style="width:100%;">
+            <button type="button" id="btn-upload-pdf-back-to-select" class="upload-pdf-link">Kies bestaande klant</button>
+          </div>
+        </div>
+        <div id="upload-pdf-names-list" class="upload-pdf-names-list"></div>
+        <div id="upload-pdf-progress" class="upload-pdf-progress" style="display:none;">
+          <div class="upload-pdf-progress-track">
+            <div id="upload-pdf-progress-bar" class="upload-pdf-progress-bar"></div>
+          </div>
+          <div id="upload-pdf-progress-text" class="upload-pdf-progress-text">Upload voorbereiden...</div>
+        </div>
+        <div id="upload-pdf-error" class="upload-pdf-error"></div>
+        <div class="upload-pdf-footer">
+          <button id="btn-upload-pdf-form-back" type="button" class="upload-btn upload-btn-grey">Terug naar pagina's</button>
+          <button id="btn-upload-pdf-save" type="button" class="upload-btn upload-btn-green">Bulk uploaden</button>
+        </div>
       </div>
     </div>
     <!-- Step 3: Form -->
@@ -287,8 +367,8 @@
       <button id="img-editor-tool-pan"    class="img-editor-tool active" style="display:none;">&#9995; Verplaatsen</button>
       <button id="img-editor-tool-crop"   class="img-editor-tool active">&#9986; Uitsnede aanpassen</button>
       <button id="img-editor-tool-erase"  class="img-editor-tool" style="display:none;">&#9676; Wissen</button>
-      <button id="img-editor-tool-rotate-left"  class="img-editor-tool" style="display:none;">&#8630; 90° links</button>
-      <button id="img-editor-tool-rotate-right" class="img-editor-tool" style="display:none;">&#8631; 90° rechts</button>
+      <button id="img-editor-tool-rotate-left"  class="img-editor-tool img-editor-rotate">&#8630; 90° links</button>
+      <button id="img-editor-tool-rotate-right" class="img-editor-tool img-editor-rotate">&#8631; 90° rechts</button>
       <button id="img-editor-apply-crop"  class="img-editor-tool img-editor-apply" style="display:none;">&#10003; Toepassen</button>
       <button id="img-editor-undo"        class="img-editor-tool img-editor-undo-btn" disabled style="display:none;">&#8617; Ongedaan</button>
       <button id="img-editor-save"        class="img-editor-tool img-editor-save">&#128190; Opslaan</button>
@@ -338,6 +418,7 @@
   <script src="door-action-service.js"></script>
   <script src="ui-shell-service.js"></script>
   <script src="edit-ui-service.js"></script>
+  <script src="pdf-import-service.js"></script>
   <script src="upload-service.js"></script>
   <script src="select-sheet-service.js"></script>
   <script src="side-panel-service.js"></script>
