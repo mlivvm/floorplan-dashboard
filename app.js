@@ -25,7 +25,7 @@
       pollInterval: 30000,
       jotformReturnRefreshInterval: 2000,
       jotformReturnRefreshMaxDuration: 20000,
-      offlineCacheVersion: 'fd-v1.8.118',
+      offlineCacheVersion: 'fd-v1.8.119',
     };
 
     const COLORS = {
@@ -163,10 +163,8 @@
       updateTopbarHeight();
       const svgEl = svgContainer.querySelector('svg');
       if (svgEl) {
-        const vb = svgEl.viewBox.baseVal;
-        if (vb.width && vb.height) {
-          fitToScreen(vb.width, vb.height);
-        }
+        applyTransform();
+        if (showLabels) updateEditLabels();
       }
     }
 
@@ -940,6 +938,7 @@
 
     let movingMarker = null;    // { marker, doorId, origCx, origCy, dragOffsetX, dragOffsetY }
     let isDraggingMove = false;
+    let pendingAddMarker = null;
     let autoNumbering = false;
     let autoPrefix = '';
     let autoPadding = 3;
@@ -973,6 +972,7 @@
       onBeforeHide: () => {
         if (resizingMarker) cancelResize();
         if (qrScannerController?.isActive()) qrScannerController.stop();
+        clearPendingAddMarker();
       },
     });
 
@@ -1167,6 +1167,38 @@
       editChanges.push(FD.MarkerService.addChange(doorId));
       populateSidePanel();
       if (showLabels) updateEditLabels();
+    }
+
+    function clearPendingAddMarker() {
+      if (!pendingAddMarker) return;
+      pendingAddMarker.remove();
+      pendingAddMarker = null;
+    }
+
+    function showPendingAddMarker(svgX, svgY) {
+      const svgEl = svgContainer.querySelector('svg');
+      if (!svgEl) return null;
+      clearPendingAddMarker();
+
+      const pos = clampMarkerPosition(svgX, svgY, editMarkerSize);
+      const marker = FD.MarkerService.createEllipseMarker({
+        doorId: '__fd_pending_marker',
+        x: pos.x,
+        y: pos.y,
+        radius: editMarkerSize,
+        fill: '#e67700',
+        opacity: '0.95',
+      });
+      marker.removeAttribute('id');
+      marker.removeAttributeNS('http://www.inkscape.org/namespaces/inkscape', 'label');
+      marker.dataset.fdPendingMarker = '1';
+      marker.style.pointerEvents = 'none';
+      marker.style.stroke = '#fff';
+      marker.style.strokeWidth = Math.max(2, editMarkerSize * 0.25).toString();
+      marker.style.filter = 'drop-shadow(0 0 5px #e67700)';
+      svgEl.appendChild(marker);
+      pendingAddMarker = marker;
+      return marker;
     }
 
     function deleteMarker(doorId) {
@@ -1485,6 +1517,7 @@
         return;
       }
 
+      const previewMarker = showPendingAddMarker(svgPoint.x, svgPoint.y);
       showEditPopup('Nieuwe deur', '', [
         {
           text: 'Toevoegen', color: '#34a853',
@@ -1495,12 +1528,14 @@
               editPopupError.textContent = 'Deze code bestaat al op deze plattegrond.';
               return;
             }
+            clearPendingAddMarker();
             addMarkerAtPosition(svgPoint.x, svgPoint.y, code);
             closeEditPopup();
           }
         },
         { text: 'Annuleren', color: '#e0e0e0', textColor: '#333', action: closeEditPopup }
       ]);
+      if (previewMarker) requestAnimationFrame(() => positionEditPopupAwayFromMarker(previewMarker));
     }
 
     function handleEditTapOnDoor(doorId) {

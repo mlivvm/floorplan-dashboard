@@ -176,6 +176,7 @@
     if (!svgEl) throw new Error('Geen SVG gevonden');
     const svgClone = svgEl.cloneNode(true);
     svgClone.querySelectorAll('[data-door-id]').forEach(marker => clearRuntimeMarkerState(marker));
+    svgClone.querySelectorAll('[data-fd-pending-marker]').forEach(el => el.remove());
     svgClone.querySelectorAll('[data-fd-label]').forEach(el => el.remove());
     return serializer.serializeToString(svgClone);
   }
