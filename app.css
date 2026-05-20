@@ -356,6 +356,7 @@
     .info-panel .btn-jotform {
       background: #1a73e8;
       color: white;
+      min-width: 148px;
     }
 
     .info-panel .btn-done {
@@ -388,6 +389,10 @@
 
       .info-panel .btn {
         padding: 8px 12px;
+      }
+
+      .info-panel .btn-jotform {
+        min-width: 136px;
       }
     }
 

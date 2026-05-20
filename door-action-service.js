@@ -1,6 +1,6 @@
 (function (global) {
   const FD = global.FD = global.FD || {};
-  const DEFAULT_RETURN_CONTEXT_MAX_AGE_MS = 10 * 60 * 1000;
+  const DEFAULT_RETURN_CONTEXT_MAX_AGE_MS = 8 * 60 * 60 * 1000;
 
   function setActionDisabled(button, disabled) {
     if (!button) return;
@@ -30,6 +30,36 @@
     doorStatusEl.textContent = '';
     setActionDisabled(btnJotform, true);
     setActionDisabled(btnClose, true);
+  }
+
+  function renderJotFormButton(button, { doorId, isDone, lookupState = {} }) {
+    if (!button) return;
+    if (!doorId) {
+      button.textContent = 'JotForm';
+      button.dataset.jotformAction = 'none';
+      button.dataset.jotformPending = '0';
+      setActionDisabled(button, true);
+      return;
+    }
+
+    let action = 'new';
+    let label = 'Nieuw formulier';
+    let pending = false;
+    if (isDone) {
+      if (lookupState?.editUrl || lookupState?.action === 'edit') {
+        action = 'edit';
+        label = 'Aanpassen formulier';
+      } else if (lookupState?.loading || lookupState?.action === 'open') {
+        action = 'open';
+        label = 'Nieuw formulier';
+        pending = true;
+      }
+    }
+
+    button.textContent = label;
+    button.dataset.jotformAction = action;
+    button.dataset.jotformPending = pending ? '1' : '0';
+    setActionDisabled(button, pending);
   }
 
   function renderDoneButton(button, { doorId, isDone }) {
@@ -148,6 +178,7 @@
     onBeforeOpenJotForm,
     prepareJotFormContext,
     findJotFormSubmission,
+    getJotFormButtonState,
   }) {
     function state() {
       return typeof getState === 'function' ? getState() : {};
@@ -158,6 +189,21 @@
       renderDoneButton(elements.btnDone, {
         doorId: selectedDoor,
         isDone: selectedDoor && typeof getDoorStatus === 'function' ? getDoorStatus(selectedDoor) : false,
+      });
+      updateJotFormButton();
+    }
+
+    function updateJotFormButton() {
+      const currentState = state();
+      const { selectedDoor } = currentState;
+      const isDone = selectedDoor && typeof getDoorStatus === 'function' ? getDoorStatus(selectedDoor) : false;
+      const lookupState = selectedDoor && typeof getJotFormButtonState === 'function'
+        ? getJotFormButtonState({ ...currentState, isDone })
+        : {};
+      renderJotFormButton(elements.btnJotform, {
+        doorId: selectedDoor,
+        isDone,
+        lookupState,
       });
     }
 
@@ -176,6 +222,7 @@
         isDone: typeof getDoorStatus === 'function' ? getDoorStatus(doorId) : false,
         colors,
       });
+      updateJotFormButton();
       updateDoneButton();
       if (typeof scrollToDoor === 'function') scrollToDoor(doorId);
     }
@@ -184,6 +231,7 @@
       if (typeof setSelectedDoor === 'function') setSelectedDoor(null);
       if (typeof refreshAllDoorColors === 'function') refreshAllDoorColors();
       clearDoorInfo(elements);
+      updateJotFormButton();
       updateDoneButton();
     }
 
@@ -260,6 +308,7 @@
       openJotForm,
       selectDoor,
       updateDoneButton,
+      updateJotFormButton,
     };
   }
 
@@ -272,6 +321,7 @@
     findFloorplanIndex,
     hasReturnParam,
     readReturnContext,
+    renderJotFormButton,
     renderDoneButton,
     renderDoorInfo,
     saveReturnContext,

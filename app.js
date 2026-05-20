@@ -27,7 +27,7 @@
       jotformReturnRefreshMaxDuration: 90000,
       versionCheckUrl: 'version.json',
       versionCheckInterval: 15 * 60 * 1000,
-      offlineCacheVersion: 'fd-v1.8.134',
+      offlineCacheVersion: 'fd-v1.8.135',
     };
 
     const COLORS = {
@@ -56,11 +56,23 @@
     const appMode = FD.ModeService.createModeController(AppModes.LOGIN);
     let statusSync = null;
     let jotformReturnRefreshTimer = null;
+    let jotformSubmissionLookupRetryTimer = null;
     let jotformFocusRefreshDoorId = null;
     let jotformFocusRefreshUntil = 0;
     let serviceWorkerRegistration = null;
     let updateCheckTimer = null;
     let pendingAppUpdate = null;
+    let doorActionController = null;
+    let jotformSubmissionCache = {
+      key: '',
+      ready: false,
+      loading: false,
+      submissions: {},
+      checkedDoors: {},
+      allChecked: false,
+      requestId: 0,
+      pending: null,
+    };
 
     function setDocumentAppMode(mode) {
       document.documentElement.dataset.appMode = mode;
@@ -431,6 +443,272 @@
       });
     }
 
+    function currentJotFormLookupTarget() {
+      const { customer, floorplan } = getSelectedFloorplan();
+      const customerName = customer?.customer || currentCustomer || '';
+      const floorplanName = floorplan?.name || currentFloorplan || '';
+      const file = floorplan?.file || '';
+      if (!customerName || !floorplanName || !file) return null;
+      return {
+        customer: customerName,
+        floorplan: floorplanName,
+        repo: floorplan?.repo === 'uploads' ? 'uploads' : 'gallery',
+        file,
+      };
+    }
+
+    function currentFloorplanDoneStatusFingerprint(target = currentJotFormLookupTarget()) {
+      if (!target) return '';
+      const bucket = doorStatus?.[target.customer]?.[target.floorplan];
+      if (!bucket || typeof bucket !== 'object') return '';
+      return Object.entries(bucket)
+        .filter(([, value]) => FD.StatusService.isDoneStatusValue(value))
+        .map(([doorId, value]) => `${doorId}=${String(value)}`)
+        .sort()
+        .join('&');
+    }
+
+    function jotformSubmissionCacheKey(target = currentJotFormLookupTarget()) {
+      if (!target) return '';
+      return [
+        target.customer,
+        target.floorplan,
+        target.repo,
+        target.file,
+        currentFloorplanDoneStatusFingerprint(target),
+      ].join('\u001f');
+    }
+
+    function resetJotFormSubmissionCache() {
+      clearJotFormSubmissionLookupRetry();
+      jotformSubmissionCache.requestId += 1;
+      jotformSubmissionCache = {
+        key: '',
+        ready: false,
+        loading: false,
+        submissions: {},
+        checkedDoors: {},
+        allChecked: false,
+        requestId: jotformSubmissionCache.requestId,
+        pending: null,
+      };
+      if (typeof doorActionController !== 'undefined' && doorActionController?.updateJotFormButton) {
+        doorActionController.updateJotFormButton();
+        applyDoorActionPermissions();
+      }
+    }
+
+    function normalizeJotFormSubmissionMap(response) {
+      const source = response?.submissions && typeof response.submissions === 'object'
+        ? response.submissions
+        : {};
+      return Object.fromEntries(Object.entries(source)
+        .filter(([doorId, item]) => doorId && item?.editUrl)
+        .map(([doorId, item]) => [doorId, {
+          editUrl: String(item.editUrl),
+          statusDoneAt: String(item.statusDoneAt || ''),
+        }]));
+    }
+
+    function getCachedJotFormSubmission(doorId) {
+      const key = jotformSubmissionCacheKey();
+      if (!doorId || !key || jotformSubmissionCache.key !== key) return null;
+      return jotformSubmissionCache.submissions?.[doorId] || null;
+    }
+
+    function getJotFormButtonStateForDoor({ selectedDoor: doorId, isDone } = {}) {
+      if (!doorId || !isDone) return { action: 'new' };
+      const key = jotformSubmissionCacheKey();
+      if (!key || jotformSubmissionCache.key !== key) return { action: 'open', loading: true };
+      const cached = jotformSubmissionCache.submissions?.[doorId];
+      if (cached?.editUrl) return { action: 'edit', editUrl: cached.editUrl };
+      if (jotformSubmissionCache.loading || !jotformSubmissionCache.ready) return { action: 'open', loading: true };
+      if (jotformSubmissionCache.allChecked || jotformSubmissionCache.checkedDoors?.[doorId]) {
+        return { action: 'new' };
+      }
+      return { action: 'open', loading: true };
+    }
+
+    async function refreshSelectedJotFormSubmission(target, key) {
+      const doorId = selectedDoor;
+      if (!doorId || !getDoorStatus(doorId)) {
+        resetJotFormSubmissionCache();
+        return null;
+      }
+
+      const requestId = jotformSubmissionCache.requestId + 1;
+      const previousSubmissions = jotformSubmissionCache.key === key
+        ? { ...(jotformSubmissionCache.submissions || {}) }
+        : {};
+      const previousCheckedDoors = jotformSubmissionCache.key === key
+        ? { ...(jotformSubmissionCache.checkedDoors || {}) }
+        : {};
+
+      jotformSubmissionCache = {
+        key,
+        ready: false,
+        loading: true,
+        submissions: previousSubmissions,
+        checkedDoors: previousCheckedDoors,
+        allChecked: false,
+        requestId,
+        pending: null,
+      };
+      if (doorActionController?.updateJotFormButton) {
+        doorActionController.updateJotFormButton();
+        applyDoorActionPermissions();
+      }
+
+      const pending = FD.DataService.findJotFormSubmission(CONFIG, {
+        ...target,
+        doorId,
+      }, {
+        diagnostics: {
+          purpose: 'jotform_submission_selected_lookup',
+          background: true,
+        },
+      }).then(response => {
+        if (jotformSubmissionCache.requestId !== requestId || jotformSubmissionCache.key !== key) return null;
+        const submissions = {
+          ...(jotformSubmissionCache.submissions || {}),
+        };
+        const checkedDoors = {
+          ...(jotformSubmissionCache.checkedDoors || {}),
+        };
+        if (response?.found && response.editUrl) {
+          clearJotFormSubmissionLookupRetry();
+          checkedDoors[doorId] = true;
+          submissions[doorId] = {
+            editUrl: String(response.editUrl),
+            statusDoneAt: '',
+          };
+        } else {
+          if (doorId === jotformFocusRefreshDoorId && Date.now() <= jotformFocusRefreshUntil) {
+            scheduleJotFormSubmissionLookupRetry(doorId);
+          } else {
+            checkedDoors[doorId] = true;
+          }
+          delete submissions[doorId];
+        }
+        jotformSubmissionCache = {
+          key,
+          ready: true,
+          loading: false,
+          submissions,
+          checkedDoors,
+          allChecked: false,
+          requestId,
+          pending: null,
+        };
+        if (doorActionController?.updateJotFormButton) {
+          doorActionController.updateJotFormButton();
+          applyDoorActionPermissions();
+        }
+        return jotformSubmissionCache.submissions;
+      }).catch(err => {
+        if (jotformSubmissionCache.requestId === requestId && jotformSubmissionCache.key === key) {
+          jotformSubmissionCache = {
+            key,
+            ready: false,
+            loading: false,
+            submissions: previousSubmissions,
+            checkedDoors: previousCheckedDoors,
+            allChecked: false,
+            requestId,
+            pending: null,
+          };
+          if (doorActionController?.updateJotFormButton) {
+            doorActionController.updateJotFormButton();
+            applyDoorActionPermissions();
+          }
+        }
+        console.warn('JotForm editlink voor geselecteerde deur laden mislukt:', err);
+        return null;
+      });
+      jotformSubmissionCache.pending = pending;
+      return pending;
+    }
+
+    async function refreshJotFormSubmissionCache({ force = false } = {}) {
+      const target = currentJotFormLookupTarget();
+      const key = jotformSubmissionCacheKey(target);
+      if (!target || !key || navigator.onLine === false || !canWriteCurrentFloorplan()) {
+        resetJotFormSubmissionCache();
+        return null;
+      }
+
+      if (!force && jotformSubmissionCache.key === key) {
+        if (jotformSubmissionCache.ready) return jotformSubmissionCache.submissions;
+        if (jotformSubmissionCache.pending) return jotformSubmissionCache.pending;
+      }
+
+      const supportsBatchLookup = await FD.DataService.supportsJotFormSubmissionBatch(CONFIG);
+      if (!supportsBatchLookup) {
+        return refreshSelectedJotFormSubmission(target, key);
+      }
+
+      const requestId = jotformSubmissionCache.requestId + 1;
+      jotformSubmissionCache = {
+        key,
+        ready: false,
+        loading: true,
+        submissions: {},
+        checkedDoors: {},
+        allChecked: false,
+        requestId,
+        pending: null,
+      };
+      if (doorActionController?.updateJotFormButton) {
+        doorActionController.updateJotFormButton();
+        applyDoorActionPermissions();
+      }
+
+      const pending = FD.DataService.findJotFormSubmissions(CONFIG, target, {
+        diagnostics: {
+          purpose: 'jotform_submission_batch_lookup',
+          background: true,
+        },
+      }).then(response => {
+        if (jotformSubmissionCache.requestId !== requestId || jotformSubmissionCache.key !== key) return null;
+        jotformSubmissionCache = {
+          key,
+          ready: true,
+          loading: false,
+          submissions: normalizeJotFormSubmissionMap(response),
+          checkedDoors: {},
+          allChecked: true,
+          requestId,
+          pending: null,
+        };
+        if (doorActionController?.updateJotFormButton) {
+          doorActionController.updateJotFormButton();
+          applyDoorActionPermissions();
+        }
+        return jotformSubmissionCache.submissions;
+      }).catch(err => {
+        if (jotformSubmissionCache.requestId === requestId && jotformSubmissionCache.key === key) {
+          jotformSubmissionCache = {
+            key,
+            ready: false,
+            loading: false,
+            submissions: {},
+            checkedDoors: {},
+            allChecked: false,
+            requestId,
+            pending: null,
+          };
+          if (doorActionController?.updateJotFormButton) {
+            doorActionController.updateJotFormButton();
+            applyDoorActionPermissions();
+          }
+        }
+        console.warn('JotForm editlinks vooraf laden mislukt:', err);
+        return null;
+      });
+      jotformSubmissionCache.pending = pending;
+      return pending;
+    }
+
     function markJotFormExternalOpen(context) {
       jotformFocusRefreshDoorId = context?.doorId || null;
       jotformFocusRefreshUntil = context?.doorId
@@ -471,6 +749,23 @@
       if (!jotformReturnRefreshTimer) return;
       clearTimeout(jotformReturnRefreshTimer);
       jotformReturnRefreshTimer = null;
+    }
+
+    function clearJotFormSubmissionLookupRetry() {
+      if (!jotformSubmissionLookupRetryTimer) return;
+      clearTimeout(jotformSubmissionLookupRetryTimer);
+      jotformSubmissionLookupRetryTimer = null;
+    }
+
+    function scheduleJotFormSubmissionLookupRetry(doorId) {
+      clearJotFormSubmissionLookupRetry();
+      if (!doorId || doorId !== jotformFocusRefreshDoorId || Date.now() > jotformFocusRefreshUntil) return;
+      jotformSubmissionLookupRetryTimer = setTimeout(() => {
+        jotformSubmissionLookupRetryTimer = null;
+        if (selectedDoor === doorId && getDoorStatus(doorId)) {
+          refreshJotFormSubmissionCache({ force: true });
+        }
+      }, CONFIG.jotformReturnRefreshInterval);
     }
 
     function refreshAfterJotFormFocus() {
@@ -618,7 +913,7 @@
         if (loadCachedCustomersOffline()) {
           console.warn('Kon klanten niet online laden, lokale cache gebruikt:', err);
         } else {
-          console.error('Kon klanten niet laden:', err);
+          console.warn('Kon klanten niet laden:', err);
           loadingEl.textContent = 'Fout bij laden van klantgegevens.';
         }
       } finally {
@@ -638,7 +933,7 @@
       });
 
       if (result.error) {
-        console.error('Kon status niet laden:', result.error);
+        console.warn('Kon status niet laden:', result.error);
       }
       doorStatus = result.status || {};
       updateStatusBar();
@@ -734,10 +1029,14 @@
     function applyDoorActionPermissions() {
       if (!selectedDoor) return;
       const allowed = canWriteCurrentFloorplan();
-      [btnDone, btnJotform].forEach(button => {
-        button.classList.toggle('disabled', !allowed);
-        button.title = allowed ? '' : 'Alleen kijken op deze plattegrond';
-      });
+      btnDone.classList.toggle('disabled', !allowed);
+      btnDone.title = allowed ? '' : 'Alleen kijken op deze plattegrond';
+
+      const jotformPending = btnJotform.dataset.jotformPending === '1';
+      btnJotform.classList.toggle('disabled', !allowed || jotformPending);
+      btnJotform.title = !allowed
+        ? 'Alleen kijken op deze plattegrond'
+        : (jotformPending ? 'Formulierstatus controleren...' : '');
     }
 
     function updateRoleActionButtons() {
@@ -866,7 +1165,7 @@
       }),
     });
 
-    const doorActionController = FD.DoorActionService.createController({
+    doorActionController = FD.DoorActionService.createController({
       elements: {
         doorNameEl,
         doorStatusEl,
@@ -895,17 +1194,25 @@
       showToast,
       openWindow: (url, target) => window.open(url, target),
       onBeforeOpenJotForm: saveJotFormReturnContext,
-      findJotFormSubmission: ({ selectedDoor, currentCustomer, currentFloorplan }) => FD.DataService.findJotFormSubmission(CONFIG, {
-        customer: currentCustomer.customer || currentCustomer,
-        floorplan: currentFloorplan.name || currentFloorplan,
-        repo: currentFloorplan.repo === 'uploads' ? 'uploads' : 'gallery',
-        file: currentFloorplan.file,
-        doorId: selectedDoor,
-      }, {
-        diagnostics: {
-          purpose: 'jotform_submission_lookup',
-        },
-      }),
+      getJotFormButtonState: getJotFormButtonStateForDoor,
+      findJotFormSubmission: ({ selectedDoor, currentCustomer, currentFloorplan }) => {
+        const cached = getCachedJotFormSubmission(selectedDoor);
+        if (cached?.editUrl) {
+          return Promise.resolve({ ok: true, found: true, editUrl: cached.editUrl });
+        }
+        const target = {
+          customer: currentCustomer.customer || currentCustomer,
+          floorplan: currentFloorplan.name || currentFloorplan,
+          repo: currentFloorplan.repo === 'uploads' ? 'uploads' : 'gallery',
+          file: currentFloorplan.file,
+          doorId: selectedDoor,
+        };
+        return FD.DataService.findJotFormSubmission(CONFIG, target, {
+          diagnostics: {
+            purpose: 'jotform_submission_lookup',
+          },
+        });
+      },
       prepareJotFormContext: ({ selectedDoor, currentCustomer, currentFloorplan }) => FD.DataService.createJotFormContext(CONFIG, {
         customer: currentCustomer.customer || currentCustomer,
         floorplan: currentFloorplan.name || currentFloorplan,
@@ -928,6 +1235,7 @@
       setLoadingState,
       onBeforeLoad: () => {
         stopPolling();
+        resetJotFormSubmissionCache();
         deselectDoor();
         btnReset.style.display = 'none';
         infoPanel.style.display = 'none';
@@ -948,6 +1256,7 @@
         populateSidePanel();
         updateDeleteButton();
         updateRoleActionButtons();
+        refreshJotFormSubmissionCache();
         startPolling();
       },
       onBeforeReveal: ({ size }) => fitToScreen(size.width, size.height),
@@ -964,6 +1273,7 @@
     function resetFloorplanUI() {
       floorplanLoadController.cancel();
       stopPolling();
+      resetJotFormSubmissionCache();
       deselectDoor();
       floorplanLoadController.clearContent();
       statusCount.textContent = '';
@@ -1072,6 +1382,10 @@
     function selectDoor(doorId) {
       doorActionController.selectDoor(doorId);
       applyDoorActionPermissions();
+      const key = jotformSubmissionCacheKey();
+      refreshJotFormSubmissionCache({
+        force: Boolean(key && jotformSubmissionCache.key === key && !jotformSubmissionCache.allChecked),
+      });
     }
 
     function deselectDoor() {
@@ -1083,6 +1397,7 @@
     // ============================================================
 
     async function openJotForm() {
+      if (btnJotform.classList.contains('disabled')) return;
       if (!canWriteCurrentFloorplan()) {
         showToast('Alleen kijken op deze plattegrond', 'error');
         return;
@@ -1777,12 +2092,18 @@
       onQueueChange: () => updateStatusSyncIndicator(),
       onSynced: () => {
         refreshAllDoorColors();
+        refreshJotFormSubmissionCache({ force: true });
         updateDoneButton();
         showToast('Status gesynchroniseerd', 'success');
       },
       onNetworkUnavailable: () => {},
       onSyncError: (err) => console.error('Status sync queue mislukt:', err),
     });
+
+    function handleStatusChanged() {
+      refreshAllDoorColors();
+      refreshJotFormSubmissionCache();
+    }
 
     const statusController = FD.StatusSyncService.createController({
       sync: statusSync,
@@ -1796,7 +2117,7 @@
         isEditMode: isEditModeActive(),
         online: navigator.onLine,
       }),
-      onStatusChanged: refreshAllDoorColors,
+      onStatusChanged: handleStatusChanged,
       updateDoneButton,
       showToast,
       logger: console,

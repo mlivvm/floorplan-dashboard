@@ -1,6 +1,7 @@
 (function (global) {
   const FD = global.FD = global.FD || {};
   const CUSTOMER_WIDE_FLOORPLAN_PERMISSION = '*';
+  const workerFeatureSupportCache = new Map();
 
   function workerOnlyError(code) {
     const error = new Error(code || 'worker_route_required');
@@ -670,12 +671,54 @@
     });
   }
 
+  async function findJotFormSubmissions(config, target, options = {}) {
+    const token = getWorkerSessionToken(config);
+    if (!token) throw workerError(401, 'worker_session_required');
+    const params = new URLSearchParams({
+      customer: target.customer || '',
+      floorplan: target.floorplan || '',
+      repo: target.repo || 'gallery',
+      file: target.file || '',
+    });
+    return fetchWorkerJSON(config, `/api/jotform-submissions?${params.toString()}`, {
+      ...options,
+      headers: {
+        ...(options?.headers || {}),
+        Authorization: `Bearer ${token}`,
+      },
+    });
+  }
+
+  async function supportsJotFormSubmissionBatch(config, options = {}) {
+    const baseUrl = getWorkerApiBaseUrl(config);
+    if (!baseUrl) return false;
+    const cacheKey = `${baseUrl}/api/jotform-submissions`;
+    if (workerFeatureSupportCache.has(cacheKey)) return workerFeatureSupportCache.get(cacheKey);
+
+    try {
+      const root = await fetchWorkerJSON(config, '/', {
+        ...options,
+        diagnostics: {
+          suppress: true,
+          ...(options?.diagnostics || {}),
+        },
+      });
+      const supported = Array.isArray(root?.endpoints) && root.endpoints.includes('/api/jotform-submissions');
+      workerFeatureSupportCache.set(cacheKey, supported);
+      return supported;
+    } catch {
+      return false;
+    }
+  }
+
   FD.DataService = {
     canManageUploads,
     canWriteFloorplan,
     clearWorkerSession,
     createJotFormContext,
     findJotFormSubmission,
+    findJotFormSubmissions,
+    supportsJotFormSubmissionBatch,
     getWorkerSessionUser,
     isViewerReadOnlyFloorplan,
     loadCustomers,

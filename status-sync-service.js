@@ -270,6 +270,7 @@
         const nextStatus = await sync.refreshRemoteStatus();
         if (typeof setStatus === 'function') setStatus(nextStatus);
         if (typeof onStatusChanged === 'function') onStatusChanged();
+        if (typeof updateDoneButton === 'function') updateDoneButton();
         flush();
       } catch (err) {
         logger.error('Sync fout:', err);
