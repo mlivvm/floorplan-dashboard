@@ -651,11 +651,31 @@
     });
   }
 
+  async function findJotFormSubmission(config, target, options = {}) {
+    const token = getWorkerSessionToken(config);
+    if (!token) throw workerError(401, 'worker_session_required');
+    const params = new URLSearchParams({
+      customer: target.customer || '',
+      floorplan: target.floorplan || '',
+      repo: target.repo || 'gallery',
+      file: target.file || '',
+      doorId: target.doorId || '',
+    });
+    return fetchWorkerJSON(config, `/api/jotform-submission?${params.toString()}`, {
+      ...options,
+      headers: {
+        ...(options?.headers || {}),
+        Authorization: `Bearer ${token}`,
+      },
+    });
+  }
+
   FD.DataService = {
     canManageUploads,
     canWriteFloorplan,
     clearWorkerSession,
     createJotFormContext,
+    findJotFormSubmission,
     getWorkerSessionUser,
     isViewerReadOnlyFloorplan,
     loadCustomers,

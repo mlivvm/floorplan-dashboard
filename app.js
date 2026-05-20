@@ -24,8 +24,10 @@
       loginEmailNotificationsEnabled: false,
       pollInterval: 30000,
       jotformReturnRefreshInterval: 2000,
-      jotformReturnRefreshMaxDuration: 20000,
-      offlineCacheVersion: 'fd-v1.8.130',
+      jotformReturnRefreshMaxDuration: 90000,
+      versionCheckUrl: 'version.json',
+      versionCheckInterval: 15 * 60 * 1000,
+      offlineCacheVersion: 'fd-v1.8.134',
     };
 
     const COLORS = {
@@ -54,6 +56,11 @@
     const appMode = FD.ModeService.createModeController(AppModes.LOGIN);
     let statusSync = null;
     let jotformReturnRefreshTimer = null;
+    let jotformFocusRefreshDoorId = null;
+    let jotformFocusRefreshUntil = 0;
+    let serviceWorkerRegistration = null;
+    let updateCheckTimer = null;
+    let pendingAppUpdate = null;
 
     function setDocumentAppMode(mode) {
       document.documentElement.dataset.appMode = mode;
@@ -113,6 +120,12 @@
     const accountLabel = document.getElementById('account-label');
     const syncIndicator = document.getElementById('sync-indicator');
     const syncLabel = document.getElementById('sync-label');
+    const appUpdateButton = document.getElementById('btn-app-update');
+    const appUpdateOverlay = document.getElementById('app-update-overlay');
+    const appUpdatePopup = document.getElementById('app-update-popup');
+    const appUpdateMessage = document.getElementById('app-update-message');
+    const appUpdateConfirmButton = document.getElementById('app-update-confirm');
+    const appUpdateLaterButton = document.getElementById('app-update-later');
     const topbarMenu = document.getElementById('topbar-menu');
     const btnTopbarMenu = document.getElementById('btn-menu');
     const btnMenuLabels = document.getElementById('btn-menu-labels');
@@ -121,6 +134,10 @@
       toggleButtonEl: btnTopbarMenu,
       menuEl: topbarMenu,
       documentEl: document,
+    });
+    const appUpdateDialog = FD.UIShellService.createPopupPair({
+      overlayEl: appUpdateOverlay,
+      popupEl: appUpdatePopup,
     });
 
     function hideTopbarMenu() {
@@ -196,6 +213,101 @@
       toastController.show(message, type);
     }
 
+    function normalizeRemoteVersion(data) {
+      const version = String(data?.version || '').trim();
+      const cache = String(data?.cache || '').trim();
+      const normalizedCache = cache || (version ? `fd-v${version}` : '');
+      const normalizedVersion = version || normalizedCache.replace(/^fd-v/, '');
+      if (!normalizedCache || !normalizedVersion) return null;
+      return {
+        version: normalizedVersion,
+        cache: normalizedCache,
+      };
+    }
+
+    function setAppUpdateAvailable(update) {
+      pendingAppUpdate = update || null;
+      if (!appUpdateButton) return;
+      appUpdateButton.hidden = !pendingAppUpdate;
+      appUpdateButton.title = pendingAppUpdate
+        ? `Nieuwe versie ${pendingAppUpdate.version} beschikbaar`
+        : '';
+      requestAnimationFrame(updateTopbarHeight);
+    }
+
+    function appUpdateCheckUrl() {
+      const url = new URL(CONFIG.versionCheckUrl, window.location.href);
+      url.searchParams.set('_', String(Date.now()));
+      return url.toString();
+    }
+
+    async function checkForAppUpdate() {
+      if (navigator.onLine === false) return false;
+      try {
+        const response = await fetch(appUpdateCheckUrl(), {
+          cache: 'no-store',
+          credentials: 'same-origin',
+        });
+        if (!response.ok) return false;
+        const remote = normalizeRemoteVersion(await response.json());
+        const available = Boolean(remote && remote.cache !== CONFIG.offlineCacheVersion);
+        setAppUpdateAvailable(available ? remote : null);
+        return available;
+      } catch (err) {
+        return false;
+      }
+    }
+
+    function showAppUpdateDialog() {
+      if (!pendingAppUpdate) return;
+      if (!appMode.isInteractiveView()) {
+        showToast('Rond eerst je bewerking af voordat je bijwerkt', 'error');
+        return;
+      }
+      if (appUpdateMessage) {
+        appUpdateMessage.textContent = `Versie ${pendingAppUpdate.version} is beschikbaar. Bijwerken duurt een paar seconden.`;
+      }
+      appUpdateDialog.show();
+    }
+
+    function hideAppUpdateDialog() {
+      appUpdateDialog.hide();
+      if (appUpdateConfirmButton) {
+        appUpdateConfirmButton.disabled = false;
+        appUpdateConfirmButton.textContent = 'Bijwerken';
+      }
+    }
+
+    async function applyAppUpdate() {
+      if (!pendingAppUpdate) return;
+      if (!appMode.isInteractiveView()) {
+        hideAppUpdateDialog();
+        showToast('Rond eerst je bewerking af voordat je bijwerkt', 'error');
+        return;
+      }
+
+      if (appUpdateConfirmButton) {
+        appUpdateConfirmButton.disabled = true;
+        appUpdateConfirmButton.textContent = 'Bijwerken...';
+      }
+
+      try {
+        if (serviceWorkerRegistration?.update) {
+          await serviceWorkerRegistration.update();
+        }
+      } catch (err) {
+        console.warn('Service worker update-check mislukt:', err);
+      }
+
+      window.location.reload();
+    }
+
+    function startAppUpdateChecks() {
+      checkForAppUpdate();
+      if (updateCheckTimer) clearInterval(updateCheckTimer);
+      updateCheckTimer = setInterval(checkForAppUpdate, CONFIG.versionCheckInterval);
+    }
+
     function getDiagnosticsContext() {
       const selection = getSelectedFloorplan();
       const floorplan = selection.floorplan || {};
@@ -238,6 +350,15 @@
       }
     });
 
+    appUpdateButton?.addEventListener('click', showAppUpdateDialog);
+    appUpdateLaterButton?.addEventListener('click', hideAppUpdateDialog);
+    appUpdateConfirmButton?.addEventListener('click', applyAppUpdate);
+    appUpdateOverlay?.addEventListener('click', hideAppUpdateDialog);
+
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') checkForAppUpdate();
+    });
+
     function updateConnectionIndicator() {
       const isOnline = navigator.onLine;
       FD.UIShellService.renderConnectionIndicator({
@@ -264,6 +385,7 @@
       if (statusSync) statusSync.markNetworkAvailable();
       flushStatusSyncQueue();
       scheduleFloorplanCacheWarmup();
+      checkForAppUpdate();
     });
 
     window.addEventListener('offline', () => {
@@ -309,6 +431,13 @@
       });
     }
 
+    function markJotFormExternalOpen(context) {
+      jotformFocusRefreshDoorId = context?.doorId || null;
+      jotformFocusRefreshUntil = context?.doorId
+        ? Date.now() + CONFIG.jotformReturnRefreshMaxDuration
+        : 0;
+    }
+
     function saveJotFormReturnContext() {
       const context = currentJotFormReturnContext();
       if (!context) return;
@@ -317,11 +446,16 @@
         JOTFORM_RETURN_CONTEXT_KEY,
         context
       );
+      markJotFormExternalOpen(context);
       if (!saved) console.warn('JotForm terugkeercontext kon niet worden opgeslagen.');
     }
 
     function readJotFormReturnContext() {
       return FD.DoorActionService.readReturnContext(localStorage, JOTFORM_RETURN_CONTEXT_KEY);
+    }
+
+    function isJotFormReturnContextForCurrentOrigin(context) {
+      return Boolean(context?.appOrigin && context.appOrigin === window.location.origin);
     }
 
     function clearJotFormReturnContext() {
@@ -337,6 +471,16 @@
       if (!jotformReturnRefreshTimer) return;
       clearTimeout(jotformReturnRefreshTimer);
       jotformReturnRefreshTimer = null;
+    }
+
+    function refreshAfterJotFormFocus() {
+      if (!jotformFocusRefreshDoorId || Date.now() > jotformFocusRefreshUntil) {
+        jotformFocusRefreshDoorId = null;
+        jotformFocusRefreshUntil = 0;
+        return;
+      }
+      if (selectedDoor !== jotformFocusRefreshDoorId || navigator.onLine === false) return;
+      startJotFormReturnFastRefresh(jotformFocusRefreshDoorId);
     }
 
     function startJotFormReturnFastRefresh(doorId) {
@@ -368,14 +512,22 @@
     }
 
     async function restoreJotFormReturnIfNeeded() {
-      if (!FD.DoorActionService.hasReturnParam(window.location)) return;
+      if (!FD.DoorActionService.hasReturnParam(window.location)) {
+        clearJotFormReturnContext();
+        return;
+      }
 
       const context = readJotFormReturnContext();
       FD.DoorActionService.clearReturnParam(window.history, window.location);
       clearJotFormReturnContext();
 
       if (!context) {
-        showToast('Terug uit JotForm', 'success');
+        showToast('Terug uit JotForm, vorige selectie niet gevonden', 'error');
+        return;
+      }
+
+      if (!isJotFormReturnContextForCurrentOrigin(context)) {
+        showToast('Terug uit JotForm, vorige selectie niet gevonden', 'error');
         return;
       }
 
@@ -403,6 +555,11 @@
         showToast('Terug uit JotForm, deur niet gevonden', 'error');
       }
     }
+
+    window.addEventListener('focus', refreshAfterJotFormFocus);
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') refreshAfterJotFormFocus();
+    });
 
     const floorplanCache = FD.FloorplanCacheService.createWarmupController({
       config: CONFIG,
@@ -738,6 +895,17 @@
       showToast,
       openWindow: (url, target) => window.open(url, target),
       onBeforeOpenJotForm: saveJotFormReturnContext,
+      findJotFormSubmission: ({ selectedDoor, currentCustomer, currentFloorplan }) => FD.DataService.findJotFormSubmission(CONFIG, {
+        customer: currentCustomer.customer || currentCustomer,
+        floorplan: currentFloorplan.name || currentFloorplan,
+        repo: currentFloorplan.repo === 'uploads' ? 'uploads' : 'gallery',
+        file: currentFloorplan.file,
+        doorId: selectedDoor,
+      }, {
+        diagnostics: {
+          purpose: 'jotform_submission_lookup',
+        },
+      }),
       prepareJotFormContext: ({ selectedDoor, currentCustomer, currentFloorplan }) => FD.DataService.createJotFormContext(CONFIG, {
         customer: currentCustomer.customer || currentCustomer,
         floorplan: currentFloorplan.name || currentFloorplan,
@@ -1648,6 +1816,11 @@
 
     function updateDoneButton() {
       doorActionController.updateDoneButton();
+      if (selectedDoor) {
+        const isDone = getDoorStatus(selectedDoor);
+        doorStatusEl.textContent = isDone ? '(afgerond)' : '(nog te doen)';
+        doorStatusEl.style.color = isDone ? COLORS.done : COLORS.todo;
+      }
       applyDoorActionPermissions();
     }
 
@@ -3303,15 +3476,16 @@
     // SERVICE WORKER REGISTRATION
     // ============================================================
 
+    startAppUpdateChecks();
+
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('sw.js')
         .then(reg => {
+          serviceWorkerRegistration = reg;
           reg.onupdatefound = () => {
             const installing = reg.installing;
             installing.onstatechange = () => {
-              if (installing.state === 'activated' && navigator.serviceWorker.controller) {
-                showToast('Nieuwe versie beschikbaar — herlaad de pagina', 'success');
-              }
+              if (installing.state === 'activated' && navigator.serviceWorker.controller) checkForAppUpdate();
             };
           };
         })

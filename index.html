@@ -25,7 +25,7 @@
 
   <!-- Login screen -->
   <div class="login-screen" id="login-screen" style="display:none;">
-    <div style="position:absolute; bottom:12px; left:16px; font-size:12px; color:#aaa;">v1.8.130</div>
+    <div style="position:absolute; bottom:12px; left:16px; font-size:12px; color:#aaa;">v1.8.134</div>
     <div class="login-box">
       <h1>Plattegrond Dashboard</h1>
       <p>Log in met je account</p>
@@ -41,7 +41,7 @@
 
   <!-- App (hidden until logged in) -->
   <div id="app-container" style="display:none;">
-  <div style="position:fixed; bottom:12px; left:16px; font-size:12px; color:#aaa; z-index:1000; pointer-events:none;">v1.8.130</div>
+  <div style="position:fixed; bottom:12px; left:16px; font-size:12px; color:#aaa; z-index:1000; pointer-events:none;">v1.8.134</div>
 
   <!-- Toast notification -->
   <div id="toast" style="display:none; position:fixed; top:calc(env(safe-area-inset-top) + var(--topbar-h, 52px) + 12px); left:50%; transform:translateX(-50%); padding:14px 28px; border-radius:10px; font-size:16px; font-weight:600; z-index:500; box-shadow:0 4px 16px rgba(0,0,0,0.25); cursor:pointer; max-width:90vw; text-align:center;"></div>
@@ -77,6 +77,7 @@
       <span class="sync-dot"></span>
       <span id="sync-label">Sync 0</span>
     </div>
+    <button class="app-update-btn" id="btn-app-update" type="button" hidden>Update</button>
     <button class="btn-reset" id="btn-reset" style="display:none;">Reset zoom</button>
     <button class="btn-reset" id="btn-edit" style="display:none;">&#9998; Bewerken</button>
     <div style="position:relative;">
@@ -140,6 +141,17 @@
     <div style="display:flex; gap:8px; justify-content:center;">
       <button id="logout-confirm" style="font-size:16px; padding:10px 24px; border:none; border-radius:8px; background:#d93025; color:white; font-weight:600; cursor:pointer;">Uitloggen</button>
       <button id="logout-cancel" style="font-size:16px; padding:10px 24px; border:none; border-radius:8px; background:#e0e0e0; color:#333; font-weight:600; cursor:pointer;">Annuleren</button>
+    </div>
+  </div>
+
+  <!-- App update confirmation -->
+  <div id="app-update-overlay" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.4); z-index:299;"></div>
+  <div id="app-update-popup" style="display:none; position:fixed; top:50%; left:50%; transform:translate(-50%,-50%); background:white; padding:24px; border-radius:12px; box-shadow:0 8px 32px rgba(0,0,0,0.3); z-index:300; text-align:center; width:min(340px, calc(100vw - 32px));">
+    <h3 style="font-size:18px; color:#1f2933; margin-bottom:8px;">Nieuwe versie beschikbaar</h3>
+    <p id="app-update-message" style="font-size:15px; color:#555; line-height:1.45; margin-bottom:18px;">Bijwerken duurt een paar seconden.</p>
+    <div style="display:flex; gap:8px; justify-content:center;">
+      <button id="app-update-later" style="font-size:16px; padding:10px 22px; border:none; border-radius:8px; background:#e0e0e0; color:#333; font-weight:600; cursor:pointer;">Later</button>
+      <button id="app-update-confirm" style="font-size:16px; padding:10px 22px; border:none; border-radius:8px; background:#1a73e8; color:white; font-weight:600; cursor:pointer;">Bijwerken</button>
     </div>
   </div>
 

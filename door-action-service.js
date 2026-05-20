@@ -1,6 +1,6 @@
 (function (global) {
   const FD = global.FD = global.FD || {};
-  const DEFAULT_RETURN_CONTEXT_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+  const DEFAULT_RETURN_CONTEXT_MAX_AGE_MS = 10 * 60 * 1000;
 
   function setActionDisabled(button, disabled) {
     if (!button) return;
@@ -55,6 +55,9 @@
     const floorplanFile = floorplan?.file || '';
     const floorplanRepo = floorplan?.repo === 'uploads' ? 'uploads' : 'gallery';
     const signedDoorId = context?.signedDoorId || doorId;
+    const appOrigin = global.location?.origin || '';
+    const appPath = global.location?.pathname || '/';
+    const returnUrl = appOrigin ? `${appOrigin}${appPath}?jotformReturn=1` : '';
     params.set('klant', customerName);
     params.set('deurNummer', doorId);
     params.set('fd_customer', customerName);
@@ -62,6 +65,8 @@
     params.set('fd_floorplan_file', floorplanFile);
     params.set('fd_floorplan_repo', floorplanRepo);
     params.set('fd_door_id', signedDoorId);
+    if (appOrigin) params.set('fd_app_origin', appOrigin);
+    if (returnUrl) params.set('fd_return_url', returnUrl);
     if (context?.contextToken) params.set('fd_context_token', context.contextToken);
     return `${baseUrl}${formId}?${params.toString()}`;
   }
@@ -74,6 +79,8 @@
       floorplanFile: floorplan.file || '',
       floorplanRepo: floorplan.repo === 'uploads' ? 'uploads' : 'gallery',
       doorId,
+      appOrigin: global.location?.origin || '',
+      returnUrl: global.location?.origin ? `${global.location.origin}${global.location.pathname}?jotformReturn=1` : '',
       savedAt: now,
     };
   }
@@ -140,6 +147,7 @@
     openWindow,
     onBeforeOpenJotForm,
     prepareJotFormContext,
+    findJotFormSubmission,
   }) {
     function state() {
       return typeof getState === 'function' ? getState() : {};
@@ -193,6 +201,31 @@
 
       let context = null;
       try {
+        const isDone = typeof getDoorStatus === 'function' ? getDoorStatus(selectedDoor) : false;
+        if (isDone && typeof findJotFormSubmission === 'function') {
+          let existing = null;
+          try {
+            existing = await findJotFormSubmission({ selectedDoor, currentCustomer, currentFloorplan });
+          } catch (err) {
+            if (err?.status !== 404 && err?.status !== 501) throw err;
+          }
+          if (existing?.found && existing.editUrl) {
+            if (typeof onBeforeOpenJotForm === 'function') {
+              onBeforeOpenJotForm({ url: existing.editUrl, selectedDoor, currentCustomer, currentFloorplan });
+            }
+            if (jotFormWindow && !jotFormWindow.closed) {
+              jotFormWindow.location.href = existing.editUrl;
+            } else if (typeof openWindow === 'function') {
+              openWindow(existing.editUrl, '_blank');
+            }
+            return;
+          }
+
+          if (typeof showToast === 'function') {
+            showToast('Geen bestaand JotForm gevonden; nieuw formulier openen', 'success');
+          }
+        }
+
         if (typeof prepareJotFormContext === 'function') {
           context = await prepareJotFormContext({ selectedDoor, currentCustomer, currentFloorplan });
         }

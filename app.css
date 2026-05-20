@@ -231,6 +231,31 @@
       -webkit-user-select: none;
     }
 
+    .app-update-btn {
+      min-height: 32px;
+      padding: 5px 10px;
+      border: 1px solid rgba(255,255,255,0.8);
+      border-radius: 6px;
+      background: rgba(255,255,255,0.96);
+      color: #174ea6;
+      font-size: 13px;
+      font-weight: 700;
+      line-height: 1;
+      cursor: pointer;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.12);
+      white-space: nowrap;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+
+    .app-update-btn[hidden] {
+      display: none;
+    }
+
+    .app-update-btn:active {
+      transform: translateY(1px);
+    }
+
     .sync-dot {
       width: 9px;
       height: 9px;

@@ -1,4 +1,4 @@
-const CACHE_NAME = 'fd-v1.8.130';
+const CACHE_NAME = 'fd-v1.8.134';
 
 const STATIC_ASSETS = [
   './',
@@ -23,6 +23,7 @@ const STATIC_ASSETS = [
   'select-sheet-service.js',
   'side-panel-service.js',
   'app.js',
+  'version.json',
   'manifest.json',
   'icon-192.png',
   'icon-512.png',
@@ -60,6 +61,15 @@ self.addEventListener('activate', (e) => {
 
 self.addEventListener('fetch', (e) => {
   const url = new URL(e.request.url);
+
+  // Version checks must reflect the current deployment, not an old app cache.
+  if (url.origin === self.location.origin && url.pathname.endsWith('/version.json')) {
+    e.respondWith(
+      fetch(new Request(e.request, { cache: 'no-store' }))
+        .catch(() => offlineMissResponse())
+    );
+    return;
+  }
 
   // Never cache external services with mutable/auth side effects
   if (url.hostname === 'eu.jotform.com' ||
