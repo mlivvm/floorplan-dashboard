@@ -27,7 +27,7 @@
       jotformReturnRefreshMaxDuration: 90000,
       versionCheckUrl: 'version.json',
       versionCheckInterval: 15 * 60 * 1000,
-      offlineCacheVersion: 'fd-v1.8.142',
+      offlineCacheVersion: 'fd-v1.8.143',
     };
 
     const COLORS = {
@@ -1752,12 +1752,26 @@
         });
         adminDashboardState.data = data;
         if (Array.isArray(data.customers) && data.customers.length) {
+          const previousSelection = getSelectedFloorplan();
+          const previousCustomerName = previousSelection.customer?.customer || currentCustomer || '';
+          const previousFloorplan = previousSelection.floorplan || null;
+          const previousRepo = previousFloorplan?.repo === 'uploads' ? 'uploads' : 'gallery';
           customers = data.customers;
           cacheCustomers();
           populateCustomerDropdown();
-          const selectedCustomerIndex = FD.SelectSheetService.selectedIndex(customerSelect);
-          if (selectedCustomerIndex !== null && customers[selectedCustomerIndex]) {
+          const selectedCustomerIndex = customers.findIndex(customer => customer.customer === previousCustomerName);
+          if (selectedCustomerIndex >= 0) {
+            customerSelect.value = String(selectedCustomerIndex);
             populateFloorplanDropdown(selectedCustomerIndex);
+            if (previousFloorplan) {
+              const selectedFloorplanIndex = (customers[selectedCustomerIndex].floorplans || []).findIndex(fp => (
+                fp.name === previousFloorplan.name &&
+                fp.file === previousFloorplan.file &&
+                (fp.repo === 'uploads' ? 'uploads' : 'gallery') === previousRepo
+              ));
+              if (selectedFloorplanIndex >= 0) floorplanSelect.value = String(selectedFloorplanIndex);
+            }
+            updatePickerButtons();
           }
         }
         renderAdminDashboard();
