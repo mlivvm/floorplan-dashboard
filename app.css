@@ -1863,9 +1863,9 @@
 
     .upload-pdf-name-row {
       display: grid;
-      grid-template-columns: 116px minmax(0, 1fr);
-      gap: 12px;
-      align-items: center;
+      grid-template-columns: 118px minmax(0, 1fr);
+      gap: 14px;
+      align-items: stretch;
       background: #fff;
       border: 1px solid #dfe4ea;
       border-radius: 8px;
@@ -1992,7 +1992,19 @@
       font-weight: 800;
     }
 
-    .upload-pdf-name-row label {
+    .upload-pdf-name-fields {
+      display: grid;
+      grid-template-columns: minmax(150px, 0.72fr) minmax(190px, 1fr);
+      gap: 10px;
+      align-items: start;
+    }
+
+    .upload-pdf-name-field {
+      display: block;
+      min-width: 0;
+    }
+
+    .upload-pdf-name-field span {
       display: block;
       font-size: 13px;
       font-weight: 800;
@@ -2000,7 +2012,7 @@
       margin-bottom: 6px;
     }
 
-    .upload-pdf-name-row input {
+    .upload-pdf-name-field input {
       width: 100%;
       box-sizing: border-box;
     }
@@ -2046,6 +2058,10 @@
 
       .upload-pdf-name-row {
         grid-template-columns: 92px minmax(0, 1fr);
+      }
+
+      .upload-pdf-name-fields {
+        grid-template-columns: 1fr;
       }
     }
 

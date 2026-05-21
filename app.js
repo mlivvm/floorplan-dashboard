@@ -27,7 +27,7 @@
       jotformReturnRefreshMaxDuration: 90000,
       versionCheckUrl: 'version.json',
       versionCheckInterval: 15 * 60 * 1000,
-      offlineCacheVersion: 'fd-v1.8.137',
+      offlineCacheVersion: 'fd-v1.8.138',
     };
 
     const COLORS = {
@@ -73,6 +73,15 @@
       allChecked: false,
       requestId: 0,
       pending: null,
+    };
+    let doorCodeIndexState = {
+      ready: false,
+      loading: false,
+      entries: [],
+      byCode: new Map(),
+      requestId: 0,
+      pending: null,
+      error: null,
     };
 
     function setDocumentAppMode(mode) {
@@ -1175,9 +1184,124 @@
         return `${code} staat dubbel op deze plattegrond.`;
       }
       if (conflict?.customer && conflict?.floorplan) {
-        return `${code} bestaat al bij ${conflict.customer} - ${conflict.floorplan}.`;
+        const door = conflict.doorId ? `, deur ${conflict.doorId}` : '';
+        return `${code} bestaat al bij ${conflict.customer} - ${conflict.floorplan}${door}.`;
       }
       return `${code} bestaat al ergens anders in KEYROL.`;
+    }
+
+    function normalizeDoorCodeForIndex(value) {
+      return String(value || '').trim().toUpperCase();
+    }
+
+    function rebuildDoorCodeIndexMap(entries) {
+      const byCode = new Map();
+      (Array.isArray(entries) ? entries : []).forEach(entry => {
+        const code = normalizeDoorCodeForIndex(entry?.code);
+        if (!code) return;
+        if (!byCode.has(code)) byCode.set(code, []);
+        byCode.get(code).push({
+          code,
+          customer: String(entry.customer || ''),
+          floorplan: String(entry.floorplan || ''),
+          repo: entry.repo === 'uploads' ? 'uploads' : 'gallery',
+          file: String(entry.file || ''),
+          doorId: String(entry.doorId || entry.door_id || ''),
+        });
+      });
+      return byCode;
+    }
+
+    function resetDoorCodeIndexState() {
+      doorCodeIndexState.requestId += 1;
+      doorCodeIndexState = {
+        ready: false,
+        loading: false,
+        entries: [],
+        byCode: new Map(),
+        requestId: doorCodeIndexState.requestId,
+        pending: null,
+        error: null,
+      };
+    }
+
+    async function loadDoorCodeIndex({ force = false } = {}) {
+      if (!canWriteCurrentFloorplan()) return null;
+      if (!force) {
+        if (doorCodeIndexState.ready) return doorCodeIndexState.entries;
+        if (doorCodeIndexState.pending) return doorCodeIndexState.pending;
+      }
+
+      const requestId = doorCodeIndexState.requestId + 1;
+      doorCodeIndexState = {
+        ready: false,
+        loading: true,
+        entries: [],
+        byCode: new Map(),
+        requestId,
+        pending: null,
+        error: null,
+      };
+
+      const pending = FD.DataService.fetchDoorCodeIndex(CONFIG, {
+        diagnostics: {
+          purpose: 'door_code_index_lookup',
+          background: true,
+        },
+      }).then(response => {
+        if (doorCodeIndexState.requestId !== requestId) return null;
+        const entries = Array.isArray(response?.entries) ? response.entries : [];
+        doorCodeIndexState = {
+          ready: true,
+          loading: false,
+          entries,
+          byCode: rebuildDoorCodeIndexMap(entries),
+          requestId,
+          pending: null,
+          error: null,
+        };
+        return entries;
+      }).catch(err => {
+        if (doorCodeIndexState.requestId === requestId) {
+          doorCodeIndexState = {
+            ready: false,
+            loading: false,
+            entries: [],
+            byCode: new Map(),
+            requestId,
+            pending: null,
+            error: err,
+          };
+        }
+        console.warn('Globale deurcode-index laden mislukt:', err);
+        return null;
+      });
+
+      doorCodeIndexState.pending = pending;
+      return pending;
+    }
+
+    function findGlobalDoorCodeConflict(code) {
+      const normalized = normalizeDoorCodeForIndex(code);
+      if (!normalized || !doorCodeIndexState.ready) return null;
+      const target = currentJotFormLookupTarget();
+      if (!target) return null;
+      return (doorCodeIndexState.byCode.get(normalized) || [])
+        .find(entry => !(entry.repo === target.repo && entry.file === target.file)) || null;
+    }
+
+    function globalDoorCodeConflictMessage(conflict, code) {
+      const normalized = normalizeDoorCodeForIndex(code || conflict?.code);
+      const where = [conflict?.customer, conflict?.floorplan].filter(Boolean).join(' - ');
+      const door = conflict?.doorId ? `, deur ${conflict.doorId}` : '';
+      return where
+        ? `Code ${normalized} is al in gebruik bij ${where}${door}.`
+        : `Code ${normalized} is al ergens anders in KEYROL in gebruik.`;
+    }
+
+    function doorCodeIndexLoadingMessage() {
+      if (doorCodeIndexState.loading) return 'Globale deurcodecontrole wordt nog geladen. Probeer het over een paar seconden opnieuw.';
+      return '';
     }
 
     const customerPickerBtn = document.getElementById('customer-picker-btn');
@@ -1371,6 +1495,7 @@
       onBeforeLoad: () => {
         stopPolling();
         resetJotFormSubmissionCache();
+        resetDoorCodeIndexState();
         deselectDoor();
         btnReset.style.display = 'none';
         infoPanel.style.display = 'none';
@@ -1657,6 +1782,7 @@
         return;
       }
       appMode.enter(AppModes.EDIT);
+      loadDoorCodeIndex({ force: true });
       editChanges = [];
       movingMarker = null;
       isDraggingMove = false;
@@ -1750,6 +1876,7 @@
           saveErrorMessage: 'Kon niet opslaan',
         });
         await updateCachedSVGAfterSave(fileUrl, updateResult, svgText);
+        resetDoorCodeIndexState();
 
         exitEditMode();
         editChanges = [];
@@ -2146,6 +2273,13 @@
         if (FD.MarkerService.markerExists(svgContainer, code)) {
           showToast('Code ' + code + ' bestaat al', 'error'); return;
         }
+        const loadingMessage = doorCodeIndexLoadingMessage();
+        if (loadingMessage) { showToast(loadingMessage, 'error'); return; }
+        const conflict = findGlobalDoorCodeConflict(code);
+        if (conflict) {
+          showToast(globalDoorCodeConflictMessage(conflict, code), 'error');
+          return;
+        }
         addMarkerAtPosition(svgPoint.x, svgPoint.y, code);
         updateAutoPreview();
         return;
@@ -2160,6 +2294,16 @@
             if (!code) return;
             if (FD.MarkerService.markerExists(svgContainer, code)) {
               editPopupError.textContent = 'Deze code bestaat al op deze plattegrond.';
+              return;
+            }
+            const loadingMessage = doorCodeIndexLoadingMessage();
+            if (loadingMessage) {
+              editPopupError.textContent = loadingMessage;
+              return;
+            }
+            const conflict = findGlobalDoorCodeConflict(code);
+            if (conflict) {
+              editPopupError.textContent = globalDoorCodeConflictMessage(conflict, code);
               return;
             }
             clearPendingAddMarker();
@@ -2209,6 +2353,16 @@
                   if (newCode === doorId) { closeEditPopup(); return; }
                   if (FD.MarkerService.markerExists(svgContainer, newCode)) {
                     editPopupError.textContent = 'Deze code bestaat al op deze plattegrond.';
+                    return;
+                  }
+                  const loadingMessage = doorCodeIndexLoadingMessage();
+                  if (loadingMessage) {
+                    editPopupError.textContent = loadingMessage;
+                    return;
+                  }
+                  const conflict = findGlobalDoorCodeConflict(newCode);
+                  if (conflict) {
+                    editPopupError.textContent = globalDoorCodeConflictMessage(conflict, newCode);
                     return;
                   }
                   renameMarker(doorId, newCode);

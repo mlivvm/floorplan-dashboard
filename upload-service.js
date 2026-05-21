@@ -757,22 +757,44 @@
       }
 
       const fieldWrap = document.createElement('div');
-      const label = document.createElement('label');
-      label.textContent = `Plattegrond beschrijving voor pagina ${page.pageNumber}`;
-      const input = document.createElement('input');
-      input.type = 'text';
-      input.className = 'upload-input';
-      input.value = page.floorLabel || page.floorplanName || '';
-      input.placeholder = 'bv. Begane grond';
-      input.addEventListener('input', () => {
-        page.floorLabel = input.value;
+      fieldWrap.className = 'upload-pdf-name-fields';
+
+      const buildingField = document.createElement('label');
+      buildingField.className = 'upload-pdf-name-field';
+      const buildingLabel = document.createElement('span');
+      buildingLabel.textContent = 'Pand';
+      const buildingInput = document.createElement('input');
+      buildingInput.type = 'text';
+      buildingInput.className = 'upload-input';
+      buildingInput.value = page.buildingName || '';
+      buildingInput.placeholder = 'bv. Hoofdgebouw';
+      buildingInput.addEventListener('input', () => {
+        page.buildingName = buildingInput.value;
       });
+      buildingField.appendChild(buildingLabel);
+      buildingField.appendChild(buildingInput);
+
+      const descriptionField = document.createElement('label');
+      descriptionField.className = 'upload-pdf-name-field';
+      const descriptionLabel = document.createElement('span');
+      descriptionLabel.textContent = `Beschrijving pagina ${page.pageNumber}`;
+      const descriptionInput = document.createElement('input');
+      descriptionInput.type = 'text';
+      descriptionInput.className = 'upload-input';
+      descriptionInput.value = page.floorLabel || page.floorplanName || '';
+      descriptionInput.placeholder = 'bv. Begane grond';
+      descriptionInput.addEventListener('input', () => {
+        page.floorLabel = descriptionInput.value;
+      });
+      descriptionField.appendChild(descriptionLabel);
+      descriptionField.appendChild(descriptionInput);
+
       const status = document.createElement('div');
       status.className = 'upload-pdf-page-status';
       status.classList.toggle('is-error', page.status === 'error');
       status.textContent = pageStatusLabel(page);
-      fieldWrap.appendChild(label);
-      fieldWrap.appendChild(input);
+      fieldWrap.appendChild(buildingField);
+      fieldWrap.appendChild(descriptionField);
       fieldWrap.appendChild(status);
 
       row.appendChild(thumb);
@@ -781,7 +803,7 @@
     });
   }
 
-  function validatePdfBatchForm({ customerValue, newCustomerName, buildingName = '', pages, customers }) {
+  function validatePdfBatchForm({ customerValue, newCustomerName, pages, customers }) {
     if (!pages.length) return { ok: false, error: 'Selecteer minimaal 1 pagina.' };
     if (customerValue === '') return { ok: false, error: 'Kies een klant.' };
 
@@ -806,15 +828,16 @@
       if (!customerName) return { ok: false, error: 'Kies een klant.' };
     }
 
-    const cleanBuildingName = String(buildingName || '').trim();
     const seen = new Set();
     for (const page of pages) {
+      const cleanBuildingName = String(page.buildingName || '').trim();
       const cleanFloorLabel = String(page.floorLabel || page.floorplanName || '').trim();
-      if (!cleanFloorLabel) return { ok: false, error: `Vul een verdieping of naam in voor pagina ${page.pageNumber}.` };
+      if (!cleanFloorLabel) return { ok: false, error: `Vul een beschrijving in voor pagina ${page.pageNumber}.` };
       const cleanName = cleanBuildingName ? `${cleanBuildingName} - ${cleanFloorLabel}` : cleanFloorLabel;
       const key = cleanName.toLowerCase();
       if (seen.has(key)) return { ok: false, error: `Dubbele plattegrondnaam: "${cleanName}".` };
       seen.add(key);
+      page.buildingName = cleanBuildingName;
       page.floorLabel = cleanFloorLabel;
       page.floorplanName = cleanName;
 
@@ -827,7 +850,6 @@
     return {
       ok: true,
       customerName,
-      buildingName: cleanBuildingName,
       isNewCustomer,
       pages,
     };
@@ -962,6 +984,7 @@
           outputHeight: 0,
           floorplanName: pdfService.suggestedFloorplanName(file.name, index + 1),
           floorLabel: pdfService.suggestedFloorplanName(file.name, index + 1),
+          buildingName: '',
           edited: false,
           status: 'rendering',
           error: '',
@@ -1298,7 +1321,6 @@
       const form = validatePdfBatchForm({
         customerValue,
         newCustomerName,
-        buildingName: elements.pdfBuildingNameInput?.value || '',
         pages: pagesToUpload,
         customers,
       });
@@ -1346,7 +1368,7 @@
             form: {
               customerName: form.customerName,
               floorplanName: page.floorplanName,
-              buildingName: form.buildingName,
+              buildingName: page.buildingName,
               floorLabel: page.floorLabel,
               isNewCustomer,
             },

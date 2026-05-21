@@ -745,6 +745,22 @@
     });
   }
 
+  async function fetchDoorCodeIndex(config, options = {}) {
+    const token = getWorkerSessionToken(config);
+    if (!token) throw workerError(401, 'worker_session_required');
+    const data = await fetchWorkerJSON(config, '/api/door-code-index', {
+      ...options,
+      headers: {
+        ...(options?.headers || {}),
+        Authorization: `Bearer ${token}`,
+      },
+    });
+    return {
+      entries: Array.isArray(data.entries) ? data.entries : [],
+      count: Number(data.count || 0),
+    };
+  }
+
   async function supportsJotFormSubmissionBatch(config, options = {}) {
     const baseUrl = getWorkerApiBaseUrl(config);
     if (!baseUrl) return false;
@@ -774,6 +790,7 @@
     createJotFormContext,
     findJotFormSubmission,
     findJotFormSubmissions,
+    fetchDoorCodeIndex,
     supportsJotFormSubmissionBatch,
     getWorkerSessionUser,
     isViewerReadOnlyFloorplan,
