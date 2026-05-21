@@ -27,7 +27,7 @@
       jotformReturnRefreshMaxDuration: 90000,
       versionCheckUrl: 'version.json',
       versionCheckInterval: 15 * 60 * 1000,
-      offlineCacheVersion: 'fd-v1.8.143',
+      offlineCacheVersion: 'fd-v1.8.144',
     };
 
     const COLORS = {
@@ -2020,7 +2020,7 @@
       getState: () => ({ customersLoading }),
       getItems: getSelectSheetItems,
       onCustomerChange: ({ value }) => {
-        if (adminDashboardState.visible) hideAdminDashboard();
+        const dashboardWasVisible = adminDashboardState.visible;
         if (isEditModeActive()) exitEditMode();
         resetFloorplanUI();
         currentCustomer = null;
@@ -2032,14 +2032,26 @@
           resetFloorplanDropdown(true);
           setEmptyState('Kies een klant en plattegrond<br>om te beginnen.', 'Gebruik de dropdowns bovenaan');
           loadingEl.classList.remove('hidden');
+          if (dashboardWasVisible) {
+            adminDashboardState.selectedCustomer = '';
+            adminDashboardState.selectedKey = '';
+            adminDashboardState.previewKey = '';
+            renderAdminDashboard();
+          }
           return;
         }
         setEmptyState('Kies een plattegrond<br>uit het dropdown menu.');
         loadingEl.classList.remove('hidden');
         populateFloorplanDropdown(parseInt(value, 10));
+        if (dashboardWasVisible) {
+          const customerIndex = parseInt(value, 10);
+          adminDashboardState.selectedCustomer = customers[customerIndex]?.customer || '';
+          adminDashboardState.selectedKey = '';
+          adminDashboardState.previewKey = '';
+          renderAdminDashboard();
+        }
       },
       onFloorplanChange: () => {
-        if (adminDashboardState.visible) hideAdminDashboard();
         updatePickerButtons();
         const { customerIndex, floorplanIndex, floorplan } = getSelectedFloorplan();
         if (customerIndex === null || floorplanIndex === null || !floorplan) {
@@ -2053,6 +2065,7 @@
           updateRoleActionButtons();
           return;
         }
+        if (adminDashboardState.visible) hideAdminDashboard();
         loadFloorplan(customerIndex, floorplanIndex);
       },
     });
