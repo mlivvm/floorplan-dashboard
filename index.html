@@ -25,7 +25,7 @@
 
   <!-- Login screen -->
   <div class="login-screen" id="login-screen" style="display:none;">
-    <div style="position:absolute; bottom:12px; left:16px; font-size:12px; color:#aaa;">v1.8.140</div>
+    <div style="position:absolute; bottom:12px; left:16px; font-size:12px; color:#aaa;">v1.8.141</div>
     <div class="login-box">
       <h1>Plattegrond Dashboard</h1>
       <p>Log in met je account</p>
@@ -41,7 +41,7 @@
 
   <!-- App (hidden until logged in) -->
   <div id="app-container" style="display:none;">
-  <div style="position:fixed; bottom:12px; left:16px; font-size:12px; color:#aaa; z-index:1000; pointer-events:none;">v1.8.140</div>
+  <div style="position:fixed; bottom:12px; left:16px; font-size:12px; color:#aaa; z-index:1000; pointer-events:none;">v1.8.141</div>
 
   <!-- Toast notification -->
   <div id="toast" style="display:none; position:fixed; top:calc(env(safe-area-inset-top) + var(--topbar-h, 52px) + 12px); left:50%; transform:translateX(-50%); padding:14px 28px; border-radius:10px; font-size:16px; font-weight:600; z-index:500; box-shadow:0 4px 16px rgba(0,0,0,0.25); cursor:pointer; max-width:90vw; text-align:center;"></div>
@@ -88,11 +88,11 @@
       <div id="topbar-menu" style="display:none; position:absolute; right:0; top:100%; margin-top:4px; background:white; border-radius:8px; box-shadow:0 4px 16px rgba(0,0,0,0.2); min-width:160px; z-index:200; overflow:hidden;">
         <button id="btn-upload" style="display:block; width:100%; padding:14px 20px; border:none; background:white; font-size:16px; font-weight:600; color:#333; text-align:left; cursor:pointer;">Plattegrond toevoegen</button>
         <button id="btn-menu-labels" style="display:block; width:100%; padding:14px 20px; border:none; background:white; font-size:16px; font-weight:600; color:#333; text-align:left; cursor:pointer;">Labels tonen</button>
-        <button id="btn-report-problem" style="display:block; width:100%; padding:14px 20px; border:none; background:white; font-size:16px; font-weight:600; color:#333; text-align:left; cursor:pointer;">Probleem melden</button>
         <button id="btn-edit-fp-metadata" style="display:none; width:100%; padding:14px 20px; border:none; background:white; font-size:16px; font-weight:600; color:#1a73e8; text-align:left; cursor:pointer;">Gegevens bewerken</button>
-        <button id="btn-edit-image" style="display:none; width:100%; padding:14px 20px; border:none; background:white; font-size:16px; font-weight:600; color:#1a73e8; text-align:left; cursor:pointer;">Afbeelding bewerken</button>
+        <button id="btn-edit-image" style="display:none; width:100%; padding:14px 20px; border:none; background:white; font-size:16px; font-weight:600; color:#1a73e8; text-align:left; cursor:pointer;">Plattegrond bewerken</button>
         <button id="btn-delete-fp" style="display:none; width:100%; padding:14px 20px; border:none; background:white; font-size:16px; font-weight:600; color:#d93025; text-align:left; cursor:pointer;">Plattegrond verwijderen</button>
         <div style="border-top:1px solid #eee;"></div>
+        <button id="btn-report-problem" style="display:block; width:100%; padding:14px 20px; border:none; background:white; font-size:16px; font-weight:600; color:#333; text-align:left; cursor:pointer;">Probleem melden</button>
         <button id="btn-logout" style="display:block; width:100%; padding:14px 20px; border:none; background:white; font-size:16px; font-weight:600; color:#d93025; text-align:left; cursor:pointer;">Uitloggen</button>
       </div>
     </div>
@@ -256,7 +256,7 @@
       <h3 style="font-size:18px; color:#333; margin-bottom:20px; text-align:center;">Plattegrond toevoegen</h3>
       <div style="display:flex; flex-direction:column; gap:12px;">
         <button id="btn-upload-pdf" class="upload-btn upload-btn-blue">PDF uploaden</button>
-        <button id="btn-upload-photo" class="upload-btn upload-btn-green">Foto maken</button>
+        <button id="btn-upload-photo" class="upload-btn upload-btn-green" style="display:none;">Foto maken</button>
         <button id="btn-upload-cancel-1" class="upload-btn upload-btn-grey">Annuleren</button>
       </div>
       <input type="file" id="upload-pdf-input" accept=".pdf,application/pdf" style="display:none;">
