@@ -676,6 +676,152 @@
       z-index: 199;
     }
 
+    .report-problem-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.42);
+      z-index: 299;
+    }
+
+    .report-problem-popup {
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      width: min(420px, calc(100vw - 32px));
+      max-height: calc(100vh - 48px);
+      overflow-y: auto;
+      background: #fff;
+      color: #1f2933;
+      padding: 22px;
+      border-radius: 10px;
+      box-shadow: 0 10px 36px rgba(0,0,0,0.3);
+      z-index: 300;
+    }
+
+    .report-problem-popup h3 {
+      margin: 0 0 16px;
+      font-size: 19px;
+      color: #1f2933;
+      text-align: center;
+    }
+
+    .report-problem-field {
+      display: flex;
+      flex-direction: column;
+      gap: 7px;
+      margin-bottom: 14px;
+      font-size: 14px;
+      font-weight: 700;
+      color: #39424e;
+    }
+
+    .report-problem-field select,
+    .report-problem-field textarea {
+      width: 100%;
+      border: 1px solid #c9d4e5;
+      border-radius: 8px;
+      padding: 11px 12px;
+      font: inherit;
+      color: #1f2933;
+      background: #fff;
+    }
+
+    .report-problem-field textarea {
+      resize: vertical;
+      min-height: 120px;
+      line-height: 1.45;
+    }
+
+    .report-problem-field select:focus,
+    .report-problem-field textarea:focus {
+      outline: none;
+      border-color: #1a73e8;
+      box-shadow: 0 0 0 3px rgba(26,115,232,0.12);
+    }
+
+    .report-problem-error {
+      min-height: 18px;
+      margin: -2px 0 12px;
+      font-size: 13px;
+      font-weight: 700;
+      color: #d93025;
+    }
+
+    .report-problem-actions {
+      display: flex;
+      gap: 10px;
+      justify-content: flex-end;
+    }
+
+    .report-problem-actions button {
+      border: none;
+      border-radius: 8px;
+      padding: 11px 18px;
+      font-size: 16px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    .report-problem-secondary {
+      background: #e6e8eb;
+      color: #1f2933;
+    }
+
+    .report-problem-primary {
+      background: #1a73e8;
+      color: #fff;
+    }
+
+    .report-problem-primary:disabled {
+      opacity: 0.55;
+      cursor: not-allowed;
+    }
+
+    .busy-overlay {
+      position: fixed;
+      top: calc(env(safe-area-inset-top) + var(--topbar-h, 52px));
+      left: 0;
+      right: 0;
+      bottom: 0;
+      z-index: 530;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      background: rgba(248,250,252,0.72);
+      backdrop-filter: blur(2px);
+      pointer-events: all;
+    }
+
+    .busy-overlay-card {
+      width: min(330px, calc(100vw - 40px));
+      padding: 26px 22px 24px;
+      border-radius: 10px;
+      background: rgba(255,255,255,0.96);
+      box-shadow: 0 10px 32px rgba(31,41,51,0.24);
+      text-align: center;
+      color: #1f2933;
+      border: 1px solid rgba(26,115,232,0.14);
+    }
+
+    .busy-overlay-card .empty-state-icon {
+      margin-bottom: 14px;
+    }
+
+    .busy-overlay-title {
+      font-size: 18px;
+      font-weight: 800;
+      color: #1a73e8;
+      margin-bottom: 6px;
+    }
+
+    .busy-overlay-subtitle {
+      min-height: 20px;
+      font-size: 14px;
+      font-weight: 600;
+      color: #5f6368;
+    }
+
     .svg-container svg {
       position: absolute;
       top: 0;

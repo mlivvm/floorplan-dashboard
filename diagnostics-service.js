@@ -165,12 +165,18 @@
       });
     }
 
-    function reportManual() {
+    function reportManual(options = {}) {
+      const userMessage = trimText(options.message || options.text || '', 700);
+      const userCategory = trimText(options.category || 'Anders', 80) || 'Anders';
       return record({
         level: 'info',
         eventType: 'manual_report',
-        message: 'Probleem gemeld via dashboard menu',
+        message: userMessage || 'Probleem gemeld via dashboard menu',
         source: 'app-menu',
+        details: {
+          userCategory,
+          userMessage,
+        },
       });
     }
 

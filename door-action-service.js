@@ -12,10 +12,11 @@
     doorStatusEl,
     btnJotform,
     btnClose,
-  }, { doorId, isDone, colors }) {
+  }, { doorId, isDone, condition = 'unknown', colors }) {
     doorNameEl.textContent = doorId;
-    doorStatusEl.textContent = isDone ? '(afgerond)' : '(nog te doen)';
-    doorStatusEl.style.color = isDone ? colors.done : colors.todo;
+    const needsAttention = isDone && condition === 'attention';
+    doorStatusEl.textContent = needsAttention ? '(aandacht nodig)' : (isDone ? '(afgerond)' : '(nog te doen)');
+    doorStatusEl.style.color = needsAttention ? (colors.attention || colors.done) : (isDone ? colors.done : colors.todo);
     setActionDisabled(btnJotform, false);
     setActionDisabled(btnClose, false);
   }
@@ -171,6 +172,7 @@
     getState,
     setSelectedDoor,
     getDoorStatus,
+    getDoorCondition,
     refreshAllDoorColors,
     scrollToDoor,
     showToast,
@@ -220,6 +222,7 @@
       renderDoorInfo(elements, {
         doorId,
         isDone: typeof getDoorStatus === 'function' ? getDoorStatus(doorId) : false,
+        condition: typeof getDoorCondition === 'function' ? getDoorCondition(doorId) : 'unknown',
         colors,
       });
       updateJotFormButton();

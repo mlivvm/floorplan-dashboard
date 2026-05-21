@@ -28,11 +28,16 @@
     return item;
   }
 
-  function updateDoorItem(item, doorId, { selectedDoor, isDone, colors }) {
+  function doorColor({ isDone, condition, colors }) {
+    if (isDone && condition === 'attention') return colors.attention || colors.done;
+    return isDone ? colors.done : colors.todo;
+  }
+
+  function updateDoorItem(item, doorId, { selectedDoor, isDone, condition, colors }) {
     item.dataset.doorId = doorId;
 
     const dot = item.querySelector('.side-panel-dot');
-    if (dot) dot.style.background = isDone ? colors.done : colors.todo;
+    if (dot) dot.style.background = doorColor({ isDone, condition, colors });
 
     const label = item.querySelector('.side-panel-label') || item.querySelector('span:last-child');
     if (label) label.textContent = doorId;
@@ -46,6 +51,7 @@
     doorIds,
     selectedDoor,
     getDoorStatus,
+    getDoorCondition,
     colors,
     onSelect,
   }) {
@@ -72,6 +78,7 @@
       updateDoorItem(item, doorId, {
         selectedDoor,
         isDone: typeof getDoorStatus === 'function' ? getDoorStatus(doorId) : false,
+        condition: typeof getDoorCondition === 'function' ? getDoorCondition(doorId) : 'unknown',
         colors,
       });
       listEl.appendChild(item);
@@ -86,6 +93,7 @@
     getDoorIds,
     getSelectedDoor,
     getDoorStatus,
+    getDoorCondition,
     colors,
     onSelect,
     setShellOpen,
@@ -118,6 +126,7 @@
         doorIds: typeof getDoorIds === 'function' ? getDoorIds() : [],
         selectedDoor: typeof getSelectedDoor === 'function' ? getSelectedDoor() : null,
         getDoorStatus,
+        getDoorCondition,
         colors,
         onSelect,
       });

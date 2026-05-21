@@ -27,12 +27,13 @@
       jotformReturnRefreshMaxDuration: 90000,
       versionCheckUrl: 'version.json',
       versionCheckInterval: 15 * 60 * 1000,
-      offlineCacheVersion: 'fd-v1.8.136',
+      offlineCacheVersion: 'fd-v1.8.137',
     };
 
     const COLORS = {
       todo: '#1a73e8',
       done: '#34a853',
+      attention: '#d93025',
     };
 
     const OPACITY = {
@@ -138,10 +139,18 @@
     const appUpdateMessage = document.getElementById('app-update-message');
     const appUpdateConfirmButton = document.getElementById('app-update-confirm');
     const appUpdateLaterButton = document.getElementById('app-update-later');
+    const busyOverlayEl = document.getElementById('busy-overlay');
     const topbarMenu = document.getElementById('topbar-menu');
     const btnTopbarMenu = document.getElementById('btn-menu');
     const btnMenuLabels = document.getElementById('btn-menu-labels');
     const btnReportProblem = document.getElementById('btn-report-problem');
+    const reportProblemOverlay = document.getElementById('report-problem-overlay');
+    const reportProblemPopup = document.getElementById('report-problem-popup');
+    const reportProblemCategory = document.getElementById('report-problem-category');
+    const reportProblemText = document.getElementById('report-problem-text');
+    const reportProblemError = document.getElementById('report-problem-error');
+    const reportProblemSubmit = document.getElementById('report-problem-submit');
+    const reportProblemCancel = document.getElementById('report-problem-cancel');
     const topbarMenuController = FD.UIShellService.createTopbarMenu({
       toggleButtonEl: btnTopbarMenu,
       menuEl: topbarMenu,
@@ -150,6 +159,13 @@
     const appUpdateDialog = FD.UIShellService.createPopupPair({
       overlayEl: appUpdateOverlay,
       popupEl: appUpdatePopup,
+    });
+    const busyOverlay = FD.UIShellService.createBusyOverlayController({
+      overlayEl: busyOverlayEl,
+    });
+    const reportProblemDialog = FD.UIShellService.createPopupPair({
+      overlayEl: reportProblemOverlay,
+      popupEl: reportProblemPopup,
     });
 
     function hideTopbarMenu() {
@@ -352,13 +368,89 @@
       logger: console,
     });
 
-    btnReportProblem.addEventListener('click', async () => {
+    let reportProblemSubmitting = false;
+
+    function reportProblemMessage() {
+      return String(reportProblemText?.value || '').trim();
+    }
+
+    function updateReportProblemSubmitState() {
+      if (!reportProblemSubmit) return;
+      reportProblemSubmit.disabled = reportProblemSubmitting || !reportProblemMessage();
+    }
+
+    function resetReportProblemForm() {
+      reportProblemSubmitting = false;
+      if (reportProblemText) reportProblemText.value = '';
+      if (reportProblemCategory) reportProblemCategory.value = 'Anders';
+      if (reportProblemError) reportProblemError.textContent = '';
+      if (reportProblemSubmit) {
+        reportProblemSubmit.textContent = 'Versturen';
+        reportProblemSubmit.disabled = true;
+      }
+      if (reportProblemCancel) reportProblemCancel.disabled = false;
+    }
+
+    function showReportProblemDialog() {
       hideTopbarMenu();
-      const result = await diagnostics.reportManual();
-      if (result?.sent) {
-        showToast('Probleemmelding verstuurd', 'success');
-      } else {
-        showToast('Probleemmelding bewaard voor later', 'error');
+      resetReportProblemForm();
+      reportProblemDialog.show();
+      setTimeout(() => reportProblemText?.focus(), 0);
+    }
+
+    function hideReportProblemDialog() {
+      if (reportProblemSubmitting) return;
+      reportProblemDialog.hide();
+      resetReportProblemForm();
+    }
+
+    async function submitReportProblem() {
+      if (reportProblemSubmitting) return;
+      const message = reportProblemMessage();
+      if (!message) {
+        if (reportProblemError) reportProblemError.textContent = 'Beschrijf kort wat er misgaat.';
+        updateReportProblemSubmitState();
+        return;
+      }
+
+      reportProblemSubmitting = true;
+      if (reportProblemError) reportProblemError.textContent = '';
+      if (reportProblemSubmit) {
+        reportProblemSubmit.disabled = true;
+        reportProblemSubmit.textContent = 'Versturen...';
+      }
+      if (reportProblemCancel) reportProblemCancel.disabled = true;
+
+      try {
+        const result = await diagnostics.reportManual({
+          message,
+          category: reportProblemCategory?.value || 'Anders',
+        });
+        reportProblemDialog.hide();
+        resetReportProblemForm();
+        if (result?.sent) {
+          showToast('Probleemmelding verstuurd', 'success');
+        } else {
+          showToast('Probleemmelding bewaard voor later', 'error');
+        }
+      } catch (err) {
+        reportProblemSubmitting = false;
+        if (reportProblemSubmit) reportProblemSubmit.textContent = 'Versturen';
+        if (reportProblemCancel) reportProblemCancel.disabled = false;
+        updateReportProblemSubmitState();
+        if (reportProblemError) reportProblemError.textContent = 'Versturen mislukt. Probeer het opnieuw.';
+        console.warn('Probleemmelding versturen mislukt:', err);
+      }
+    }
+
+    btnReportProblem.addEventListener('click', showReportProblemDialog);
+    reportProblemText?.addEventListener('input', updateReportProblemSubmitState);
+    reportProblemSubmit?.addEventListener('click', submitReportProblem);
+    reportProblemCancel?.addEventListener('click', hideReportProblemDialog);
+    reportProblemOverlay?.addEventListener('click', hideReportProblemDialog);
+    document.addEventListener('keydown', event => {
+      if (event.key === 'Escape' && reportProblemPopup?.style.display !== 'none') {
+        hideReportProblemDialog();
       }
     });
 
@@ -507,6 +599,8 @@
         .map(([doorId, item]) => [doorId, {
           editUrl: String(item.editUrl),
           statusDoneAt: String(item.statusDoneAt || ''),
+          doorCondition: ['ok', 'attention', 'unknown'].includes(item.doorCondition) ? item.doorCondition : 'unknown',
+          doorConditionLabel: String(item.doorConditionLabel || ''),
         }]));
     }
 
@@ -514,6 +608,12 @@
       const key = jotformSubmissionCacheKey();
       if (!doorId || !key || jotformSubmissionCache.key !== key) return null;
       return jotformSubmissionCache.submissions?.[doorId] || null;
+    }
+
+    function getDoorCondition(doorId) {
+      if (!doorId || !getDoorStatus(doorId)) return 'unknown';
+      const submission = getCachedJotFormSubmission(doorId);
+      return submission?.doorCondition === 'attention' ? 'attention' : 'unknown';
     }
 
     function getJotFormButtonStateForDoor({ selectedDoor: doorId, isDone } = {}) {
@@ -581,6 +681,8 @@
           submissions[doorId] = {
             editUrl: String(response.editUrl),
             statusDoneAt: '',
+            doorCondition: ['ok', 'attention', 'unknown'].includes(response.doorCondition) ? response.doorCondition : 'unknown',
+            doorConditionLabel: String(response.doorConditionLabel || ''),
           };
         } else {
           if (doorId === jotformFocusRefreshDoorId && Date.now() <= jotformFocusRefreshUntil) {
@@ -604,6 +706,8 @@
           doorActionController.updateJotFormButton();
           applyDoorActionPermissions();
         }
+        refreshAllDoorColors();
+        updateDoneButton();
         return jotformSubmissionCache.submissions;
       }).catch(err => {
         if (jotformSubmissionCache.requestId === requestId && jotformSubmissionCache.key === key) {
@@ -621,6 +725,8 @@
             doorActionController.updateJotFormButton();
             applyDoorActionPermissions();
           }
+          refreshAllDoorColors();
+          updateDoneButton();
         }
         console.warn('JotForm editlink voor geselecteerde deur laden mislukt:', err);
         return null;
@@ -684,6 +790,8 @@
           doorActionController.updateJotFormButton();
           applyDoorActionPermissions();
         }
+        refreshAllDoorColors();
+        updateDoneButton();
         return jotformSubmissionCache.submissions;
       }).catch(err => {
         if (jotformSubmissionCache.requestId === requestId && jotformSubmissionCache.key === key) {
@@ -701,6 +809,8 @@
             doorActionController.updateJotFormButton();
             applyDoorActionPermissions();
           }
+          refreshAllDoorColors();
+          updateDoneButton();
         }
         console.warn('JotForm editlinks vooraf laden mislukt:', err);
         return null;
@@ -1017,13 +1127,14 @@
 
     function floorplanPickerLabel(customer, floorplan) {
       if (!floorplan) return '';
+      const displayName = FD.SelectSheetService.floorplanDisplayName(floorplan);
       if (isViewerReadOnlyFloorplan(customer?.customer || customer, floorplan.name)) {
-        return floorplan.name + ' · alleen kijken';
+        return displayName + ' · alleen kijken';
       }
       if (currentUser?.role === 'viewer') {
-        return floorplan.name + ' · testen toegestaan';
+        return displayName + ' · testen toegestaan';
       }
-      return floorplan.name;
+      return displayName;
     }
 
     function applyDoorActionPermissions() {
@@ -1054,6 +1165,21 @@
       applyDoorActionPermissions();
     }
 
+    function duplicateDoorCodeMessage(err) {
+      if (!(err?.status === 409 && (err?.code === 'duplicate_door_code' || err?.message === 'duplicate_door_code'))) {
+        return '';
+      }
+      const conflict = Array.isArray(err?.details?.conflicts) ? err.details.conflicts[0] : null;
+      const code = conflict?.code ? `Code ${conflict.code}` : 'Deze deurcode';
+      if (conflict?.scope === 'floorplan') {
+        return `${code} staat dubbel op deze plattegrond.`;
+      }
+      if (conflict?.customer && conflict?.floorplan) {
+        return `${code} bestaat al bij ${conflict.customer} - ${conflict.floorplan}.`;
+      }
+      return `${code} bestaat al ergens anders in KEYROL.`;
+    }
+
     const customerPickerBtn = document.getElementById('customer-picker-btn');
     const floorplanPickerBtn = document.getElementById('floorplan-picker-btn');
     const customerPickerValue = document.getElementById('customer-picker-value');
@@ -1068,16 +1194,23 @@
 
     function getSelectSheetItems(type) {
       if (type === 'customer') {
-        return customers.map((c, index) => ({ index, label: c.customer }));
+        return FD.SelectSheetService
+          .sortedWithOriginalIndex(customers, customer => customer.customer)
+          .map(({ index, label }) => ({ index, label }));
       }
       const ci = FD.SelectSheetService.selectedIndex(customerSelect);
       if (ci === null || !customers[ci]) return [];
-      return customers[ci].floorplans.map((fp, index) => ({
-        index,
-        label: fp.name,
-        meta: isViewerReadOnlyFloorplan(customers[ci].customer, fp.name) ? 'Alleen kijken' : (currentUser?.role === 'viewer' ? 'Testen toegestaan' : ''),
-        readOnly: isViewerReadOnlyFloorplan(customers[ci].customer, fp.name),
-      }));
+      return FD.SelectSheetService
+        .sortedWithOriginalIndex(customers[ci].floorplans, floorplan => FD.SelectSheetService.floorplanDisplayName(floorplan))
+        .map(({ item: fp, index, label }) => {
+          const readOnly = isViewerReadOnlyFloorplan(customers[ci].customer, fp.name);
+          return {
+            index,
+            label,
+            meta: readOnly ? 'Alleen kijken' : (currentUser?.role === 'viewer' ? 'Testen toegestaan' : ''),
+            readOnly,
+          };
+        });
     }
 
     const selectionController = FD.SelectSheetService.createSelectionController({
@@ -1155,7 +1288,8 @@
       getDoorIds: () => FD.MarkerService.allMarkers(svgContainer).map(marker => marker.dataset.doorId),
       getSelectedDoor: () => selectedDoor,
       getDoorStatus,
-      colors: { done: COLORS.done, todo: COLORS.todo },
+      getDoorCondition,
+      colors: { done: COLORS.done, todo: COLORS.todo, attention: COLORS.attention },
       onSelect: selectDoor,
       setShellOpen: (open) => FD.UIShellService.setSidePanelOpen({
         sidePanelEl: sidePanel,
@@ -1177,7 +1311,7 @@
         baseUrl: CONFIG.jotformBaseUrl,
         formId: CONFIG.jotformFormId,
       },
-      colors: { done: COLORS.done, todo: COLORS.todo },
+      colors: { done: COLORS.done, todo: COLORS.todo, attention: COLORS.attention },
       getState: () => {
         const selection = getSelectedFloorplan();
         return {
@@ -1189,6 +1323,7 @@
       },
       setSelectedDoor: (doorId) => { selectedDoor = doorId; },
       getDoorStatus,
+      getDoorCondition,
       refreshAllDoorColors,
       scrollToDoor: (doorId) => sidePanelController.scrollToDoor(doorId),
       showToast,
@@ -1345,8 +1480,11 @@
     function applyDoorColor(marker, isDone) {
       const isSelected = marker.dataset.doorId === selectedDoor;
       const hasSelection = selectedDoor !== null;
+      const condition = getDoorCondition(marker.dataset.doorId);
 
-      if (isDone) {
+      if (isDone && condition === 'attention') {
+        marker.style.fill = COLORS.attention;
+      } else if (isDone) {
         marker.style.fill = COLORS.done;
       } else {
         marker.style.fill = COLORS.todo;
@@ -1415,6 +1553,7 @@
     // ============================================================
 
     let editChanges = [];
+    let editSaving = false;
     let editMarkerSize = 15;
     let qrScannerController = null;
     let markerSizeSliderController = null;
@@ -1575,6 +1714,7 @@
     }
 
     async function saveEditMode() {
+      if (editSaving) return;
       if (resizingMarker) applyResize();
       if (movingMarker) cancelMoveMode();
 
@@ -1590,6 +1730,11 @@
       const btnSave = document.getElementById('btn-edit-save');
       btnSave.textContent = 'Opslaan...';
       btnSave.disabled = true;
+      editSaving = true;
+      busyOverlay.show({
+        title: 'Plattegrond opslaan',
+        subtitle: 'Wijzigingen worden opgeslagen...',
+      });
 
       try {
         const { floorplan: fp } = getSelectedFloorplan();
@@ -1613,9 +1758,15 @@
         showToast('Opgeslagen', 'success');
 
       } catch (err) {
-        showToast('Opslaan mislukt: ' + err.message, 'error');
+        const duplicateMessage = duplicateDoorCodeMessage(err);
+        showToast(duplicateMessage
+          ? 'Opslaan mislukt: ' + duplicateMessage
+          : 'Opslaan mislukt: ' + err.message, 'error');
         btnSave.textContent = 'Opslaan';
         btnSave.disabled = false;
+      } finally {
+        editSaving = false;
+        busyOverlay.hide();
       }
     }
 
@@ -2139,8 +2290,10 @@
       doorActionController.updateDoneButton();
       if (selectedDoor) {
         const isDone = getDoorStatus(selectedDoor);
-        doorStatusEl.textContent = isDone ? '(afgerond)' : '(nog te doen)';
-        doorStatusEl.style.color = isDone ? COLORS.done : COLORS.todo;
+        const condition = getDoorCondition(selectedDoor);
+        const needsAttention = isDone && condition === 'attention';
+        doorStatusEl.textContent = needsAttention ? '(aandacht nodig)' : (isDone ? '(afgerond)' : '(nog te doen)');
+        doorStatusEl.style.color = needsAttention ? COLORS.attention : (isDone ? COLORS.done : COLORS.todo);
       }
       applyDoorActionPermissions();
     }
@@ -2421,10 +2574,13 @@
         return;
       }
       let done = 0;
+      let attention = 0;
       markers.forEach(m => {
-        if (getDoorStatus(m.dataset.doorId)) done++;
+        const isDone = getDoorStatus(m.dataset.doorId);
+        if (isDone) done++;
+        if (isDone && getDoorCondition(m.dataset.doorId) === 'attention') attention++;
       });
-      statusCount.textContent = `${done} / ${markers.length} deuren afgerond`;
+      statusCount.textContent = `${done} / ${markers.length} deuren afgerond${attention ? `, ${attention} aandacht nodig` : ''}`;
     }
 
     // ============================================================
@@ -2465,6 +2621,7 @@
         customerSelect: document.getElementById('upload-customer-select'),
         newCustomerWrapper: document.getElementById('upload-new-customer-wrapper'),
         newCustomerInput: document.getElementById('upload-new-customer'),
+        buildingNameInput: document.getElementById('upload-building-name'),
         floorplanNameInput: document.getElementById('upload-floorplan-name'),
         errorEl: document.getElementById('upload-error'),
         pdfState: { pages: [] },
@@ -2485,6 +2642,7 @@
         pdfZoomFitButton: document.getElementById('btn-upload-pdf-zoom-fit'),
         pdfZoomInButton: document.getElementById('btn-upload-pdf-zoom-in'),
         pdfCustomerSelect: document.getElementById('upload-pdf-customer-select'),
+        pdfBuildingNameInput: document.getElementById('upload-pdf-building-name'),
         pdfNewCustomerWrapper: document.getElementById('upload-pdf-new-customer-wrapper'),
         pdfNewCustomerInput: document.getElementById('upload-pdf-new-customer'),
         pdfNamesList: document.getElementById('upload-pdf-names-list'),
@@ -2538,6 +2696,8 @@
         const { customers: currentCustomers } = await FD.DataService.addUploadedFloorplan(CONFIG, {
           customerName: form.customerName,
           floorplanName: form.floorplanName,
+          buildingName: form.buildingName,
+          floorLabel: form.floorLabel,
           fileName,
           svgText,
           isNewCustomer: form.isNewCustomer,
@@ -2586,10 +2746,24 @@
     // ============================================================
 
     const btnEditImage = document.getElementById('btn-edit-image');
+    const btnEditMetadata = document.getElementById('btn-edit-fp-metadata');
+    const metadataFpOverlay = document.getElementById('metadata-fp-overlay');
+    const metadataFpPopup = document.getElementById('metadata-fp-popup');
+    const metadataFpContext = document.getElementById('metadata-fp-context');
+    const metadataBuildingInput = document.getElementById('metadata-building-name');
+    const metadataFloorLabelInput = document.getElementById('metadata-floor-label');
+    const metadataFpError = document.getElementById('metadata-fp-error');
+    const metadataFpSave = document.getElementById('metadata-fp-save');
+    const metadataFpCancel = document.getElementById('metadata-fp-cancel');
+    const metadataDialog = FD.UIShellService.createPopupPair({
+      overlayEl: metadataFpOverlay,
+      popupEl: metadataFpPopup,
+    });
     const uploadActionsController = FD.UploadService.createUploadedFloorplanActionsController({
       controls: {
         deleteButton: document.getElementById('btn-delete-fp'),
         editImageButton: btnEditImage,
+        metadataButton: btnEditMetadata,
         deleteOverlay: document.getElementById('delete-fp-overlay'),
         deletePopup: document.getElementById('delete-fp-popup'),
         deleteMessage: document.getElementById('delete-fp-message'),
@@ -2637,15 +2811,107 @@
       },
     });
 
+    function showMetadataDialog() {
+      if (isEditModeActive()) {
+        showToast('Sluit eerst de bewerkingsmodus', 'error');
+        return;
+      }
+      if (!appMode.isInteractiveView()) {
+        showToast('Sluit eerst het huidige scherm', 'error');
+        return;
+      }
+      if (!canManageUploads()) {
+        showToast('Geen rechten om plattegrondgegevens te bewerken', 'error');
+        return;
+      }
+      hideTopbarMenu();
+      const { customer, floorplan } = getSelectedFloorplan();
+      if (!customer || !floorplan || !(floorplan.uploaded || floorplan.repo === 'uploads')) return;
+      const parts = FD.SelectSheetService.floorplanDisplayParts(floorplan);
+      metadataBuildingInput.value = parts.building;
+      metadataFloorLabelInput.value = parts.floorLabel || floorplan.name || '';
+      metadataFpError.textContent = '';
+      metadataFpContext.textContent = `${customer.customer} · technisch: ${floorplan.name}`;
+      metadataFpSave.disabled = false;
+      metadataFpSave.textContent = 'Opslaan';
+      metadataDialog.show();
+      setTimeout(() => metadataBuildingInput.focus(), 0);
+    }
+
+    function hideMetadataDialog() {
+      metadataDialog.hide();
+    }
+
+    async function saveMetadataDialog() {
+      const { customer, floorplan } = getSelectedFloorplan();
+      if (!customer || !floorplan) return;
+      const floorLabel = metadataFloorLabelInput.value.trim();
+      const buildingName = metadataBuildingInput.value.trim();
+      if (!floorLabel) {
+        metadataFpError.textContent = 'Vul een verdieping of naam in.';
+        return;
+      }
+
+      metadataFpSave.disabled = true;
+      metadataFpSave.textContent = 'Opslaan...';
+      metadataFpError.textContent = '';
+      busyOverlay.show({
+        title: 'Gegevens opslaan',
+        subtitle: 'Plattegrondnaam wordt bijgewerkt...',
+      });
+      try {
+        const { customers: currentCustomers } = await FD.DataService.updateUploadedFloorplanMetadata(CONFIG, {
+          customerName: customer.customer,
+          floorplan,
+          buildingName,
+          floorLabel,
+        });
+        customers = currentCustomers;
+        cacheCustomers();
+
+        const nextCustomerIndex = customers.findIndex(item => item.customer === customer.customer);
+        populateCustomerDropdown();
+        if (nextCustomerIndex >= 0) {
+          customerSelect.value = String(nextCustomerIndex);
+          populateFloorplanDropdown(nextCustomerIndex);
+          const previousRepo = floorplan.repo === 'uploads' ? 'uploads' : 'gallery';
+          const nextFloorplanIndex = customers[nextCustomerIndex].floorplans.findIndex(fp => (
+            fp.name === floorplan.name &&
+            fp.file === floorplan.file &&
+            (fp.repo === 'uploads' ? 'uploads' : 'gallery') === previousRepo
+          ));
+          if (nextFloorplanIndex >= 0) floorplanSelect.value = String(nextFloorplanIndex);
+        }
+        updatePickerButtons();
+        updateDeleteButton();
+        hideMetadataDialog();
+        showToast('Plattegrondgegevens opgeslagen', 'success');
+      } catch (err) {
+        metadataFpError.textContent = err?.status === 409
+          ? 'Deze zichtbare naam bestaat al bij deze klant.'
+          : 'Opslaan mislukt: ' + (err.message || 'onbekende fout');
+      } finally {
+        metadataFpSave.disabled = false;
+        metadataFpSave.textContent = 'Opslaan';
+        busyOverlay.hide();
+      }
+    }
+
     function updateDeleteButton() {
       uploadActionsController.updateButtons();
       const deleteButton = document.getElementById('btn-delete-fp');
       const editImageButton = document.getElementById('btn-edit-image');
+      const metadataButton = document.getElementById('btn-edit-fp-metadata');
       if (deleteButton && !canManageUploads()) deleteButton.style.display = 'none';
       if (editImageButton && !canWriteCurrentFloorplan()) editImageButton.style.display = 'none';
+      if (metadataButton && !canManageUploads()) metadataButton.style.display = 'none';
     }
 
     uploadActionsController.bind();
+    btnEditMetadata?.addEventListener('click', showMetadataDialog);
+    metadataFpSave?.addEventListener('click', saveMetadataDialog);
+    metadataFpCancel?.addEventListener('click', hideMetadataDialog);
+    metadataFpOverlay?.addEventListener('click', hideMetadataDialog);
 
     // ============================================================
     // EVENT LISTENERS
@@ -3656,6 +3922,10 @@
       btnSave.textContent = 'Opslaan...';
       editorSaving = true;
       appMode.enter(AppModes.IMAGE_EDITOR_SAVING);
+      busyOverlay.show({
+        title: 'Afbeelding opslaan',
+        subtitle: 'Bewerkte plattegrond wordt opgeslagen...',
+      });
 
       try {
         const outputCanvas = editorCropper.getCroppedCanvas({
@@ -3687,6 +3957,10 @@
         await updateCachedSVGAfterSave(fileUrl, updateResult, svgText);
 
         btnSave.textContent = 'Bijwerken...';
+        busyOverlay.update({
+          title: 'Plattegrond bijwerken',
+          subtitle: 'Nieuwe versie wordt geladen...',
+        });
         const { customerIndex, floorplanIndex, floorplan } = getSelectedFloorplan();
         if (customerIndex !== null && floorplanIndex !== null && floorplan) {
           await loadFloorplan(customerIndex, floorplanIndex);
@@ -3695,11 +3969,18 @@
         showToast('Afbeelding opgeslagen', 'success');
 
       } catch (err) {
-        showToast('Fout: ' + err.message, 'error');
+        const duplicateMessage = duplicateDoorCodeMessage(err);
+        showToast(duplicateMessage
+          ? 'Opslaan mislukt: ' + duplicateMessage
+          : 'Fout: ' + err.message, 'error');
         editorSaving = false;
         if (appMode.is(AppModes.IMAGE_EDITOR_SAVING)) appMode.enter(AppModes.IMAGE_EDITOR);
         btnSave.disabled = false;
         btnSave.textContent = '\uD83D\uDCBE Opslaan';
+      } finally {
+        if (!editorSaving || !appMode.is(AppModes.IMAGE_EDITOR_SAVING)) {
+          busyOverlay.hide();
+        }
       }
     }
 

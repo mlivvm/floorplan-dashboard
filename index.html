@@ -25,7 +25,7 @@
 
   <!-- Login screen -->
   <div class="login-screen" id="login-screen" style="display:none;">
-    <div style="position:absolute; bottom:12px; left:16px; font-size:12px; color:#aaa;">v1.8.136</div>
+    <div style="position:absolute; bottom:12px; left:16px; font-size:12px; color:#aaa;">v1.8.137</div>
     <div class="login-box">
       <h1>Plattegrond Dashboard</h1>
       <p>Log in met je account</p>
@@ -41,10 +41,13 @@
 
   <!-- App (hidden until logged in) -->
   <div id="app-container" style="display:none;">
-  <div style="position:fixed; bottom:12px; left:16px; font-size:12px; color:#aaa; z-index:1000; pointer-events:none;">v1.8.136</div>
+  <div style="position:fixed; bottom:12px; left:16px; font-size:12px; color:#aaa; z-index:1000; pointer-events:none;">v1.8.137</div>
 
   <!-- Toast notification -->
   <div id="toast" style="display:none; position:fixed; top:calc(env(safe-area-inset-top) + var(--topbar-h, 52px) + 12px); left:50%; transform:translateX(-50%); padding:14px 28px; border-radius:10px; font-size:16px; font-weight:600; z-index:500; box-shadow:0 4px 16px rgba(0,0,0,0.25); cursor:pointer; max-width:90vw; text-align:center;"></div>
+
+  <!-- Shared busy overlay for save/update operations -->
+  <div id="busy-overlay" class="busy-overlay" style="display:none;" aria-live="polite"></div>
 
   <!-- Top bar with dropdowns -->
   <div class="topbar">
@@ -86,6 +89,7 @@
         <button id="btn-upload" style="display:block; width:100%; padding:14px 20px; border:none; background:white; font-size:16px; font-weight:600; color:#333; text-align:left; cursor:pointer;">Plattegrond toevoegen</button>
         <button id="btn-menu-labels" style="display:block; width:100%; padding:14px 20px; border:none; background:white; font-size:16px; font-weight:600; color:#333; text-align:left; cursor:pointer;">Labels tonen</button>
         <button id="btn-report-problem" style="display:block; width:100%; padding:14px 20px; border:none; background:white; font-size:16px; font-weight:600; color:#333; text-align:left; cursor:pointer;">Probleem melden</button>
+        <button id="btn-edit-fp-metadata" style="display:none; width:100%; padding:14px 20px; border:none; background:white; font-size:16px; font-weight:600; color:#1a73e8; text-align:left; cursor:pointer;">Gegevens bewerken</button>
         <button id="btn-edit-image" style="display:none; width:100%; padding:14px 20px; border:none; background:white; font-size:16px; font-weight:600; color:#1a73e8; text-align:left; cursor:pointer;">Afbeelding bewerken</button>
         <button id="btn-delete-fp" style="display:none; width:100%; padding:14px 20px; border:none; background:white; font-size:16px; font-weight:600; color:#d93025; text-align:left; cursor:pointer;">Plattegrond verwijderen</button>
         <div style="border-top:1px solid #eee;"></div>
@@ -152,6 +156,31 @@
     <div style="display:flex; gap:8px; justify-content:center;">
       <button id="app-update-later" style="font-size:16px; padding:10px 22px; border:none; border-radius:8px; background:#e0e0e0; color:#333; font-weight:600; cursor:pointer;">Later</button>
       <button id="app-update-confirm" style="font-size:16px; padding:10px 22px; border:none; border-radius:8px; background:#1a73e8; color:white; font-weight:600; cursor:pointer;">Bijwerken</button>
+    </div>
+  </div>
+
+  <!-- Problem report -->
+  <div id="report-problem-overlay" class="report-problem-overlay" style="display:none;"></div>
+  <div id="report-problem-popup" class="report-problem-popup" style="display:none;" role="dialog" aria-modal="true" aria-labelledby="report-problem-title">
+    <h3 id="report-problem-title">Probleem melden</h3>
+    <label class="report-problem-field">
+      <span>Categorie</span>
+      <select id="report-problem-category">
+        <option value="Anders">Anders</option>
+        <option value="Plattegrond klopt niet">Plattegrond klopt niet</option>
+        <option value="Deur/code klopt niet">Deur/code klopt niet</option>
+        <option value="JotForm probleem">JotForm probleem</option>
+        <option value="App werkt traag/vast">App werkt traag/vast</option>
+      </select>
+    </label>
+    <label class="report-problem-field">
+      <span>Wat gaat er mis?</span>
+      <textarea id="report-problem-text" maxlength="700" rows="5" placeholder="Beschrijf kort wat er misgaat..."></textarea>
+    </label>
+    <div id="report-problem-error" class="report-problem-error"></div>
+    <div class="report-problem-actions">
+      <button id="report-problem-cancel" type="button" class="report-problem-secondary">Annuleren</button>
+      <button id="report-problem-submit" type="button" class="report-problem-primary" disabled>Versturen</button>
     </div>
   </div>
 
@@ -305,6 +334,7 @@
       <div id="upload-pdf-form" class="upload-pdf-form" style="display:none;">
         <div class="upload-pdf-form-top">
           <select id="upload-pdf-customer-select" class="upload-input"></select>
+          <input type="text" id="upload-pdf-building-name" placeholder="Pand" class="upload-input">
           <div id="upload-pdf-new-customer-wrapper" style="display:none;">
             <input type="text" id="upload-pdf-new-customer" placeholder="Naam nieuwe klant" class="upload-input" style="width:100%;">
             <button type="button" id="btn-upload-pdf-back-to-select" class="upload-pdf-link">Kies bestaande klant</button>
@@ -333,8 +363,9 @@
           <input type="text" id="upload-new-customer" placeholder="Naam nieuwe klant" class="upload-input" style="width:100%;">
           <button type="button" id="btn-back-to-select" style="background:none; border:none; color:#1a73e8; font-size:13px; padding:4px 2px; cursor:pointer; text-decoration:underline; display:inline-block; margin-top:4px;">← Kies bestaande klant</button>
         </div>
-        <input type="text" id="upload-floorplan-name" placeholder="bv. Locatie - Verdieping" class="upload-input">
-        <p style="font-size:13px; color:#888; margin:-4px 0 0 0;">Suggestie: Locatie - Verdieping</p>
+        <input type="text" id="upload-building-name" placeholder="Pand" class="upload-input">
+        <input type="text" id="upload-floorplan-name" placeholder="Verdieping of naam" class="upload-input">
+        <p style="font-size:13px; color:#888; margin:-4px 0 0 0;">Wordt getoond als Pand - Verdieping of naam</p>
         <div id="upload-error" style="color:#d93025; font-size:14px; font-weight:600; min-height:20px;"></div>
         <div style="display:flex; gap:8px; justify-content:center;">
           <button id="btn-upload-save" class="upload-btn upload-btn-green">Opslaan</button>
@@ -351,6 +382,24 @@
     <div style="display:flex; gap:8px; justify-content:center;">
       <button id="delete-fp-confirm" style="font-size:16px; padding:10px 24px; border:none; border-radius:8px; background:#d93025; color:white; font-weight:600; cursor:pointer;">Verwijderen</button>
       <button id="delete-fp-cancel" style="font-size:16px; padding:10px 24px; border:none; border-radius:8px; background:#e0e0e0; color:#333; font-weight:600; cursor:pointer;">Annuleren</button>
+    </div>
+  </div>
+
+  <!-- Edit uploaded floorplan metadata -->
+  <div id="metadata-fp-overlay" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.4); z-index:299;"></div>
+  <div id="metadata-fp-popup" style="display:none; position:fixed; top:50%; left:50%; transform:translate(-50%,-50%); background:white; padding:24px; border-radius:12px; box-shadow:0 8px 32px rgba(0,0,0,0.3); z-index:300; width:min(380px, calc(100vw - 32px));">
+    <h3 style="font-size:18px; color:#333; margin-bottom:16px; text-align:center;">Plattegrondgegevens</h3>
+    <div style="font-size:13px; color:#5f6368; margin-bottom:12px;">
+      <div id="metadata-fp-context"></div>
+    </div>
+    <div style="display:flex; flex-direction:column; gap:12px;">
+      <input type="text" id="metadata-building-name" placeholder="Pand" class="upload-input">
+      <input type="text" id="metadata-floor-label" placeholder="Verdieping of naam" class="upload-input">
+      <div id="metadata-fp-error" style="color:#d93025; font-size:14px; font-weight:600; min-height:20px;"></div>
+      <div style="display:flex; gap:8px; justify-content:flex-end;">
+        <button id="metadata-fp-cancel" type="button" style="font-size:16px; padding:10px 20px; border:none; border-radius:8px; background:#e0e0e0; color:#333; font-weight:600; cursor:pointer;">Annuleren</button>
+        <button id="metadata-fp-save" type="button" style="font-size:16px; padding:10px 20px; border:none; border-radius:8px; background:#1a73e8; color:white; font-weight:600; cursor:pointer;">Opslaan</button>
+      </div>
     </div>
   </div>
 

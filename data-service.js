@@ -215,9 +215,13 @@
     return getWorkerApiBaseUrl(config) + path;
   }
 
-  function workerError(status, code) {
+  function workerError(status, code, data = null) {
     const error = new Error(code || 'Worker request failed');
     error.status = status;
+    if (data && typeof data === 'object') {
+      error.code = data.error || code || '';
+      error.details = data.details || null;
+    }
     return error;
   }
 
@@ -254,7 +258,7 @@
       });
       const data = await response.json().catch(() => null);
       if (!response.ok || data?.ok === false) {
-        throw workerError(response.status, data?.error || 'worker_json_failed');
+        throw workerError(response.status, data?.error || 'worker_json_failed', data);
       }
       return data;
     } catch (err) {
@@ -277,7 +281,7 @@
       });
       const responseData = await response.json().catch(() => null);
       if (!response.ok || responseData?.ok === false) {
-        throw workerError(response.status, responseData?.error || 'worker_post_failed');
+        throw workerError(response.status, responseData?.error || 'worker_post_failed', responseData);
       }
       return responseData;
     } catch (err) {
@@ -300,11 +304,34 @@
       });
       const responseData = await response.json().catch(() => null);
       if (!response.ok || responseData?.ok === false) {
-        throw workerError(response.status, responseData?.error || 'worker_put_failed');
+        throw workerError(response.status, responseData?.error || 'worker_put_failed', responseData);
       }
       return responseData;
     } catch (err) {
       if (err?.name !== 'AbortError') reportWorkerFailure(path, 'PUT', err, options);
+      throw err;
+    }
+  }
+
+  async function patchWorkerJSON(config, path, data, options) {
+    try {
+      const response = await fetch(workerUrl(config, path), {
+        method: 'PATCH',
+        cache: 'no-store',
+        signal: options?.signal,
+        headers: {
+          'Content-Type': 'application/json',
+          ...(options?.headers || {}),
+        },
+        body: JSON.stringify(data),
+      });
+      const responseData = await response.json().catch(() => null);
+      if (!response.ok || responseData?.ok === false) {
+        throw workerError(response.status, responseData?.error || 'worker_patch_failed', responseData);
+      }
+      return responseData;
+    } catch (err) {
+      if (err?.name !== 'AbortError') reportWorkerFailure(path, 'PATCH', err, options);
       throw err;
     }
   }
@@ -323,7 +350,7 @@
       });
       const responseData = await response.json().catch(() => null);
       if (!response.ok || responseData?.ok === false) {
-        throw workerError(response.status, responseData?.error || 'worker_delete_failed');
+        throw workerError(response.status, responseData?.error || 'worker_delete_failed', responseData);
       }
       return responseData;
     } catch (err) {
@@ -520,6 +547,8 @@
     const {
       customerName,
       floorplanName,
+      buildingName,
+      floorLabel,
       fileName,
       svgText,
       isNewCustomer,
@@ -532,6 +561,8 @@
       const data = await postWorkerJSON(config, '/api/uploaded-floorplan', {
         customerName,
         floorplanName,
+        buildingName,
+        floorLabel,
         fileName,
         svgText,
         isNewCustomer,
@@ -546,6 +577,31 @@
         entry: data.entry,
         uploadUrl,
       };
+    }
+
+    throw workerOnlyError('worker_upload_write_required');
+  }
+
+  async function updateUploadedFloorplanMetadata(config, options) {
+    const { customerName, floorplan, buildingName, floorLabel } = options;
+    const fp = floorplan;
+
+    if (isWorkerUploadWriteEnabled(config)) {
+      const token = getWorkerSessionToken(config);
+      if (!token) throw workerError(401, 'worker_session_required');
+      const data = await patchWorkerJSON(config, '/api/uploaded-floorplan-metadata', {
+        customerName,
+        floorplanName: fp.name,
+        fileName: fp.file,
+        buildingName,
+        floorLabel,
+      }, {
+        signal: options.signal,
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      return { customers: Array.isArray(data.customers) ? data.customers : [] };
     }
 
     throw workerOnlyError('worker_upload_write_required');
@@ -730,6 +786,7 @@
     saveFloorplanSVG,
     addUploadedFloorplan,
     deleteUploadedFloorplan,
+    updateUploadedFloorplanMetadata,
     fetchFloorplanTreeMap,
     getWorkerFloorplanUrl,
     isWorkerReadProxyEnabled,

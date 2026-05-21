@@ -1,9 +1,44 @@
 (function (global) {
   const FD = global.FD = global.FD || {};
+  const LABEL_COLLATOR = new Intl.Collator('nl', {
+    numeric: true,
+    sensitivity: 'base',
+  });
 
   function getSelectedOptionText(selectEl, fallback) {
     if (!selectEl?.value) return fallback;
     return selectEl.options[selectEl.selectedIndex]?.textContent || fallback;
+  }
+
+  function sortLabelEntries(left, right) {
+    const labelCompare = LABEL_COLLATOR.compare(left.label, right.label);
+    return labelCompare || left.index - right.index;
+  }
+
+  function sortedWithOriginalIndex(items, labelForItem) {
+    const safeItems = Array.isArray(items) ? items : [];
+    const labelFn = typeof labelForItem === 'function'
+      ? labelForItem
+      : item => item?.name || item?.customer || '';
+    return safeItems
+      .map((item, index) => ({
+        item,
+        index,
+        label: String(labelFn(item, index) || '').trim(),
+      }))
+      .sort(sortLabelEntries);
+  }
+
+  function floorplanDisplayParts(floorplan) {
+    const building = String(floorplan?.building || '').trim();
+    const floorLabel = String(floorplan?.floorLabel || '').trim();
+    return { building, floorLabel };
+  }
+
+  function floorplanDisplayName(floorplan) {
+    const { building, floorLabel } = floorplanDisplayParts(floorplan);
+    if (building && floorLabel) return `${building} - ${floorLabel}`;
+    return floorLabel || building || String(floorplan?.name || '').trim();
   }
 
   function renderSelectOptions(selectEl, placeholder, items, labelForItem) {
@@ -14,10 +49,10 @@
     placeholderOption.textContent = placeholder;
     selectEl.appendChild(placeholderOption);
 
-    items.forEach((item, index) => {
+    sortedWithOriginalIndex(items, labelForItem).forEach(({ index, label }) => {
       const opt = document.createElement('option');
-      opt.value = index;
-      opt.textContent = labelForItem(item);
+      opt.value = String(index);
+      opt.textContent = label;
       selectEl.appendChild(opt);
     });
   }
@@ -244,11 +279,14 @@
   FD.SelectSheetService = {
     createController,
     createSelectionController,
+    floorplanDisplayName,
+    floorplanDisplayParts,
     getSelectedFloorplan,
     getSelectedOptionText,
     renderCustomerOptions,
     renderFloorplanOptions,
     resetFloorplanOptions,
     selectedIndex,
+    sortedWithOriginalIndex,
   };
 })(window);

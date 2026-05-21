@@ -34,6 +34,7 @@
     elements.customerSelect.style.display = '';
     elements.newCustomerWrapper.style.display = 'none';
     elements.newCustomerInput.value = '';
+    if (elements.buildingNameInput) elements.buildingNameInput.value = '';
     elements.floorplanNameInput.value = '';
   }
 
@@ -65,10 +66,18 @@
     newOpt.textContent = '➕ Nieuwe klant toevoegen';
     selectEl.appendChild(newOpt);
 
-    customers.forEach((customer, index) => {
+    const sortedCustomers = FD.SelectSheetService?.sortedWithOriginalIndex
+      ? FD.SelectSheetService.sortedWithOriginalIndex(customers, customer => customer.customer)
+      : (customers || []).map((customer, index) => ({
+        item: customer,
+        index,
+        label: String(customer?.customer || '').trim(),
+      }));
+
+    sortedCustomers.forEach(({ index, label }) => {
       const opt = document.createElement('option');
-      opt.value = index;
-      opt.textContent = customer.customer;
+      opt.value = String(index);
+      opt.textContent = label;
       selectEl.appendChild(opt);
     });
   }
@@ -155,6 +164,7 @@
   function validateUploadForm({
     customerValue,
     newCustomerName,
+    buildingName = '',
     floorplanName,
     customers,
   }) {
@@ -179,8 +189,10 @@
       if (!customerName) return { ok: false, error: 'Kies een klant.' };
     }
 
-    const cleanFloorplanName = floorplanName.trim();
-    if (!cleanFloorplanName) return { ok: false, error: 'Vul een naam in voor de plattegrond.' };
+    const cleanBuildingName = String(buildingName || '').trim();
+    const cleanFloorLabel = String(floorplanName || '').trim();
+    if (!cleanFloorLabel) return { ok: false, error: 'Vul een verdieping of naam in voor de plattegrond.' };
+    const cleanFloorplanName = cleanBuildingName ? `${cleanBuildingName} - ${cleanFloorLabel}` : cleanFloorLabel;
 
     if (!isNewCustomer) {
       const customer = customers[parseInt(customerValue, 10)];
@@ -192,6 +204,8 @@
       ok: true,
       customerName,
       floorplanName: cleanFloorplanName,
+      buildingName: cleanBuildingName,
+      floorLabel: cleanFloorLabel,
       isNewCustomer,
     };
   }
@@ -748,10 +762,10 @@
       const input = document.createElement('input');
       input.type = 'text';
       input.className = 'upload-input';
-      input.value = page.floorplanName || '';
-      input.placeholder = 'bv. Locatie - Verdieping';
+      input.value = page.floorLabel || page.floorplanName || '';
+      input.placeholder = 'bv. Begane grond';
       input.addEventListener('input', () => {
-        page.floorplanName = input.value;
+        page.floorLabel = input.value;
       });
       const status = document.createElement('div');
       status.className = 'upload-pdf-page-status';
@@ -767,7 +781,7 @@
     });
   }
 
-  function validatePdfBatchForm({ customerValue, newCustomerName, pages, customers }) {
+  function validatePdfBatchForm({ customerValue, newCustomerName, buildingName = '', pages, customers }) {
     if (!pages.length) return { ok: false, error: 'Selecteer minimaal 1 pagina.' };
     if (customerValue === '') return { ok: false, error: 'Kies een klant.' };
 
@@ -792,13 +806,16 @@
       if (!customerName) return { ok: false, error: 'Kies een klant.' };
     }
 
+    const cleanBuildingName = String(buildingName || '').trim();
     const seen = new Set();
     for (const page of pages) {
-      const cleanName = String(page.floorplanName || '').trim();
-      if (!cleanName) return { ok: false, error: `Vul een beschrijving in voor pagina ${page.pageNumber}.` };
+      const cleanFloorLabel = String(page.floorLabel || page.floorplanName || '').trim();
+      if (!cleanFloorLabel) return { ok: false, error: `Vul een verdieping of naam in voor pagina ${page.pageNumber}.` };
+      const cleanName = cleanBuildingName ? `${cleanBuildingName} - ${cleanFloorLabel}` : cleanFloorLabel;
       const key = cleanName.toLowerCase();
-      if (seen.has(key)) return { ok: false, error: `Dubbele beschrijving: "${cleanName}".` };
+      if (seen.has(key)) return { ok: false, error: `Dubbele plattegrondnaam: "${cleanName}".` };
       seen.add(key);
+      page.floorLabel = cleanFloorLabel;
       page.floorplanName = cleanName;
 
       if (!isNewCustomer) {
@@ -810,6 +827,7 @@
     return {
       ok: true,
       customerName,
+      buildingName: cleanBuildingName,
       isNewCustomer,
       pages,
     };
@@ -943,6 +961,7 @@
           outputWidth: 0,
           outputHeight: 0,
           floorplanName: pdfService.suggestedFloorplanName(file.name, index + 1),
+          floorLabel: pdfService.suggestedFloorplanName(file.name, index + 1),
           edited: false,
           status: 'rendering',
           error: '',
@@ -1232,6 +1251,7 @@
       elements.pdfCustomerSelect.style.display = '';
       elements.pdfNewCustomerWrapper.style.display = 'none';
       elements.pdfNewCustomerInput.value = '';
+      if (elements.pdfBuildingNameInput) elements.pdfBuildingNameInput.value = '';
       elements.pdfErrorEl.textContent = '';
       hide(elements.pdfOverview);
       hide(elements.pdfEditor);
@@ -1278,6 +1298,7 @@
       const form = validatePdfBatchForm({
         customerValue,
         newCustomerName,
+        buildingName: elements.pdfBuildingNameInput?.value || '',
         pages: pagesToUpload,
         customers,
       });
@@ -1325,6 +1346,8 @@
             form: {
               customerName: form.customerName,
               floorplanName: page.floorplanName,
+              buildingName: form.buildingName,
+              floorLabel: page.floorLabel,
               isNewCustomer,
             },
             fileName,
@@ -1404,6 +1427,7 @@
       const form = validateUploadForm({
         customerValue: elements.customerSelect.value,
         newCustomerName: elements.newCustomerInput.value,
+        buildingName: elements.buildingNameInput?.value || '',
         floorplanName: elements.floorplanNameInput.value,
         customers,
       });
@@ -1539,6 +1563,7 @@
       FD.UIShellService.updateUploadActionButtons({
         deleteButtonEl: controls.deleteButton,
         editImageButtonEl: controls.editImageButton,
+        metadataButtonEl: controls.metadataButton,
         floorplan,
       });
       requestTopbarUpdate();

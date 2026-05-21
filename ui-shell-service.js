@@ -94,6 +94,33 @@
     </div>`;
   }
 
+  function createBusyOverlayController({ overlayEl }) {
+    function render({ title = 'Bezig', subtitle = 'Even wachten...' } = {}) {
+      if (!overlayEl) return;
+      overlayEl.innerHTML = `<div class="busy-overlay-card">
+        <div class="empty-state-icon loading-scan-container">${BUILDING_SVG}<div class="loading-scan-line"></div></div>
+        <div class="busy-overlay-title">${title}</div>
+        <div class="busy-overlay-subtitle">${subtitle}</div>
+        <div class="loading-dots"><span></span><span></span><span></span></div>
+      </div>`;
+    }
+
+    function show(options) {
+      render(options);
+      setVisible(overlayEl, true, 'flex');
+    }
+
+    function update(options) {
+      render(options);
+    }
+
+    function hide() {
+      setVisible(overlayEl, false);
+    }
+
+    return { hide, show, update };
+  }
+
   function updateViewportHeightProperty({ rootEl, visualViewport, fallbackHeight, property = '--app-height' }) {
     if (!rootEl?.style) return;
     const height = visualViewport ? visualViewport.height : fallbackHeight;
@@ -134,14 +161,16 @@
     buttonEl.classList.toggle('active', labelsVisible);
   }
 
-  function updateUploadActionButtons({ deleteButtonEl, editImageButtonEl, floorplan }) {
+  function updateUploadActionButtons({ deleteButtonEl, editImageButtonEl, metadataButtonEl, floorplan }) {
     const isUpload = Boolean(floorplan && (floorplan.uploaded || floorplan.repo === 'uploads'));
     setVisible(deleteButtonEl, isUpload);
     setVisible(editImageButtonEl, isUpload);
+    setVisible(metadataButtonEl, isUpload);
     return isUpload;
   }
 
   FD.UIShellService = {
+    createBusyOverlayController,
     createPopupPair,
     createToastController,
     createTopbarMenu,
