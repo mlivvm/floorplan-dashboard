@@ -27,13 +27,14 @@
       jotformReturnRefreshMaxDuration: 90000,
       versionCheckUrl: 'version.json',
       versionCheckInterval: 15 * 60 * 1000,
-      offlineCacheVersion: 'fd-v1.8.139',
+      offlineCacheVersion: 'fd-v1.8.140',
     };
 
     const COLORS = {
       todo: '#1a73e8',
       done: '#34a853',
       attention: '#d93025',
+      checking: '#b8c0cc',
     };
 
     const OPACITY = {
@@ -653,10 +654,25 @@
       return jotformSubmissionCache.submissions?.[doorId] || null;
     }
 
+    function isJotFormConditionChecking(doorId) {
+      if (!doorId || !getDoorStatus(doorId)) return false;
+      if (navigator.onLine === false || !canWriteCurrentFloorplan()) return false;
+      if (hasManualNewFormHint(doorId)) return false;
+
+      const target = currentJotFormLookupTarget();
+      const key = jotformSubmissionCacheKey(target);
+      if (!key) return false;
+      if (jotformSubmissionCache.key !== key) return true;
+      if (jotformSubmissionCache.loading || jotformSubmissionCache.pending) return true;
+      return false;
+    }
+
     function getDoorCondition(doorId) {
       if (!doorId || !getDoorStatus(doorId)) return 'unknown';
       const submission = getCachedJotFormSubmission(doorId);
-      return submission?.doorCondition === 'attention' ? 'attention' : 'unknown';
+      if (submission?.doorCondition === 'attention') return 'attention';
+      if (isJotFormConditionChecking(doorId)) return 'checking';
+      return 'unknown';
     }
 
     function getJotFormButtonStateForDoor({ selectedDoor: doorId, isDone } = {}) {
@@ -1484,7 +1500,7 @@
       getSelectedDoor: () => selectedDoor,
       getDoorStatus,
       getDoorCondition,
-      colors: { done: COLORS.done, todo: COLORS.todo, attention: COLORS.attention },
+      colors: { done: COLORS.done, todo: COLORS.todo, attention: COLORS.attention, checking: COLORS.checking },
       onSelect: selectDoor,
       setShellOpen: (open) => FD.UIShellService.setSidePanelOpen({
         sidePanelEl: sidePanel,
@@ -1506,7 +1522,7 @@
         baseUrl: CONFIG.jotformBaseUrl,
         formId: CONFIG.jotformFormId,
       },
-      colors: { done: COLORS.done, todo: COLORS.todo, attention: COLORS.attention },
+      colors: { done: COLORS.done, todo: COLORS.todo, attention: COLORS.attention, checking: COLORS.checking },
       getState: () => {
         const selection = getSelectedFloorplan();
         return {
@@ -1680,6 +1696,8 @@
 
       if (isDone && condition === 'attention') {
         marker.style.fill = COLORS.attention;
+      } else if (isDone && condition === 'checking') {
+        marker.style.fill = COLORS.checking;
       } else if (isDone) {
         marker.style.fill = COLORS.done;
       } else {
@@ -2533,8 +2551,9 @@
         const isDone = getDoorStatus(selectedDoor);
         const condition = getDoorCondition(selectedDoor);
         const needsAttention = isDone && condition === 'attention';
-        doorStatusEl.textContent = needsAttention ? '(aandacht nodig)' : (isDone ? '(afgerond)' : '(nog te doen)');
-        doorStatusEl.style.color = needsAttention ? COLORS.attention : (isDone ? COLORS.done : COLORS.todo);
+        const isChecking = isDone && condition === 'checking';
+        doorStatusEl.textContent = needsAttention ? '(aandacht nodig)' : (isChecking ? '(controleren...)' : (isDone ? '(afgerond)' : '(nog te doen)'));
+        doorStatusEl.style.color = needsAttention ? COLORS.attention : (isChecking ? COLORS.checking : (isDone ? COLORS.done : COLORS.todo));
       }
       applyDoorActionPermissions();
     }

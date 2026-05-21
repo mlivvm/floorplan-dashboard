@@ -30,6 +30,7 @@
 
   function doorColor({ isDone, condition, colors }) {
     if (isDone && condition === 'attention') return colors.attention || colors.done;
+    if (isDone && condition === 'checking') return colors.checking || colors.done;
     return isDone ? colors.done : colors.todo;
   }
 

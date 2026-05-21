@@ -15,8 +15,11 @@
   }, { doorId, isDone, condition = 'unknown', colors }) {
     doorNameEl.textContent = doorId;
     const needsAttention = isDone && condition === 'attention';
-    doorStatusEl.textContent = needsAttention ? '(aandacht nodig)' : (isDone ? '(afgerond)' : '(nog te doen)');
-    doorStatusEl.style.color = needsAttention ? (colors.attention || colors.done) : (isDone ? colors.done : colors.todo);
+    const checking = isDone && condition === 'checking';
+    doorStatusEl.textContent = needsAttention ? '(aandacht nodig)' : (checking ? '(controleren...)' : (isDone ? '(afgerond)' : '(nog te doen)'));
+    doorStatusEl.style.color = needsAttention
+      ? (colors.attention || colors.done)
+      : (checking ? (colors.checking || colors.done) : (isDone ? colors.done : colors.todo));
     setActionDisabled(btnJotform, false);
     setActionDisabled(btnClose, false);
   }
