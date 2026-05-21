@@ -27,7 +27,7 @@
       jotformReturnRefreshMaxDuration: 90000,
       versionCheckUrl: 'version.json',
       versionCheckInterval: 15 * 60 * 1000,
-      offlineCacheVersion: 'fd-v1.8.138',
+      offlineCacheVersion: 'fd-v1.8.139',
     };
 
     const COLORS = {
@@ -60,6 +60,8 @@
     let jotformSubmissionLookupRetryTimer = null;
     let jotformFocusRefreshDoorId = null;
     let jotformFocusRefreshUntil = 0;
+    let jotformFocusBaselineSubmission = null;
+    const jotformManualNewFormHints = new Map();
     let serviceWorkerRegistration = null;
     let updateCheckTimer = null;
     let pendingAppUpdate = null;
@@ -580,6 +582,37 @@
       ].join('\u001f');
     }
 
+    function jotformDoorIdentityKey(doorId, target = currentJotFormLookupTarget()) {
+      if (!target || !doorId) return '';
+      return [
+        target.customer,
+        target.floorplan,
+        target.repo,
+        target.file,
+        doorId,
+      ].join('\u001f');
+    }
+
+    function rememberManualNewFormHint(doorId) {
+      const key = jotformDoorIdentityKey(doorId);
+      if (!key) return;
+      jotformManualNewFormHints.set(key, Date.now() + 2 * 60 * 1000);
+    }
+
+    function clearManualNewFormHint(doorId) {
+      const key = jotformDoorIdentityKey(doorId);
+      if (key) jotformManualNewFormHints.delete(key);
+    }
+
+    function hasManualNewFormHint(doorId) {
+      const key = jotformDoorIdentityKey(doorId);
+      if (!key) return false;
+      const expiresAt = jotformManualNewFormHints.get(key) || 0;
+      if (expiresAt > Date.now()) return true;
+      jotformManualNewFormHints.delete(key);
+      return false;
+    }
+
     function resetJotFormSubmissionCache() {
       clearJotFormSubmissionLookupRetry();
       jotformSubmissionCache.requestId += 1;
@@ -608,6 +641,7 @@
         .map(([doorId, item]) => [doorId, {
           editUrl: String(item.editUrl),
           statusDoneAt: String(item.statusDoneAt || ''),
+          lastSeenAt: String(item.lastSeenAt || ''),
           doorCondition: ['ok', 'attention', 'unknown'].includes(item.doorCondition) ? item.doorCondition : 'unknown',
           doorConditionLabel: String(item.doorConditionLabel || ''),
         }]));
@@ -628,9 +662,12 @@
     function getJotFormButtonStateForDoor({ selectedDoor: doorId, isDone } = {}) {
       if (!doorId || !isDone) return { action: 'new' };
       const key = jotformSubmissionCacheKey();
-      if (!key || jotformSubmissionCache.key !== key) return { action: 'open', loading: true };
-      const cached = jotformSubmissionCache.submissions?.[doorId];
+      const cached = key && jotformSubmissionCache.key === key
+        ? jotformSubmissionCache.submissions?.[doorId]
+        : null;
       if (cached?.editUrl) return { action: 'edit', editUrl: cached.editUrl };
+      if (hasManualNewFormHint(doorId)) return { action: 'new' };
+      if (!key || jotformSubmissionCache.key !== key) return { action: 'open', loading: true };
       if (jotformSubmissionCache.loading || !jotformSubmissionCache.ready) return { action: 'open', loading: true };
       if (jotformSubmissionCache.allChecked || jotformSubmissionCache.checkedDoors?.[doorId]) {
         return { action: 'new' };
@@ -689,7 +726,8 @@
           checkedDoors[doorId] = true;
           submissions[doorId] = {
             editUrl: String(response.editUrl),
-            statusDoneAt: '',
+            statusDoneAt: String(response.statusDoneAt || ''),
+            lastSeenAt: String(response.lastSeenAt || ''),
             doorCondition: ['ok', 'attention', 'unknown'].includes(response.doorCondition) ? response.doorCondition : 'unknown',
             doorConditionLabel: String(response.doorConditionLabel || ''),
           };
@@ -763,12 +801,18 @@
       }
 
       const requestId = jotformSubmissionCache.requestId + 1;
+      const previousSubmissions = jotformSubmissionCache.key === key
+        ? { ...(jotformSubmissionCache.submissions || {}) }
+        : {};
+      const previousCheckedDoors = jotformSubmissionCache.key === key
+        ? { ...(jotformSubmissionCache.checkedDoors || {}) }
+        : {};
       jotformSubmissionCache = {
         key,
         ready: false,
         loading: true,
-        submissions: {},
-        checkedDoors: {},
+        submissions: previousSubmissions,
+        checkedDoors: previousCheckedDoors,
         allChecked: false,
         requestId,
         pending: null,
@@ -833,6 +877,9 @@
       jotformFocusRefreshUntil = context?.doorId
         ? Date.now() + CONFIG.jotformReturnRefreshMaxDuration
         : 0;
+      jotformFocusBaselineSubmission = context?.doorId
+        ? getCachedJotFormSubmission(context.doorId)
+        : null;
     }
 
     function saveJotFormReturnContext() {
@@ -864,10 +911,15 @@
       return customers.findIndex(customer => customer.customer === context.customerName);
     }
 
-    function clearJotFormReturnFastRefresh() {
+    function stopJotFormReturnFastRefreshTimer() {
       if (!jotformReturnRefreshTimer) return;
       clearTimeout(jotformReturnRefreshTimer);
       jotformReturnRefreshTimer = null;
+    }
+
+    function clearJotFormReturnFastRefresh() {
+      stopJotFormReturnFastRefreshTimer();
+      jotformFocusBaselineSubmission = null;
     }
 
     function clearJotFormSubmissionLookupRetry() {
@@ -891,6 +943,7 @@
       if (!jotformFocusRefreshDoorId || Date.now() > jotformFocusRefreshUntil) {
         jotformFocusRefreshDoorId = null;
         jotformFocusRefreshUntil = 0;
+        jotformFocusBaselineSubmission = null;
         return;
       }
       if (selectedDoor !== jotformFocusRefreshDoorId || navigator.onLine === false) return;
@@ -898,10 +951,25 @@
     }
 
     function startJotFormReturnFastRefresh(doorId) {
-      clearJotFormReturnFastRefresh();
+      stopJotFormReturnFastRefreshTimer();
       if (!doorId || navigator.onLine === false || typeof statusController?.poll !== 'function') return;
 
       const deadline = Date.now() + CONFIG.jotformReturnRefreshMaxDuration;
+      const baselineSubmission = jotformFocusBaselineSubmission;
+
+      function submissionChangedAfterExternalOpen() {
+        const current = getCachedJotFormSubmission(doorId);
+        if (!baselineSubmission) return Boolean(current?.editUrl);
+        if (!current?.editUrl) return false;
+        if (current.editUrl !== baselineSubmission.editUrl) return true;
+        if (current.doorCondition !== baselineSubmission.doorCondition) return true;
+        if (current.doorConditionLabel !== baselineSubmission.doorConditionLabel) return true;
+        const currentSeen = Date.parse(current.lastSeenAt || '');
+        const baselineSeen = Date.parse(baselineSubmission.lastSeenAt || '');
+        return Number.isFinite(currentSeen) &&
+          (!Number.isFinite(baselineSeen) || currentSeen > baselineSeen);
+      }
+
       const run = async () => {
         if (selectedDoor !== doorId || !currentFloorplan || navigator.onLine === false || isEditModeActive()) {
           clearJotFormReturnFastRefresh();
@@ -910,11 +978,14 @@
 
         try {
           await statusController.poll();
+          if (getDoorStatus(doorId)) {
+            await refreshJotFormSubmissionCache({ force: true });
+          }
         } catch (err) {
           console.warn('JotForm status-refresh mislukt:', err);
         }
 
-        if (getDoorStatus(doorId) || Date.now() >= deadline) {
+        if ((getDoorStatus(doorId) && submissionChangedAfterExternalOpen()) || Date.now() >= deadline) {
           clearJotFormReturnFastRefresh();
           return;
         }
@@ -2395,18 +2466,34 @@
       setStatus: (nextStatus) => { doorStatus = nextStatus || {}; },
       isOnline: () => navigator.onLine,
       onQueueChange: () => updateStatusSyncIndicator(),
-      onSynced: () => {
+      onSynced: ({ syncedQueue = [] } = {}) => {
+        syncedQueue.forEach(op => {
+          if (!op || op.customer !== currentCustomer || op.floorplan !== currentFloorplan) return;
+          if (op.status === 'done') rememberManualNewFormHint(op.doorId);
+          if (op.status !== 'done') clearManualNewFormHint(op.doorId);
+        });
         refreshAllDoorColors();
-        refreshJotFormSubmissionCache({ force: true });
         updateDoneButton();
-        showToast('Status gesynchroniseerd', 'success');
       },
       onNetworkUnavailable: () => {},
       onSyncError: (err) => console.error('Status sync queue mislukt:', err),
     });
 
-    function handleStatusChanged() {
+    function handleStatusChanged(event = {}) {
       refreshAllDoorColors();
+      if (event?.source === 'manual-toggle') {
+        if (event.newStatus === 'done') rememberManualNewFormHint(event.doorId);
+        if (event.newStatus !== 'done') clearManualNewFormHint(event.doorId);
+        return;
+      }
+      if (
+        event?.source === 'poll' &&
+        jotformFocusRefreshDoorId &&
+        selectedDoor === jotformFocusRefreshDoorId &&
+        Date.now() <= jotformFocusRefreshUntil
+      ) {
+        return;
+      }
       refreshJotFormSubmissionCache();
     }
 

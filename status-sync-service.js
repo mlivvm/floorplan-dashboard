@@ -174,7 +174,7 @@
         setCurrentStatus(nextStatus);
 
         if (typeof options.onSynced === 'function') {
-          options.onSynced({ status: nextStatus, remainingQueue });
+          options.onSynced({ status: nextStatus, remainingQueue, syncedQueue: queue });
         }
 
         shouldFlushAgain = remainingQueue.length > 0;
@@ -229,8 +229,8 @@
       return typeof getState === 'function' ? getState() : {};
     }
 
-    function notifyStatusChanged() {
-      if (typeof onStatusChanged === 'function') onStatusChanged();
+    function notifyStatusChanged(event = {}) {
+      if (typeof onStatusChanged === 'function') onStatusChanged(event);
       if (typeof updateDoneButton === 'function') updateDoneButton();
     }
 
@@ -249,7 +249,14 @@
         ts: Date.now(),
       });
 
-      notifyStatusChanged();
+      notifyStatusChanged({
+        source: 'manual-toggle',
+        doorId: selectedDoor,
+        customer: currentCustomer,
+        floorplan: currentFloorplan,
+        newStatus: result.newStatus,
+        op: result.op,
+      });
 
       if (online === false) {
         if (typeof showToast === 'function') showToast('Status lokaal opgeslagen — synchroniseert later', 'success');
@@ -269,7 +276,7 @@
       try {
         const nextStatus = await sync.refreshRemoteStatus();
         if (typeof setStatus === 'function') setStatus(nextStatus);
-        if (typeof onStatusChanged === 'function') onStatusChanged();
+        if (typeof onStatusChanged === 'function') onStatusChanged({ source: 'poll' });
         if (typeof updateDoneButton === 'function') updateDoneButton();
         flush();
       } catch (err) {
