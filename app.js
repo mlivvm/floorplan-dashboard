@@ -27,7 +27,7 @@
       jotformReturnRefreshMaxDuration: 90000,
       versionCheckUrl: 'version.json',
       versionCheckInterval: 15 * 60 * 1000,
-      offlineCacheVersion: 'fd-v1.8.141',
+      offlineCacheVersion: 'fd-v1.8.142',
     };
 
     const COLORS = {
@@ -85,6 +85,17 @@
       requestId: 0,
       pending: null,
       error: null,
+    };
+    let adminDashboardState = {
+      visible: false,
+      loading: false,
+      data: null,
+      selectedKey: '',
+      selectedCustomer: '',
+      searchQuery: '',
+      doorQuery: '',
+      previewKey: '',
+      previewRequestId: 0,
     };
 
     function setDocumentAppMode(mode) {
@@ -152,6 +163,36 @@
     const appUpdateConfirmButton = document.getElementById('app-update-confirm');
     const appUpdateLaterButton = document.getElementById('app-update-later');
     const busyOverlayEl = document.getElementById('busy-overlay');
+    const btnDashboard = document.getElementById('btn-dashboard');
+    const adminDashboardEl = document.getElementById('admin-dashboard');
+    const adminDashboardRefresh = document.getElementById('admin-dashboard-refresh');
+    const adminDashboardSearch = document.getElementById('admin-dashboard-search');
+    const adminCustomerFilters = document.getElementById('admin-customer-filters');
+    const adminDoorSearch = document.getElementById('admin-door-search');
+    const adminDoorResults = document.getElementById('admin-door-results');
+    const adminFloorplanList = document.getElementById('admin-floorplan-list');
+    const adminFloorplanCount = document.getElementById('admin-floorplan-count');
+    const adminDetailEmpty = document.getElementById('admin-detail-empty');
+    const adminDetailContent = document.getElementById('admin-detail-content');
+    const adminDetailPreview = document.getElementById('admin-detail-preview');
+    const adminDetailTitle = document.getElementById('admin-detail-title');
+    const adminDetailMeta = document.getElementById('admin-detail-meta');
+    const adminDetailOpen = document.getElementById('admin-detail-open');
+    const adminDetailStats = document.getElementById('admin-detail-stats');
+    const adminDetailCustomer = document.getElementById('admin-detail-customer');
+    const adminDetailBuilding = document.getElementById('admin-detail-building');
+    const adminDetailFloorLabel = document.getElementById('admin-detail-floor-label');
+    const adminDetailError = document.getElementById('admin-detail-error');
+    const adminDetailSave = document.getElementById('admin-detail-save');
+    const adminDetailDelete = document.getElementById('admin-detail-delete');
+    const adminKpiEls = {
+      customers: document.getElementById('admin-kpi-customers'),
+      floorplans: document.getElementById('admin-kpi-floorplans'),
+      doors: document.getElementById('admin-kpi-doors'),
+      open: document.getElementById('admin-kpi-open'),
+      done: document.getElementById('admin-kpi-done'),
+      attention: document.getElementById('admin-kpi-attention'),
+    };
     const topbarMenu = document.getElementById('topbar-menu');
     const btnTopbarMenu = document.getElementById('btn-menu');
     const btnMenuLabels = document.getElementById('btn-menu-labels');
@@ -1015,7 +1056,7 @@
     async function restoreJotFormReturnIfNeeded() {
       if (!FD.DoorActionService.hasReturnParam(window.location)) {
         clearJotFormReturnContext();
-        return;
+        return false;
       }
 
       const context = readJotFormReturnContext();
@@ -1024,12 +1065,12 @@
 
       if (!context) {
         showToast('Terug uit JotForm, vorige selectie niet gevonden', 'error');
-        return;
+        return false;
       }
 
       if (!isJotFormReturnContextForCurrentOrigin(context)) {
         showToast('Terug uit JotForm, vorige selectie niet gevonden', 'error');
-        return;
+        return false;
       }
 
       const customerIndex = findCustomerIndexForReturnContext(context);
@@ -1038,7 +1079,7 @@
 
       if (customerIndex < 0 || floorplanIndex < 0) {
         showToast('Terug uit JotForm, vorige selectie niet gevonden', 'error');
-        return;
+        return false;
       }
 
       customerSelect.value = String(customerIndex);
@@ -1055,6 +1096,7 @@
       } else {
         showToast('Terug uit JotForm, deur niet gevonden', 'error');
       }
+      return true;
     }
 
     window.addEventListener('focus', refreshAfterJotFormFocus);
@@ -1206,6 +1248,10 @@
       return FD.DataService.canManageUploads(CONFIG);
     }
 
+    function isAdminUser() {
+      return currentUser?.role === 'admin';
+    }
+
     function canWriteFloorplanByName(customer, floorplan) {
       return FD.DataService.canWriteFloorplan(CONFIG, customer, floorplan);
     }
@@ -1249,6 +1295,10 @@
     function updateRoleActionButtons() {
       const uploadButton = document.getElementById('btn-upload');
       if (uploadButton) uploadButton.style.display = canManageUploads() ? 'block' : 'none';
+      if (btnDashboard) {
+        btnDashboard.style.display = isAdminUser() ? 'inline-block' : 'none';
+        btnDashboard.classList.toggle('active', adminDashboardState.visible);
+      }
 
       const selected = getSelectedFloorplan();
       const hasFloorplan = Boolean(selected.floorplan || currentFloorplan);
@@ -1424,6 +1474,519 @@
         });
     }
 
+    const ADMIN_COLLATOR = new Intl.Collator('nl', { numeric: true, sensitivity: 'base' });
+
+    function adminFloorplanKey(record) {
+      return [
+        record?.customer || '',
+        record?.name || record?.floorplan || '',
+        record?.repo === 'uploads' ? 'uploads' : 'gallery',
+        record?.file || '',
+      ].join('\n');
+    }
+
+    function adminNormalizeSearch(value) {
+      return String(value || '').trim().toLowerCase();
+    }
+
+    function adminDoorColor(door) {
+      if (door?.status === 'done' && door?.doorCondition === 'attention') return COLORS.attention;
+      if (door?.status === 'done') return COLORS.done;
+      return COLORS.todo;
+    }
+
+    function adminFloorplanSearchText(record) {
+      return [
+        record.customer,
+        record.displayName,
+        record.name,
+        record.building,
+        record.floorLabel,
+        record.file,
+      ].join(' ').toLowerCase();
+    }
+
+    function getAdminData() {
+      return adminDashboardState.data || { summary: {}, customers: [], floorplans: [], doors: [] };
+    }
+
+    function getAdminCustomerNames() {
+      const names = new Set();
+      getAdminData().floorplans.forEach(record => {
+        if (record.customer) names.add(record.customer);
+      });
+      (getAdminData().customers || customers || []).forEach(customer => {
+        if (customer?.customer) names.add(customer.customer);
+      });
+      return Array.from(names).sort((a, b) => ADMIN_COLLATOR.compare(a, b));
+    }
+
+    function getFilteredAdminFloorplans() {
+      const data = getAdminData();
+      const query = adminNormalizeSearch(adminDashboardState.searchQuery);
+      const selectedCustomer = adminDashboardState.selectedCustomer;
+      return (Array.isArray(data.floorplans) ? data.floorplans : []).filter(record => {
+        if (selectedCustomer && record.customer !== selectedCustomer) return false;
+        if (query && !adminFloorplanSearchText(record).includes(query)) return false;
+        return true;
+      });
+    }
+
+    function getSelectedAdminFloorplan(filtered = null) {
+      const list = filtered || getFilteredAdminFloorplans();
+      if (!list.length) return null;
+      const selected = list.find(record => adminFloorplanKey(record) === adminDashboardState.selectedKey);
+      return selected || list[0];
+    }
+
+    function setAdminDashboardLoading(loading) {
+      adminDashboardState.loading = loading;
+      if (adminDashboardRefresh) {
+        adminDashboardRefresh.disabled = loading;
+        adminDashboardRefresh.textContent = loading ? 'Laden...' : 'Vernieuwen';
+      }
+    }
+
+    function renderAdminKpis() {
+      const summary = getAdminData().summary || {};
+      Object.entries(adminKpiEls).forEach(([key, el]) => {
+        if (!el) return;
+        el.textContent = String(Number(summary[key] || 0));
+      });
+    }
+
+    function renderAdminCustomerFilters() {
+      if (!adminCustomerFilters) return;
+      adminCustomerFilters.innerHTML = '';
+      const data = getAdminData();
+      const counts = new Map();
+      (data.floorplans || []).forEach(record => {
+        counts.set(record.customer, (counts.get(record.customer) || 0) + 1);
+      });
+
+      const buttons = [
+        { label: 'Alle klanten', value: '', count: data.floorplans?.length || 0 },
+        ...getAdminCustomerNames().map(name => ({ label: name, value: name, count: counts.get(name) || 0 })),
+      ];
+
+      buttons.forEach(item => {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'admin-filter-button';
+        button.classList.toggle('active', adminDashboardState.selectedCustomer === item.value);
+        const label = document.createElement('span');
+        label.textContent = item.label;
+        const count = document.createElement('span');
+        count.textContent = String(item.count);
+        button.append(label, count);
+        button.addEventListener('click', () => {
+          adminDashboardState.selectedCustomer = item.value;
+          adminDashboardState.selectedKey = '';
+          renderAdminDashboard();
+        });
+        adminCustomerFilters.appendChild(button);
+      });
+    }
+
+    function renderAdminFloorplanList() {
+      if (!adminFloorplanList) return;
+      const filtered = getFilteredAdminFloorplans();
+      const selected = getSelectedAdminFloorplan(filtered);
+      if (selected) adminDashboardState.selectedKey = adminFloorplanKey(selected);
+      if (adminFloorplanCount) {
+        adminFloorplanCount.textContent = `${filtered.length} gevonden`;
+      }
+
+      adminFloorplanList.innerHTML = '';
+      if (!filtered.length) {
+        const empty = document.createElement('div');
+        empty.className = 'admin-dashboard-empty';
+        empty.textContent = adminDashboardState.loading ? 'Dashboard laden...' : 'Geen plattegronden gevonden.';
+        adminFloorplanList.appendChild(empty);
+        return;
+      }
+
+      filtered.forEach(record => {
+        const row = document.createElement('button');
+        row.type = 'button';
+        row.className = 'admin-floorplan-row';
+        row.classList.toggle('active', adminFloorplanKey(record) === adminDashboardState.selectedKey);
+
+        const main = document.createElement('div');
+        const name = document.createElement('div');
+        name.className = 'admin-floorplan-name';
+        name.textContent = record.displayName || record.name || 'Plattegrond';
+        const customer = document.createElement('div');
+        customer.className = 'admin-floorplan-customer';
+        customer.textContent = record.customer || 'Onbekende klant';
+        main.append(name, customer);
+
+        const counts = document.createElement('div');
+        counts.className = 'admin-floorplan-counts';
+        const done = document.createElement('span');
+        done.textContent = `${record.done || 0}/${record.doorsTotal || 0} klaar`;
+        const attention = document.createElement('span');
+        attention.textContent = `${record.attention || 0} aandacht`;
+        if (record.attention) attention.style.color = COLORS.attention;
+        counts.append(done, attention);
+
+        row.append(main, counts);
+        row.addEventListener('click', () => {
+          adminDashboardState.selectedKey = adminFloorplanKey(record);
+          renderAdminDashboard();
+        });
+        adminFloorplanList.appendChild(row);
+      });
+    }
+
+    function renderAdminDoorResults() {
+      if (!adminDoorResults) return;
+      const query = adminNormalizeSearch(adminDashboardState.doorQuery).toUpperCase();
+      adminDoorResults.innerHTML = '';
+      if (query.length < 2) {
+        const empty = document.createElement('div');
+        empty.className = 'admin-dashboard-empty';
+        empty.textContent = 'Typ minimaal 2 tekens om een deur te zoeken.';
+        adminDoorResults.appendChild(empty);
+        return;
+      }
+
+      const results = (getAdminData().doors || [])
+        .filter(door => String(door.code || door.doorId || '').toUpperCase().includes(query))
+        .slice(0, 30);
+
+      if (!results.length) {
+        const empty = document.createElement('div');
+        empty.className = 'admin-dashboard-empty';
+        empty.textContent = 'Geen deur gevonden.';
+        adminDoorResults.appendChild(empty);
+        return;
+      }
+
+      results.forEach(door => {
+        const item = document.createElement('button');
+        item.type = 'button';
+        item.className = 'admin-door-result';
+        const code = document.createElement('div');
+        code.className = 'admin-door-code';
+        const dot = document.createElement('span');
+        dot.className = 'admin-status-dot';
+        dot.style.background = adminDoorColor(door);
+        const label = document.createElement('span');
+        label.textContent = door.code || door.doorId;
+        code.append(dot, label);
+        const meta = document.createElement('div');
+        meta.className = 'admin-row-meta';
+        meta.textContent = `${door.customer} · ${door.floorplanDisplayName || door.floorplan}`;
+        item.append(code, meta);
+        item.addEventListener('click', () => openAdminFloorplan(door, door.doorId));
+        adminDoorResults.appendChild(item);
+      });
+    }
+
+    function renderAdminCustomerSelect(record) {
+      if (!adminDetailCustomer) return;
+      adminDetailCustomer.innerHTML = '';
+      getAdminCustomerNames().forEach(name => {
+        const option = document.createElement('option');
+        option.value = name;
+        option.textContent = name;
+        adminDetailCustomer.appendChild(option);
+      });
+      adminDetailCustomer.value = record?.customer || '';
+    }
+
+    function renderAdminDetail() {
+      const record = getSelectedAdminFloorplan();
+      if (!record) {
+        if (adminDetailEmpty) adminDetailEmpty.style.display = 'flex';
+        if (adminDetailContent) adminDetailContent.style.display = 'none';
+        return;
+      }
+
+      if (adminDetailEmpty) adminDetailEmpty.style.display = 'none';
+      if (adminDetailContent) adminDetailContent.style.display = 'block';
+      if (adminDetailTitle) adminDetailTitle.textContent = record.displayName || record.name || 'Plattegrond';
+      if (adminDetailMeta) {
+        const repoLabel = record.repo === 'uploads' ? 'upload' : 'gallery';
+        adminDetailMeta.textContent = `${record.customer} · ${repoLabel} · technisch: ${record.name}`;
+      }
+      if (adminDetailStats) {
+        adminDetailStats.textContent = `${record.done || 0} van ${record.doorsTotal || 0} deuren afgerond · ${record.open || 0} openstaand · ${record.attention || 0} aandacht nodig`;
+      }
+      renderAdminCustomerSelect(record);
+      if (adminDetailBuilding) adminDetailBuilding.value = record.building || '';
+      if (adminDetailFloorLabel) adminDetailFloorLabel.value = record.floorLabel || record.displayName || record.name || '';
+      if (adminDetailError) adminDetailError.textContent = '';
+      if (adminDetailDelete) {
+        const canDelete = record.repo === 'uploads' || record.uploaded;
+        adminDetailDelete.disabled = !canDelete;
+        adminDetailDelete.textContent = canDelete ? 'Plattegrond verwijderen' : 'Gallery-plattegrond kan niet verwijderd worden';
+      }
+      loadAdminPreview(record);
+    }
+
+    function renderAdminDashboard() {
+      renderAdminKpis();
+      renderAdminCustomerFilters();
+      renderAdminFloorplanList();
+      renderAdminDoorResults();
+      renderAdminDetail();
+      updateRoleActionButtons();
+    }
+
+    async function loadAdminDashboard({ force = false } = {}) {
+      if (!isAdminUser()) return;
+      if (adminDashboardState.loading) return;
+      if (!force && adminDashboardState.data) {
+        renderAdminDashboard();
+        return;
+      }
+
+      setAdminDashboardLoading(true);
+      try {
+        const data = await FD.DataService.fetchAdminOverview(CONFIG, {
+          diagnostics: {
+            purpose: 'admin_overview',
+          },
+        });
+        adminDashboardState.data = data;
+        if (Array.isArray(data.customers) && data.customers.length) {
+          customers = data.customers;
+          cacheCustomers();
+          populateCustomerDropdown();
+          const selectedCustomerIndex = FD.SelectSheetService.selectedIndex(customerSelect);
+          if (selectedCustomerIndex !== null && customers[selectedCustomerIndex]) {
+            populateFloorplanDropdown(selectedCustomerIndex);
+          }
+        }
+        renderAdminDashboard();
+      } catch (err) {
+        console.warn('Admin dashboard laden mislukt:', err);
+        if (adminFloorplanList) {
+          adminFloorplanList.innerHTML = '<div class="admin-dashboard-empty">Dashboard laden mislukt.</div>';
+        }
+      } finally {
+        setAdminDashboardLoading(false);
+      }
+    }
+
+    function showAdminDashboard({ force = false } = {}) {
+      if (!isAdminUser()) return;
+      if (isEditModeActive()) {
+        showToast('Sluit eerst de bewerkingsmodus', 'error');
+        return;
+      }
+      adminDashboardState.visible = true;
+      appContainer.classList.add('admin-dashboard-active');
+      if (adminDashboardEl) adminDashboardEl.style.display = 'flex';
+      loadingEl.classList.add('hidden');
+      closeSidePanel();
+      stopPolling();
+      renderAdminDashboard();
+      updateRoleActionButtons();
+      loadAdminDashboard({ force });
+    }
+
+    function hideAdminDashboard() {
+      adminDashboardState.visible = false;
+      appContainer.classList.remove('admin-dashboard-active');
+      if (adminDashboardEl) adminDashboardEl.style.display = 'none';
+      updateRoleActionButtons();
+    }
+
+    async function loadAdminPreview(record) {
+      if (!adminDetailPreview || !record) return;
+      const key = adminFloorplanKey(record);
+      if (adminDashboardState.previewKey === key && adminDetailPreview.querySelector('svg')) return;
+      const requestId = adminDashboardState.previewRequestId + 1;
+      adminDashboardState.previewRequestId = requestId;
+      adminDashboardState.previewKey = key;
+      adminDetailPreview.textContent = 'Preview laden...';
+      try {
+        const result = await fetchFloorplanSVGCacheFirst(getFloorplanApiUrl(record));
+        const svgText = typeof result === 'string' ? result : result?.svgText;
+        if (!svgText) throw new Error('Preview SVG ontbreekt.');
+        if (adminDashboardState.previewRequestId !== requestId || adminDashboardState.previewKey !== key) return;
+        adminDetailPreview.innerHTML = FD.FloorplanViewService.sanitizeSVGText(svgText);
+        const svg = adminDetailPreview.querySelector('svg');
+        if (svg) {
+          svg.removeAttribute('width');
+          svg.removeAttribute('height');
+          svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+        }
+      } catch (err) {
+        if (adminDashboardState.previewRequestId === requestId) {
+          adminDetailPreview.textContent = 'Preview niet beschikbaar';
+        }
+      }
+    }
+
+    function findFloorplanSelectionForAdminRecord(record) {
+      const customerName = record?.customer || '';
+      const floorplanName = record?.name || record?.floorplan || '';
+      const repo = record?.repo === 'uploads' ? 'uploads' : 'gallery';
+      const file = record?.file || '';
+      const customerIndex = customers.findIndex(customer => customer.customer === customerName);
+      if (customerIndex < 0) return { customerIndex: -1, floorplanIndex: -1 };
+      const floorplanIndex = (customers[customerIndex].floorplans || []).findIndex(fp => (
+        fp.name === floorplanName &&
+        fp.file === file &&
+        (fp.repo === 'uploads' ? 'uploads' : 'gallery') === repo
+      ));
+      return { customerIndex, floorplanIndex };
+    }
+
+    async function openAdminFloorplan(record, doorId = '') {
+      if (!record) return;
+      hideAdminDashboard();
+      let { customerIndex, floorplanIndex } = findFloorplanSelectionForAdminRecord(record);
+      if (customerIndex < 0 || floorplanIndex < 0) {
+        await loadCustomers();
+        ({ customerIndex, floorplanIndex } = findFloorplanSelectionForAdminRecord(record));
+      }
+      if (customerIndex < 0 || floorplanIndex < 0) {
+        showToast('Plattegrond niet gevonden', 'error');
+        showAdminDashboard();
+        return;
+      }
+      customerSelect.value = String(customerIndex);
+      populateFloorplanDropdown(customerIndex);
+      floorplanSelect.value = String(floorplanIndex);
+      updatePickerButtons();
+      await loadFloorplan(customerIndex, floorplanIndex);
+      if (doorId && FD.MarkerService.markerExists(svgContainer, doorId)) {
+        selectDoor(doorId);
+      }
+    }
+
+    async function saveAdminDetail() {
+      const record = getSelectedAdminFloorplan();
+      if (!record) return;
+      const nextCustomerName = adminDetailCustomer?.value || record.customer;
+      const buildingName = adminDetailBuilding?.value.trim() || '';
+      const floorLabel = adminDetailFloorLabel?.value.trim() || '';
+      if (!floorLabel) {
+        if (adminDetailError) adminDetailError.textContent = 'Vul een verdieping of naam in.';
+        return;
+      }
+      if (nextCustomerName !== record.customer) {
+        const ok = window.confirm(`Plattegrond verplaatsen van ${record.customer} naar ${nextCustomerName}? Status en JotForm-koppelingen verhuizen mee.`);
+        if (!ok) return;
+      }
+
+      if (adminDetailSave) {
+        adminDetailSave.disabled = true;
+        adminDetailSave.textContent = 'Opslaan...';
+      }
+      if (adminDetailError) adminDetailError.textContent = '';
+      busyOverlay.show({
+        title: 'Gegevens opslaan',
+        subtitle: nextCustomerName !== record.customer ? 'Plattegrond wordt verplaatst...' : 'Plattegrondgegevens worden bijgewerkt...',
+      });
+      try {
+        const result = await FD.DataService.updateFloorplanRecord(CONFIG, {
+          customerName: record.customer,
+          floorplanName: record.name,
+          repo: record.repo,
+          fileName: record.file,
+          nextCustomerName,
+          buildingName,
+          floorLabel,
+        });
+        if (Array.isArray(result.customers)) {
+          customers = result.customers;
+          cacheCustomers();
+          populateCustomerDropdown();
+        }
+        if (result.status) {
+          doorStatus = result.status;
+          FD.StatusService.cacheDoorStatus(doorStatus);
+        }
+        adminDashboardState.selectedCustomer = nextCustomerName;
+        adminDashboardState.selectedKey = adminFloorplanKey({
+          customer: nextCustomerName,
+          name: record.name,
+          repo: record.repo,
+          file: record.file,
+        });
+        adminDashboardState.previewKey = '';
+        await loadAdminDashboard({ force: true });
+        showToast('Plattegrondgegevens opgeslagen', 'success');
+      } catch (err) {
+        if (adminDetailError) {
+          adminDetailError.textContent = err?.status === 409
+            ? 'Deze klant heeft al een plattegrond met deze naam of dit bestand.'
+            : 'Opslaan mislukt: ' + (err.message || 'onbekende fout');
+        }
+      } finally {
+        if (adminDetailSave) {
+          adminDetailSave.disabled = false;
+          adminDetailSave.textContent = 'Gegevens opslaan';
+        }
+        busyOverlay.hide();
+      }
+    }
+
+    async function deleteAdminDetailFloorplan() {
+      const record = getSelectedAdminFloorplan();
+      if (!record) return;
+      if (!(record.repo === 'uploads' || record.uploaded)) {
+        showToast('Gallery-plattegronden kunnen niet vanuit het dashboard verwijderd worden', 'error');
+        return;
+      }
+      const ok = window.confirm(`Plattegrond "${record.displayName || record.name}" verwijderen? Dit verwijdert ook het uploadbestand.`);
+      if (!ok) return;
+
+      if (adminDetailDelete) {
+        adminDetailDelete.disabled = true;
+        adminDetailDelete.textContent = 'Verwijderen...';
+      }
+      busyOverlay.show({
+        title: 'Plattegrond verwijderen',
+        subtitle: 'Uploadbestand en klantkoppeling worden verwijderd...',
+      });
+      try {
+        const selectedBeforeDelete = getSelectedFloorplan();
+        const deletingCurrentFloorplan = selectedBeforeDelete.customer?.customer === record.customer &&
+          selectedBeforeDelete.floorplan?.name === record.name &&
+          selectedBeforeDelete.floorplan?.file === record.file &&
+          (selectedBeforeDelete.floorplan?.repo === 'uploads' ? 'uploads' : 'gallery') === record.repo;
+        const result = await FD.DataService.deleteUploadedFloorplan(CONFIG, {
+          customerName: record.customer,
+          floorplan: {
+            name: record.name,
+            file: record.file,
+            repo: record.repo,
+            uploaded: true,
+          },
+        });
+        customers = result.customers;
+        cacheCustomers();
+        populateCustomerDropdown();
+        if (deletingCurrentFloorplan) {
+          currentCustomer = null;
+          currentFloorplan = null;
+          resetFloorplanUI();
+          customerSelect.value = '';
+          resetFloorplanDropdown(true);
+          updatePickerButtons();
+        }
+        adminDashboardState.selectedKey = '';
+        adminDashboardState.previewKey = '';
+        await loadAdminDashboard({ force: true });
+        showToast('Plattegrond verwijderd', 'success');
+      } catch (err) {
+        if (adminDetailError) adminDetailError.textContent = 'Verwijderen mislukt: ' + (err.message || 'onbekende fout');
+      } finally {
+        if (adminDetailDelete) {
+          adminDetailDelete.disabled = false;
+          adminDetailDelete.textContent = 'Plattegrond verwijderen';
+        }
+        busyOverlay.hide();
+      }
+    }
+
     const selectionController = FD.SelectSheetService.createSelectionController({
       elements: {
         customerSelect,
@@ -1443,6 +2006,7 @@
       getState: () => ({ customersLoading }),
       getItems: getSelectSheetItems,
       onCustomerChange: ({ value }) => {
+        if (adminDashboardState.visible) hideAdminDashboard();
         if (isEditModeActive()) exitEditMode();
         resetFloorplanUI();
         currentCustomer = null;
@@ -1461,6 +2025,7 @@
         populateFloorplanDropdown(parseInt(value, 10));
       },
       onFloorplanChange: () => {
+        if (adminDashboardState.visible) hideAdminDashboard();
         updatePickerButtons();
         const { customerIndex, floorplanIndex, floorplan } = getSelectedFloorplan();
         if (customerIndex === null || floorplanIndex === null || !floorplan) {
@@ -1642,6 +2207,18 @@
       currentFloorplan = null;
       refreshCurrentUser();
       pendingDoor = null;
+      adminDashboardState.visible = false;
+      adminDashboardState.data = null;
+      adminDashboardState.selectedKey = '';
+      adminDashboardState.selectedCustomer = '';
+      adminDashboardState.searchQuery = '';
+      adminDashboardState.doorQuery = '';
+      adminDashboardState.previewKey = '';
+      adminDashboardState.previewRequestId += 1;
+      if (adminDashboardSearch) adminDashboardSearch.value = '';
+      if (adminDoorSearch) adminDoorSearch.value = '';
+      if (adminDashboardEl) adminDashboardEl.style.display = 'none';
+      appContainer.classList.remove('admin-dashboard-active');
       customerSelect.disabled = false;
       FD.SelectSheetService.renderCustomerOptions(customerSelect, []);
       resetFloorplanDropdown(true);
@@ -3269,6 +3846,26 @@
 
     // Menu toggle
     topbarMenuController.bind();
+    btnDashboard?.addEventListener('click', () => {
+      if (adminDashboardState.visible) {
+        loadAdminDashboard({ force: true });
+      } else {
+        showAdminDashboard();
+      }
+    });
+    adminDashboardRefresh?.addEventListener('click', () => loadAdminDashboard({ force: true }));
+    adminDashboardSearch?.addEventListener('input', () => {
+      adminDashboardState.searchQuery = adminDashboardSearch.value;
+      adminDashboardState.selectedKey = '';
+      renderAdminDashboard();
+    });
+    adminDoorSearch?.addEventListener('input', () => {
+      adminDashboardState.doorQuery = adminDoorSearch.value;
+      renderAdminDoorResults();
+    });
+    adminDetailOpen?.addEventListener('click', () => openAdminFloorplan(getSelectedAdminFloorplan()));
+    adminDetailSave?.addEventListener('click', saveAdminDetail);
+    adminDetailDelete?.addEventListener('click', deleteAdminDetailFloorplan);
     btnMenuLabels.addEventListener('click', (e) => {
       e.stopPropagation();
       toggleLabels();
@@ -3323,7 +3920,10 @@
     async function init() {
       updateLabelsMenuButton();
       await Promise.all([loadCustomers(), loadStatus()]);
-      await restoreJotFormReturnIfNeeded();
+      const restored = await restoreJotFormReturnIfNeeded();
+      if (!restored && isAdminUser()) {
+        showAdminDashboard();
+      }
     }
 
     authController.start();

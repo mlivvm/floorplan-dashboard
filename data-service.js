@@ -761,6 +761,49 @@
     };
   }
 
+  async function fetchAdminOverview(config, options = {}) {
+    const token = getWorkerSessionToken(config);
+    if (!token) throw workerError(401, 'worker_session_required');
+    const data = await fetchWorkerJSON(config, '/api/admin-overview', {
+      ...options,
+      headers: {
+        ...(options?.headers || {}),
+        Authorization: `Bearer ${token}`,
+      },
+    });
+    return {
+      summary: data.summary && typeof data.summary === 'object' ? data.summary : {},
+      customers: Array.isArray(data.customers) ? data.customers : [],
+      floorplans: Array.isArray(data.floorplans) ? data.floorplans : [],
+      doors: Array.isArray(data.doors) ? data.doors : [],
+    };
+  }
+
+  async function updateFloorplanRecord(config, record, options = {}) {
+    const token = getWorkerSessionToken(config);
+    if (!token) throw workerError(401, 'worker_session_required');
+    const data = await patchWorkerJSON(config, '/api/floorplan-record', {
+      customerName: record.customerName,
+      floorplanName: record.floorplanName,
+      repo: record.repo || 'gallery',
+      fileName: record.fileName,
+      nextCustomerName: record.nextCustomerName || record.customerName,
+      buildingName: record.buildingName || '',
+      floorLabel: record.floorLabel || '',
+    }, {
+      ...options,
+      headers: {
+        ...(options?.headers || {}),
+        Authorization: `Bearer ${token}`,
+      },
+    });
+    return {
+      customers: Array.isArray(data.customers) ? data.customers : [],
+      status: data.status && typeof data.status === 'object' ? data.status : null,
+      record: data.record || null,
+    };
+  }
+
   async function supportsJotFormSubmissionBatch(config, options = {}) {
     const baseUrl = getWorkerApiBaseUrl(config);
     if (!baseUrl) return false;
@@ -790,7 +833,9 @@
     createJotFormContext,
     findJotFormSubmission,
     findJotFormSubmissions,
+    fetchAdminOverview,
     fetchDoorCodeIndex,
+    updateFloorplanRecord,
     supportsJotFormSubmissionBatch,
     getWorkerSessionUser,
     isViewerReadOnlyFloorplan,
