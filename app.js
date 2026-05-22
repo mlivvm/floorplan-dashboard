@@ -27,7 +27,7 @@
       jotformReturnRefreshMaxDuration: 90000,
       versionCheckUrl: 'version.json',
       versionCheckInterval: 15 * 60 * 1000,
-      offlineCacheVersion: 'fd-v1.8.144',
+      offlineCacheVersion: 'fd-v1.8.145',
     };
 
     const COLORS = {
@@ -192,6 +192,11 @@
       open: document.getElementById('admin-kpi-open'),
       done: document.getElementById('admin-kpi-done'),
       attention: document.getElementById('admin-kpi-attention'),
+    };
+    const adminOnlineEls = {
+      admin: document.getElementById('admin-online-admin'),
+      monteur: document.getElementById('admin-online-monteur'),
+      viewer: document.getElementById('admin-online-viewer'),
     };
     const topbarMenu = document.getElementById('topbar-menu');
     const btnTopbarMenu = document.getElementById('btn-menu');
@@ -1555,6 +1560,31 @@
       });
     }
 
+    function renderActiveUsers(counts) {
+      Object.entries(adminOnlineEls).forEach(([role, el]) => {
+        if (!el) return;
+        const value = counts && Object.prototype.hasOwnProperty.call(counts, role)
+          ? Number(counts[role] || 0)
+          : null;
+        el.textContent = value === null ? '—' : String(value);
+      });
+    }
+
+    async function loadActiveUsers() {
+      if (!isAdminUser()) return;
+      try {
+        const result = await FD.DataService.fetchActiveUsers(CONFIG, {
+          diagnostics: {
+            purpose: 'admin_active_users',
+          },
+        });
+        renderActiveUsers(result.counts);
+      } catch (err) {
+        console.warn('Online gebruikers laden mislukt:', err);
+        renderActiveUsers(null);
+      }
+    }
+
     function renderAdminCustomerFilters() {
       if (!adminCustomerFilters) return;
       adminCustomerFilters.innerHTML = '';
@@ -1740,6 +1770,7 @@
       if (adminDashboardState.loading) return;
       if (!force && adminDashboardState.data) {
         renderAdminDashboard();
+        loadActiveUsers();
         return;
       }
 
@@ -1782,6 +1813,7 @@
         }
       } finally {
         setAdminDashboardLoading(false);
+        loadActiveUsers();
       }
     }
 
@@ -2244,6 +2276,7 @@
       adminDashboardState.previewRequestId += 1;
       if (adminDashboardSearch) adminDashboardSearch.value = '';
       if (adminDoorSearch) adminDoorSearch.value = '';
+      renderActiveUsers(null);
       if (adminDashboardEl) adminDashboardEl.style.display = 'none';
       appContainer.classList.remove('admin-dashboard-active');
       customerSelect.disabled = false;

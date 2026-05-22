@@ -779,6 +779,28 @@
     };
   }
 
+  async function fetchActiveUsers(config, options = {}) {
+    const token = getWorkerSessionToken(config);
+    if (!token) throw workerError(401, 'worker_session_required');
+    const data = await fetchWorkerJSON(config, '/api/admin-active-users', {
+      ...options,
+      headers: {
+        ...(options?.headers || {}),
+        Authorization: `Bearer ${token}`,
+      },
+    });
+    const rawCounts = data.counts && typeof data.counts === 'object' ? data.counts : {};
+    return {
+      generatedAt: String(data.generated_at || ''),
+      windowMinutes: Number(data.window_minutes || 10),
+      counts: {
+        admin: Number(rawCounts.admin || 0),
+        monteur: Number(rawCounts.monteur || 0),
+        viewer: Number(rawCounts.viewer || 0),
+      },
+    };
+  }
+
   async function updateFloorplanRecord(config, record, options = {}) {
     const token = getWorkerSessionToken(config);
     if (!token) throw workerError(401, 'worker_session_required');
@@ -834,6 +856,7 @@
     findJotFormSubmission,
     findJotFormSubmissions,
     fetchAdminOverview,
+    fetchActiveUsers,
     fetchDoorCodeIndex,
     updateFloorplanRecord,
     supportsJotFormSubmissionBatch,

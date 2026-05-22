@@ -236,6 +236,53 @@
       gap: 12px;
     }
 
+    .admin-online-panel {
+      width: 140px;
+      max-width: 100%;
+      padding: 10px 12px;
+      border-radius: 7px;
+      background: #1f2933;
+      color: #eef2f7;
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,0.08);
+    }
+
+    .admin-online-title {
+      font-size: 12px;
+      line-height: 1.1;
+      font-weight: 850;
+      color: #ffffff;
+      letter-spacing: 0;
+    }
+
+    .admin-online-rule {
+      height: 1px;
+      margin: 7px 0 6px;
+      background: rgba(255,255,255,0.24);
+    }
+
+    .admin-online-row {
+      min-height: 20px;
+      display: grid;
+      grid-template-columns: 1fr auto;
+      align-items: center;
+      gap: 10px;
+      font-size: 12px;
+      line-height: 1.2;
+    }
+
+    .admin-online-row span {
+      color: #cbd5e1;
+      font-weight: 750;
+    }
+
+    .admin-online-row strong {
+      min-width: 16px;
+      text-align: right;
+      color: #ffffff;
+      font-size: 13px;
+      font-weight: 900;
+    }
+
     .admin-dashboard-label {
       display: block;
       font-size: 12px;
