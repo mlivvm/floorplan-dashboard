@@ -25,7 +25,7 @@
 
   <!-- Login screen -->
   <div class="login-screen" id="login-screen" style="display:none;">
-    <div style="position:absolute; bottom:12px; left:16px; font-size:12px; color:#aaa;">v1.8.145</div>
+    <div style="position:absolute; bottom:12px; left:16px; font-size:12px; color:#aaa;">v1.8.147</div>
     <div class="login-box">
       <h1>Plattegrond Dashboard</h1>
       <p>Log in met je account</p>
@@ -41,7 +41,7 @@
 
   <!-- App (hidden until logged in) -->
   <div id="app-container" style="display:none;">
-  <div style="position:fixed; bottom:12px; left:16px; font-size:12px; color:#aaa; z-index:1000; pointer-events:none;">v1.8.145</div>
+  <div style="position:fixed; bottom:12px; left:16px; font-size:12px; color:#aaa; z-index:1000; pointer-events:none;">v1.8.147</div>
 
   <!-- Toast notification -->
   <div id="toast" style="display:none; position:fixed; top:calc(env(safe-area-inset-top) + var(--topbar-h, 52px) + 12px); left:50%; transform:translateX(-50%); padding:14px 28px; border-radius:10px; font-size:16px; font-weight:600; z-index:500; box-shadow:0 4px 16px rgba(0,0,0,0.25); cursor:pointer; max-width:90vw; text-align:center;"></div>
@@ -69,7 +69,8 @@
         <span class="selector-value" id="floorplan-picker-value">Kies plattegrond</span>
       </button>
     </div>
-    <span style="flex:1;"></span>
+    <button type="button" class="topbar-metadata-btn" id="btn-topbar-metadata" title="Plattegrondgegevens aanpassen" aria-label="Plattegrondgegevens aanpassen" hidden disabled>&#128295;</button>
+    <span class="topbar-spacer"></span>
     <div class="account-indicator" id="account-indicator" title="Ingelogd account" hidden>
       <span id="account-label"></span>
     </div>
@@ -106,20 +107,7 @@
         <div class="admin-dashboard-kicker">KEYROL beheer</div>
         <h2>Plattegronden en deuren</h2>
       </div>
-      <button type="button" id="admin-dashboard-refresh" class="admin-dashboard-secondary">Vernieuwen</button>
-    </div>
-
-    <div class="admin-kpi-grid" id="admin-kpi-grid">
-      <div class="admin-kpi"><span>Klanten</span><strong id="admin-kpi-customers">0</strong></div>
-      <div class="admin-kpi"><span>Plattegronden</span><strong id="admin-kpi-floorplans">0</strong></div>
-      <div class="admin-kpi"><span>Deuren</span><strong id="admin-kpi-doors">0</strong></div>
-      <div class="admin-kpi"><span>Openstaand</span><strong id="admin-kpi-open">0</strong></div>
-      <div class="admin-kpi"><span>Afgerond</span><strong id="admin-kpi-done">0</strong></div>
-      <div class="admin-kpi attention"><span>Aandacht</span><strong id="admin-kpi-attention">0</strong></div>
-    </div>
-
-    <div class="admin-dashboard-grid">
-      <aside class="admin-dashboard-sidebar">
+      <div class="admin-dashboard-actions">
         <section class="admin-online-panel" id="admin-online-panel" aria-label="Online gebruikers">
           <div class="admin-online-title">Online nu</div>
           <div class="admin-online-rule"></div>
@@ -127,54 +115,162 @@
           <div class="admin-online-row"><span>monteur</span><strong id="admin-online-monteur">—</strong></div>
           <div class="admin-online-row"><span>viewer</span><strong id="admin-online-viewer">—</strong></div>
         </section>
-        <label class="admin-dashboard-label" for="admin-dashboard-search">Zoeken</label>
-        <input id="admin-dashboard-search" class="admin-dashboard-input" type="search" placeholder="Klant, pand of plattegrond" autocomplete="off">
-        <div class="admin-filter-list" id="admin-customer-filters"></div>
+        <button type="button" id="admin-dashboard-refresh" class="admin-dashboard-secondary">Vernieuwen</button>
+      </div>
+    </div>
 
-        <div class="admin-door-search">
+    <nav class="admin-dashboard-tabs" aria-label="Dashboard onderdelen">
+      <button type="button" class="admin-dashboard-tab active" id="admin-tab-overview" data-admin-tab="overview" aria-selected="true">Overzicht</button>
+      <button type="button" class="admin-dashboard-tab" id="admin-tab-door-search" data-admin-tab="door-search" aria-selected="false">Deur zoeken</button>
+      <button type="button" class="admin-dashboard-tab" id="admin-tab-floorplans" data-admin-tab="floorplans" aria-selected="false">Plattegronden</button>
+      <button type="button" class="admin-dashboard-tab" id="admin-tab-details" data-admin-tab="details" aria-selected="false">Details</button>
+    </nav>
+
+    <div class="admin-dashboard-tabshell">
+      <section class="admin-tab-panel active" id="admin-tabpanel-overview" data-admin-panel="overview">
+        <div class="admin-kpi-grid" id="admin-kpi-grid">
+          <div class="admin-kpi"><span>Klanten</span><strong id="admin-kpi-customers">0</strong></div>
+          <div class="admin-kpi"><span>Plattegronden</span><strong id="admin-kpi-floorplans">0</strong></div>
+          <div class="admin-kpi"><span>Deuren</span><strong id="admin-kpi-doors">0</strong></div>
+          <div class="admin-kpi"><span>Openstaand</span><strong id="admin-kpi-open">0</strong></div>
+          <div class="admin-kpi"><span>Afgerond</span><strong id="admin-kpi-done">0</strong></div>
+          <div class="admin-kpi attention"><span>Aandacht</span><strong id="admin-kpi-attention">0</strong></div>
+        </div>
+
+        <div class="admin-overview-grid">
+          <section class="admin-overview-card">
+            <div class="admin-overview-card-title">
+              <strong>Aandacht nodig</strong>
+              <span>Rode status</span>
+            </div>
+            <div class="admin-overview-list" id="admin-overview-attention"></div>
+          </section>
+
+          <section class="admin-overview-card">
+            <div class="admin-overview-card-title">
+              <strong>Meeste open deuren</strong>
+              <span>Nog te doen</span>
+            </div>
+            <div class="admin-overview-list" id="admin-overview-open"></div>
+          </section>
+
+          <section class="admin-overview-card admin-overview-card-wide">
+            <div class="admin-overview-card-title">
+              <strong>Recente activiteit</strong>
+              <span>Status updates</span>
+            </div>
+            <div class="admin-activity-list" id="admin-activity-list"></div>
+          </section>
+        </div>
+      </section>
+
+      <section class="admin-tab-panel" id="admin-tabpanel-door-search" data-admin-panel="door-search" hidden>
+        <div class="admin-door-search admin-door-search-tab">
           <label class="admin-dashboard-label" for="admin-door-search">Deur zoeken</label>
-          <input id="admin-door-search" class="admin-dashboard-input" type="search" placeholder="Deurcode" autocomplete="off">
+          <input id="admin-door-search" class="admin-dashboard-input admin-dashboard-search-large" type="search" placeholder="Typ deurcode, bijvoorbeeld D01" autocomplete="off">
+          <div class="admin-door-filter-grid">
+            <label class="admin-door-filter-field" for="admin-door-group">
+              <span>Lijstweergave</span>
+              <select id="admin-door-group" class="admin-dashboard-input">
+                <option value="">Deurcode A-Z</option>
+                <option value="desc">Deurcode Z-A</option>
+              </select>
+            </label>
+            <label class="admin-door-filter-field" for="admin-door-customer-filter">
+              <span>Klant</span>
+              <select id="admin-door-customer-filter" class="admin-dashboard-input">
+                <option value="">Alle klanten</option>
+              </select>
+            </label>
+            <label class="admin-door-filter-field" for="admin-door-floorplan-filter">
+              <span>Plattegrond</span>
+              <select id="admin-door-floorplan-filter" class="admin-dashboard-input" disabled>
+                <option value="">Kies eerst een klant</option>
+              </select>
+            </label>
+          </div>
           <div class="admin-door-results" id="admin-door-results"></div>
         </div>
-      </aside>
+      </section>
 
-      <main class="admin-floorplan-panel">
-        <div class="admin-panel-title">
-          <strong>Plattegronden</strong>
-          <span id="admin-floorplan-count">0 gevonden</span>
-        </div>
-        <div class="admin-floorplan-list" id="admin-floorplan-list"></div>
-      </main>
+      <section class="admin-tab-panel" id="admin-tabpanel-floorplans" data-admin-panel="floorplans" hidden>
+        <div class="admin-floorplans-layout">
+          <aside class="admin-dashboard-sidebar">
+            <label class="admin-dashboard-label" for="admin-dashboard-search">Zoeken</label>
+            <input id="admin-dashboard-search" class="admin-dashboard-input" type="search" placeholder="Klant, pand of plattegrond" autocomplete="off">
+            <div class="admin-filter-list" id="admin-customer-filters"></div>
+          </aside>
 
-      <aside class="admin-detail-panel" id="admin-detail-panel">
-        <div class="admin-detail-empty" id="admin-detail-empty">Selecteer een plattegrond.</div>
-        <div class="admin-detail-content" id="admin-detail-content" style="display:none;">
-          <div class="admin-detail-preview" id="admin-detail-preview">
-            <span>Preview laden na selectie</span>
-          </div>
-          <div class="admin-detail-heading">
-            <div>
-              <h3 id="admin-detail-title">Plattegrond</h3>
-              <p id="admin-detail-meta"></p>
+          <main class="admin-floorplan-panel">
+            <div class="admin-panel-title">
+              <strong>Plattegronden</strong>
+              <span id="admin-floorplan-count">0 gevonden</span>
             </div>
-            <button type="button" id="admin-detail-open" class="admin-dashboard-primary">Openen</button>
-          </div>
-          <div class="admin-detail-stats" id="admin-detail-stats"></div>
-          <div class="admin-edit-form">
-            <label class="admin-dashboard-label" for="admin-detail-customer">Klant</label>
-            <select id="admin-detail-customer" class="admin-dashboard-input"></select>
-            <label class="admin-dashboard-label" for="admin-detail-building">Pand</label>
-            <input id="admin-detail-building" class="admin-dashboard-input" type="text" placeholder="Pand">
-            <label class="admin-dashboard-label" for="admin-detail-floor-label">Verdieping of naam</label>
-            <input id="admin-detail-floor-label" class="admin-dashboard-input" type="text" placeholder="Verdieping of naam">
-            <div class="admin-detail-error" id="admin-detail-error"></div>
-            <button type="button" id="admin-detail-save" class="admin-dashboard-primary">Gegevens opslaan</button>
-            <button type="button" id="admin-detail-delete" class="admin-dashboard-danger">Plattegrond verwijderen</button>
-          </div>
+            <div class="admin-floorplan-list" id="admin-floorplan-list"></div>
+          </main>
         </div>
-      </aside>
+      </section>
+
+      <section class="admin-tab-panel" id="admin-tabpanel-details" data-admin-panel="details" hidden>
+        <aside class="admin-detail-panel" id="admin-detail-panel">
+          <div class="admin-detail-empty" id="admin-detail-empty">Selecteer een plattegrond of deur.</div>
+          <div class="admin-detail-content" id="admin-detail-content" style="display:none;">
+            <div class="admin-door-detail-card" id="admin-door-detail-card" hidden>
+              <div>
+                <div class="admin-door-detail-label">Geselecteerde deur</div>
+                <div class="admin-door-detail-main">
+                  <span class="admin-status-dot" id="admin-door-detail-dot"></span>
+                  <strong id="admin-door-detail-code">-</strong>
+                  <span id="admin-door-detail-status">-</span>
+                </div>
+                <div class="admin-door-detail-meta" id="admin-door-detail-meta"></div>
+              </div>
+              <button type="button" id="admin-door-detail-open" class="admin-dashboard-primary">Open deur op plattegrond</button>
+            </div>
+            <div class="admin-detail-workspace">
+              <section class="admin-detail-preview-column">
+                <div class="admin-detail-heading">
+                  <div>
+                    <h3 id="admin-detail-title">Plattegrond</h3>
+                    <p id="admin-detail-meta"></p>
+                  </div>
+                  <button type="button" id="admin-detail-open" class="admin-dashboard-primary">Openen</button>
+                </div>
+                <div class="admin-detail-stats" id="admin-detail-stats"></div>
+                <div class="admin-detail-preview" id="admin-detail-preview">
+                  <span>Preview laden na selectie</span>
+                </div>
+              </section>
+            </div>
+          </div>
+        </aside>
+      </section>
+
     </div>
+
   </section>
+
+  <div class="admin-metadata-dialog-overlay" id="admin-metadata-dialog-overlay" hidden></div>
+  <div class="admin-metadata-dialog" id="admin-metadata-dialog" hidden role="dialog" aria-modal="true" aria-labelledby="admin-metadata-dialog-title">
+    <div class="admin-metadata-dialog-header">
+      <div>
+        <h3 id="admin-metadata-dialog-title">Gegevens aanpassen</h3>
+        <p id="admin-metadata-dialog-context"></p>
+      </div>
+      <button type="button" id="admin-detail-cancel" class="admin-metadata-close" aria-label="Sluiten">&times;</button>
+    </div>
+    <div class="admin-edit-form">
+      <label class="admin-dashboard-label" for="admin-detail-customer">Klant</label>
+      <select id="admin-detail-customer" class="admin-dashboard-input"></select>
+      <label class="admin-dashboard-label" for="admin-detail-building">Pand</label>
+      <input id="admin-detail-building" class="admin-dashboard-input" type="text" placeholder="Pand">
+      <label class="admin-dashboard-label" for="admin-detail-floor-label">Verdieping of naam</label>
+      <input id="admin-detail-floor-label" class="admin-dashboard-input" type="text" placeholder="Verdieping of naam">
+      <div class="admin-detail-error" id="admin-detail-error"></div>
+      <button type="button" id="admin-detail-save" class="admin-dashboard-primary">Gegevens opslaan</button>
+      <button type="button" id="admin-detail-delete" class="admin-dashboard-danger">Plattegrond verwijderen</button>
+    </div>
+  </div>
 
   <!-- Customer/floorplan selector sheet -->
   <div id="select-sheet-overlay" class="select-sheet-overlay" style="display:none;"></div>

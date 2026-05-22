@@ -801,6 +801,33 @@
     };
   }
 
+  async function fetchAdminActivity(config, options = {}) {
+    const token = getWorkerSessionToken(config);
+    if (!token) throw workerError(401, 'worker_session_required');
+    const data = await fetchWorkerJSON(config, '/api/admin-activity', {
+      ...options,
+      headers: {
+        ...(options?.headers || {}),
+        Authorization: `Bearer ${token}`,
+      },
+    });
+    return {
+      generatedAt: String(data.generated_at || ''),
+      limit: Number(data.limit || 30),
+      activity: Array.isArray(data.activity) ? data.activity.map(row => ({
+        id: Number(row.id || 0),
+        createdAt: String(row.created_at || row.createdAt || ''),
+        action: String(row.action || ''),
+        result: String(row.result || ''),
+        customer: String(row.customer || ''),
+        floorplan: String(row.floorplan || ''),
+        doorId: String(row.door_id || row.doorId || ''),
+        oldStatus: String(row.old_status || row.oldStatus || ''),
+        newStatus: String(row.new_status || row.newStatus || ''),
+      })) : [],
+    };
+  }
+
   async function updateFloorplanRecord(config, record, options = {}) {
     const token = getWorkerSessionToken(config);
     if (!token) throw workerError(401, 'worker_session_required');
@@ -856,6 +883,7 @@
     findJotFormSubmission,
     findJotFormSubmissions,
     fetchAdminOverview,
+    fetchAdminActivity,
     fetchActiveUsers,
     fetchDoorCodeIndex,
     updateFloorplanRecord,

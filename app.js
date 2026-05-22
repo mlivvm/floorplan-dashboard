@@ -27,7 +27,7 @@
       jotformReturnRefreshMaxDuration: 90000,
       versionCheckUrl: 'version.json',
       versionCheckInterval: 15 * 60 * 1000,
-      offlineCacheVersion: 'fd-v1.8.145',
+      offlineCacheVersion: 'fd-v1.8.147',
     };
 
     const COLORS = {
@@ -94,8 +94,18 @@
       selectedCustomer: '',
       searchQuery: '',
       doorQuery: '',
+      doorOrder: 'asc',
+      doorCustomerFilter: '',
+      doorFloorplanFilter: '',
+      activeTab: 'overview',
+      selectedDoorKey: '',
+      activity: [],
+      activityLoading: false,
+      activityError: '',
+      activityUnavailable: false,
       previewKey: '',
       previewRequestId: 0,
+      metadataRecord: null,
     };
 
     function setDocumentAppMode(mode) {
@@ -127,6 +137,7 @@
     let savedScale = 1;
     let savedPanX = 0;
     let savedPanY = 0;
+    let topbarFloorplanActionsLocked = false;
 
     // ============================================================
     // DOM REFERENCES
@@ -164,12 +175,25 @@
     const appUpdateLaterButton = document.getElementById('app-update-later');
     const busyOverlayEl = document.getElementById('busy-overlay');
     const btnDashboard = document.getElementById('btn-dashboard');
+    const btnTopbarMetadata = document.getElementById('btn-topbar-metadata');
     const adminDashboardEl = document.getElementById('admin-dashboard');
     const adminDashboardRefresh = document.getElementById('admin-dashboard-refresh');
+    const adminDashboardTabs = Array.from(document.querySelectorAll('[data-admin-tab]'));
+    const adminDashboardTabPanels = Array.from(document.querySelectorAll('[data-admin-panel]'));
+    const adminOverviewAttention = document.getElementById('admin-overview-attention');
+    const adminOverviewOpen = document.getElementById('admin-overview-open');
+    const adminActivityList = document.getElementById('admin-activity-list');
     const adminDashboardSearch = document.getElementById('admin-dashboard-search');
     const adminCustomerFilters = document.getElementById('admin-customer-filters');
     const adminDoorSearch = document.getElementById('admin-door-search');
+    const adminDoorGroup = document.getElementById('admin-door-group');
+    const adminDoorCustomerFilter = document.getElementById('admin-door-customer-filter');
+    const adminDoorFloorplanFilter = document.getElementById('admin-door-floorplan-filter');
     const adminDoorResults = document.getElementById('admin-door-results');
+    const adminMetadataDialogOverlay = document.getElementById('admin-metadata-dialog-overlay');
+    const adminMetadataDialog = document.getElementById('admin-metadata-dialog');
+    const adminMetadataDialogContext = document.getElementById('admin-metadata-dialog-context');
+    const adminDetailCancel = document.getElementById('admin-detail-cancel');
     const adminFloorplanList = document.getElementById('admin-floorplan-list');
     const adminFloorplanCount = document.getElementById('admin-floorplan-count');
     const adminDetailEmpty = document.getElementById('admin-detail-empty');
@@ -185,6 +209,12 @@
     const adminDetailError = document.getElementById('admin-detail-error');
     const adminDetailSave = document.getElementById('admin-detail-save');
     const adminDetailDelete = document.getElementById('admin-detail-delete');
+    const adminDoorDetailCard = document.getElementById('admin-door-detail-card');
+    const adminDoorDetailDot = document.getElementById('admin-door-detail-dot');
+    const adminDoorDetailCode = document.getElementById('admin-door-detail-code');
+    const adminDoorDetailStatus = document.getElementById('admin-door-detail-status');
+    const adminDoorDetailMeta = document.getElementById('admin-door-detail-meta');
+    const adminDoorDetailOpen = document.getElementById('admin-door-detail-open');
     const adminKpiEls = {
       customers: document.getElementById('admin-kpi-customers'),
       floorplans: document.getElementById('admin-kpi-floorplans'),
@@ -1284,6 +1314,32 @@
       return displayName;
     }
 
+    function getSelectedTopbarFloorplanRecord() {
+      const { customer, floorplan } = getSelectedFloorplan();
+      if (!customer || !floorplan) return null;
+      return {
+        customer: customer.customer,
+        name: floorplan.name,
+        displayName: FD.SelectSheetService.floorplanDisplayName(floorplan),
+        building: floorplan.building || '',
+        floorLabel: floorplan.floorLabel || '',
+        repo: floorplan.repo === 'uploads' ? 'uploads' : 'gallery',
+        file: floorplan.file || '',
+        uploaded: Boolean(floorplan.uploaded || floorplan.repo === 'uploads'),
+      };
+    }
+
+    function updateTopbarMetadataButton() {
+      if (!btnTopbarMetadata) return;
+      const selected = getSelectedTopbarFloorplanRecord();
+      const visible = isAdminUser();
+      btnTopbarMetadata.hidden = !visible;
+      btnTopbarMetadata.disabled = !visible || !selected;
+      btnTopbarMetadata.title = selected
+        ? `Gegevens aanpassen van ${selected.displayName || selected.name}`
+        : 'Kies eerst een plattegrond';
+    }
+
     function applyDoorActionPermissions() {
       if (!selectedDoor) return;
       const allowed = canWriteCurrentFloorplan();
@@ -1297,13 +1353,39 @@
         : (jotformPending ? 'Formulierstatus controleren...' : '');
     }
 
+    function hasCurrentFloorplanView() {
+      return Boolean(currentCustomer && currentFloorplan && svgContainer.querySelector('svg'));
+    }
+
+    function restoreTopbarToCurrentFloorplan() {
+      if (!currentCustomer || !currentFloorplan) return false;
+      const customerIndex = customers.findIndex(customer => customer.customer === currentCustomer);
+      if (customerIndex < 0) return false;
+      const floorplanIndex = (customers[customerIndex].floorplans || [])
+        .findIndex(floorplan => floorplan.name === currentFloorplan);
+      if (floorplanIndex < 0) return false;
+
+      customerSelect.value = String(customerIndex);
+      populateFloorplanDropdown(customerIndex);
+      floorplanSelect.value = String(floorplanIndex);
+      updatePickerButtons();
+      return true;
+    }
+
     function updateRoleActionButtons() {
       const uploadButton = document.getElementById('btn-upload');
       if (uploadButton) uploadButton.style.display = canManageUploads() ? 'block' : 'none';
       if (btnDashboard) {
         btnDashboard.style.display = isAdminUser() ? 'inline-block' : 'none';
         btnDashboard.classList.toggle('active', adminDashboardState.visible);
+        const canReturnToFloorplan = adminDashboardState.visible && hasCurrentFloorplanView();
+        btnDashboard.textContent = canReturnToFloorplan ? 'Plattegrond' : 'Dashboard';
+        btnDashboard.title = canReturnToFloorplan
+          ? 'Terug naar geselecteerde plattegrond'
+          : 'Dashboard openen';
+        btnDashboard.setAttribute('aria-pressed', adminDashboardState.visible ? 'true' : 'false');
       }
+      updateTopbarMetadataButton();
 
       const selected = getSelectedFloorplan();
       const hasFloorplan = Boolean(selected.floorplan || currentFloorplan);
@@ -1490,6 +1572,35 @@
       ].join('\n');
     }
 
+    function adminDoorKey(door) {
+      return [
+        door?.customer || '',
+        door?.floorplan || door?.name || '',
+        door?.repo === 'uploads' ? 'uploads' : 'gallery',
+        door?.file || '',
+        door?.doorId || door?.door_id || door?.code || '',
+      ].join('\n');
+    }
+
+    function adminStatusLabel(item) {
+      if (item?.status === 'done' && item?.doorCondition === 'attention') return 'Aandacht nodig';
+      if (item?.new_status === 'done' || item?.newStatus === 'done') return 'Afgerond';
+      if (item?.status === 'done') return 'Afgerond';
+      if (item?.new_status === 'todo' || item?.newStatus === 'todo' || item?.result === 'todo') return 'Open';
+      return 'Open';
+    }
+
+    function adminFormatDateTime(value) {
+      const date = new Date(value || '');
+      if (Number.isNaN(date.getTime())) return '';
+      return new Intl.DateTimeFormat('nl-NL', {
+        day: '2-digit',
+        month: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+      }).format(date);
+    }
+
     function adminNormalizeSearch(value) {
       return String(value || '').trim().toLowerCase();
     }
@@ -1511,8 +1622,66 @@
       ].join(' ').toLowerCase();
     }
 
+    function adminDoorCodeLabel(door) {
+      return String(door?.code || door?.doorId || '').trim();
+    }
+
+    function adminDoorFloorplanLabel(door) {
+      return String(door?.floorplanDisplayName || door?.floorplan || door?.name || '').trim();
+    }
+
+    function adminDoorFloorplanFilterKey(door) {
+      return adminFloorplanKey(door);
+    }
+
     function getAdminData() {
       return adminDashboardState.data || { summary: {}, customers: [], floorplans: [], doors: [] };
+    }
+
+    function findAdminFloorplanForActivity(item) {
+      if (!item) return null;
+      const exactKey = adminFloorplanKey(item);
+      const floorplans = getAdminData().floorplans || [];
+      return floorplans.find(record => adminFloorplanKey(record) === exactKey) ||
+        floorplans.find(record => (
+          record.customer === item.customer &&
+          record.name === (item.floorplan || item.name)
+        )) ||
+        null;
+    }
+
+    function findAdminDoorForActivity(item) {
+      if (!item) return null;
+      const doors = getAdminData().doors || [];
+      const exactKey = adminDoorKey(item);
+      return doors.find(door => adminDoorKey(door) === exactKey) ||
+        doors.find(door => (
+          door.customer === item.customer &&
+          door.floorplan === (item.floorplan || item.name) &&
+          door.doorId === (item.doorId || item.door_id || item.code)
+        )) ||
+        null;
+    }
+
+    function getSelectedAdminDoor() {
+      if (!adminDashboardState.selectedDoorKey) return null;
+      return (getAdminData().doors || []).find(door => adminDoorKey(door) === adminDashboardState.selectedDoorKey) || null;
+    }
+
+    function setAdminTab(tabName) {
+      const allowed = new Set(['overview', 'door-search', 'floorplans', 'details']);
+      const nextTab = allowed.has(tabName) ? tabName : 'overview';
+      adminDashboardState.activeTab = nextTab;
+      adminDashboardTabs.forEach(button => {
+        const active = button.dataset.adminTab === nextTab;
+        button.classList.toggle('active', active);
+        button.setAttribute('aria-selected', active ? 'true' : 'false');
+      });
+      adminDashboardTabPanels.forEach(panel => {
+        const active = panel.dataset.adminPanel === nextTab;
+        panel.hidden = !active;
+        panel.classList.toggle('active', active);
+      });
     }
 
     function getAdminCustomerNames() {
@@ -1537,7 +1706,13 @@
       });
     }
 
-    function getSelectedAdminFloorplan(filtered = null) {
+    function getSelectedAdminFloorplan(filtered = null, { allowFallback = false } = {}) {
+      if (adminDashboardState.selectedKey) {
+        const selectedFromAll = (getAdminData().floorplans || [])
+          .find(record => adminFloorplanKey(record) === adminDashboardState.selectedKey);
+        if (selectedFromAll) return selectedFromAll;
+      }
+      if (!allowFallback) return null;
       const list = filtered || getFilteredAdminFloorplans();
       if (!list.length) return null;
       const selected = list.find(record => adminFloorplanKey(record) === adminDashboardState.selectedKey);
@@ -1585,6 +1760,163 @@
       }
     }
 
+    function renderAdminOverviewList(container, items, emptyText, badgeFn) {
+      if (!container) return;
+      container.innerHTML = '';
+      if (!items.length) {
+        const empty = document.createElement('div');
+        empty.className = 'admin-dashboard-empty';
+        empty.textContent = emptyText;
+        container.appendChild(empty);
+        return;
+      }
+
+      items.forEach(record => {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'admin-overview-item';
+        const main = document.createElement('div');
+        main.className = 'admin-overview-item-main';
+        const title = document.createElement('span');
+        title.textContent = record.displayName || record.name || 'Plattegrond';
+        const badge = document.createElement('span');
+        badge.className = 'admin-overview-badge';
+        badge.textContent = badgeFn(record);
+        main.append(title, badge);
+        const meta = document.createElement('div');
+        meta.className = 'admin-overview-item-meta';
+        meta.textContent = record.customer || 'Onbekende klant';
+        button.append(main, meta);
+        button.addEventListener('click', () => {
+          adminDashboardState.selectedKey = adminFloorplanKey(record);
+          adminDashboardState.selectedDoorKey = '';
+          setAdminTab('details');
+          renderAdminDashboard();
+        });
+        container.appendChild(button);
+      });
+    }
+
+    function renderAdminOverview() {
+      const floorplans = getAdminData().floorplans || [];
+      const attention = floorplans
+        .filter(record => Number(record.attention || 0) > 0)
+        .sort((left, right) => Number(right.attention || 0) - Number(left.attention || 0))
+        .slice(0, 6);
+      const open = floorplans
+        .filter(record => Number(record.open || 0) > 0)
+        .sort((left, right) => Number(right.open || 0) - Number(left.open || 0))
+        .slice(0, 6);
+
+      renderAdminOverviewList(
+        adminOverviewAttention,
+        attention,
+        adminDashboardState.loading ? 'Dashboard laden...' : 'Geen rode deuren gevonden.',
+        record => `${record.attention || 0} rood`
+      );
+      renderAdminOverviewList(
+        adminOverviewOpen,
+        open,
+        adminDashboardState.loading ? 'Dashboard laden...' : 'Geen open deuren gevonden.',
+        record => `${record.open || 0} open`
+      );
+    }
+
+    function renderAdminActivity() {
+      if (!adminActivityList) return;
+      adminActivityList.innerHTML = '';
+      if (adminDashboardState.activityLoading) {
+        const empty = document.createElement('div');
+        empty.className = 'admin-dashboard-empty';
+        empty.textContent = 'Activiteit laden...';
+        adminActivityList.appendChild(empty);
+        return;
+      }
+      if (adminDashboardState.activityError) {
+        const empty = document.createElement('div');
+        empty.className = 'admin-dashboard-empty';
+        empty.textContent = adminDashboardState.activityUnavailable
+          ? 'Activiteit komt beschikbaar na Worker update.'
+          : 'Activiteit laden mislukt.';
+        adminActivityList.appendChild(empty);
+        return;
+      }
+      if (!adminDashboardState.activity.length) {
+        const empty = document.createElement('div');
+        empty.className = 'admin-dashboard-empty';
+        empty.textContent = 'Nog geen recente statusactiviteit.';
+        adminActivityList.appendChild(empty);
+        return;
+      }
+
+      adminDashboardState.activity.forEach(row => {
+        const door = findAdminDoorForActivity(row);
+        const floorplan = findAdminFloorplanForActivity(row);
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'admin-activity-item';
+
+        const main = document.createElement('div');
+        main.className = 'admin-activity-item-main';
+        const label = document.createElement('span');
+        label.className = 'admin-activity-label';
+        const dot = document.createElement('span');
+        dot.className = 'admin-status-dot';
+        dot.style.background = adminDoorColor(door || {
+          status: row.newStatus === 'done' || row.new_status === 'done' ? 'done' : 'todo',
+          doorCondition: door?.doorCondition || 'unknown',
+        });
+        const code = row.doorId || row.door_id || door?.doorId || door?.code || 'Deur';
+        label.append(dot, document.createTextNode(`${code} · ${adminStatusLabel(door || row)}`));
+        const time = document.createElement('span');
+        time.className = 'admin-activity-time';
+        time.textContent = adminFormatDateTime(row.createdAt || row.created_at);
+        main.append(label, time);
+
+        const meta = document.createElement('div');
+        meta.className = 'admin-activity-item-meta';
+        meta.textContent = `${row.customer || door?.customer || '-'} · ${door?.floorplanDisplayName || floorplan?.displayName || row.floorplan || '-'}`;
+
+        button.append(main, meta);
+        button.addEventListener('click', () => {
+          const targetFloorplan = floorplan || door || row;
+          adminDashboardState.selectedCustomer = '';
+          adminDashboardState.selectedKey = adminFloorplanKey(targetFloorplan);
+          adminDashboardState.selectedDoorKey = door ? adminDoorKey(door) : adminDoorKey(row);
+          setAdminTab('details');
+          renderAdminDashboard();
+        });
+        adminActivityList.appendChild(button);
+      });
+    }
+
+    async function loadAdminActivity() {
+      if (!isAdminUser()) return;
+      adminDashboardState.activityLoading = true;
+      adminDashboardState.activityError = '';
+      adminDashboardState.activityUnavailable = false;
+      renderAdminActivity();
+      try {
+        const result = await FD.DataService.fetchAdminActivity(CONFIG, {
+          diagnostics: {
+            purpose: 'admin_activity',
+          },
+        });
+        adminDashboardState.activity = result.activity;
+      } catch (err) {
+        const unavailable = err?.status === 404 || err?.status === 501 || err?.code === 'not_implemented' || err?.message === 'not_implemented';
+        if (!unavailable) {
+          console.warn('Admin activiteit laden mislukt:', err);
+        }
+        adminDashboardState.activity = [];
+        adminDashboardState.activityError = err.message || 'activity_failed';
+        adminDashboardState.activityUnavailable = unavailable;
+      } finally {
+        adminDashboardState.activityLoading = false;
+        renderAdminActivity();
+      }
+    }
+
     function renderAdminCustomerFilters() {
       if (!adminCustomerFilters) return;
       adminCustomerFilters.innerHTML = '';
@@ -1612,6 +1944,8 @@
         button.addEventListener('click', () => {
           adminDashboardState.selectedCustomer = item.value;
           adminDashboardState.selectedKey = '';
+          adminDashboardState.selectedDoorKey = '';
+          adminDashboardState.previewKey = '';
           renderAdminDashboard();
         });
         adminCustomerFilters.appendChild(button);
@@ -1622,7 +1956,6 @@
       if (!adminFloorplanList) return;
       const filtered = getFilteredAdminFloorplans();
       const selected = getSelectedAdminFloorplan(filtered);
-      if (selected) adminDashboardState.selectedKey = adminFloorplanKey(selected);
       if (adminFloorplanCount) {
         adminFloorplanCount.textContent = `${filtered.length} gevonden`;
       }
@@ -1663,27 +1996,112 @@
         row.append(main, counts);
         row.addEventListener('click', () => {
           adminDashboardState.selectedKey = adminFloorplanKey(record);
+          adminDashboardState.selectedDoorKey = '';
+          setAdminTab('details');
           renderAdminDashboard();
         });
         adminFloorplanList.appendChild(row);
       });
     }
 
+    function setAdminSelectOptions(select, options, value) {
+      if (!select) return;
+      select.innerHTML = '';
+      options.forEach(optionData => {
+        const option = document.createElement('option');
+        option.value = optionData.value;
+        option.textContent = optionData.label;
+        select.appendChild(option);
+      });
+      select.value = options.some(option => option.value === value) ? value : '';
+    }
+
+    function renderAdminDoorFilterOptions(allDoors) {
+      if (adminDoorGroup) adminDoorGroup.value = adminDashboardState.doorOrder === 'desc' ? 'desc' : '';
+
+      const customerNames = Array.from(new Set(allDoors.map(door => door.customer).filter(Boolean)))
+        .sort((a, b) => ADMIN_COLLATOR.compare(a, b));
+      if (adminDashboardState.doorCustomerFilter && !customerNames.includes(adminDashboardState.doorCustomerFilter)) {
+        adminDashboardState.doorCustomerFilter = '';
+        adminDashboardState.doorFloorplanFilter = '';
+      }
+      setAdminSelectOptions(adminDoorCustomerFilter, [
+        { value: '', label: 'Alle klanten' },
+        ...customerNames.map(name => ({ value: name, label: name })),
+      ], adminDashboardState.doorCustomerFilter);
+
+      const floorplanOptions = [];
+      const floorplanSeen = new Set();
+      if (adminDashboardState.doorCustomerFilter) {
+        allDoors
+          .filter(door => door.customer === adminDashboardState.doorCustomerFilter)
+          .forEach(door => {
+            const key = adminDoorFloorplanFilterKey(door);
+            if (!key || floorplanSeen.has(key)) return;
+            floorplanSeen.add(key);
+            floorplanOptions.push({
+              value: key,
+              label: adminDoorFloorplanLabel(door) || door.floorplan || 'Plattegrond',
+            });
+          });
+      }
+      floorplanOptions.sort((a, b) => ADMIN_COLLATOR.compare(a.label, b.label));
+      if (!adminDashboardState.doorCustomerFilter || !floorplanSeen.has(adminDashboardState.doorFloorplanFilter)) {
+        adminDashboardState.doorFloorplanFilter = '';
+      }
+      setAdminSelectOptions(adminDoorFloorplanFilter, [
+        { value: '', label: adminDashboardState.doorCustomerFilter ? 'Alle plattegronden' : 'Kies eerst een klant' },
+        ...floorplanOptions,
+      ], adminDashboardState.doorFloorplanFilter);
+      if (adminDoorFloorplanFilter) {
+        adminDoorFloorplanFilter.disabled = !adminDashboardState.doorCustomerFilter;
+      }
+    }
+
+    function compareAdminDoors(left, right) {
+      const leftCode = adminDoorCodeLabel(left);
+      const rightCode = adminDoorCodeLabel(right);
+      const leftFloorplan = adminDoorFloorplanLabel(left);
+      const rightFloorplan = adminDoorFloorplanLabel(right);
+      const byCode = () => ADMIN_COLLATOR.compare(leftCode, rightCode);
+      const byCustomer = () => ADMIN_COLLATOR.compare(left.customer || '', right.customer || '');
+      const byFloorplan = () => ADMIN_COLLATOR.compare(leftFloorplan, rightFloorplan);
+
+      const direction = adminDashboardState.doorOrder === 'desc' ? -1 : 1;
+      return (byCode() * direction) || byCustomer() || byFloorplan();
+    }
+
     function renderAdminDoorResults() {
       if (!adminDoorResults) return;
-      const query = adminNormalizeSearch(adminDashboardState.doorQuery).toUpperCase();
+      const query = adminNormalizeSearch(adminDashboardState.doorQuery);
       adminDoorResults.innerHTML = '';
-      if (query.length < 2) {
+      const allDoors = (getAdminData().doors || [])
+        .filter(door => adminDoorCodeLabel(door))
+        .slice();
+      renderAdminDoorFilterOptions(allDoors);
+      allDoors.sort(compareAdminDoors);
+      if (!allDoors.length) {
         const empty = document.createElement('div');
         empty.className = 'admin-dashboard-empty';
-        empty.textContent = 'Typ minimaal 2 tekens om een deur te zoeken.';
+        empty.textContent = adminDashboardState.loading ? 'Dashboard laden...' : 'Geen deurcodes gevonden.';
         adminDoorResults.appendChild(empty);
         return;
       }
 
-      const results = (getAdminData().doors || [])
-        .filter(door => String(door.code || door.doorId || '').toUpperCase().includes(query))
-        .slice(0, 30);
+      const results = allDoors.filter(door => {
+        if (adminDashboardState.doorCustomerFilter && door.customer !== adminDashboardState.doorCustomerFilter) return false;
+        if (adminDashboardState.doorFloorplanFilter && adminDoorFloorplanFilterKey(door) !== adminDashboardState.doorFloorplanFilter) return false;
+        if (query && !adminDoorCodeLabel(door).toLowerCase().includes(query)) return false;
+        return true;
+      });
+
+      const summary = document.createElement('div');
+      summary.className = 'admin-door-results-summary';
+      const scope = adminDashboardState.doorFloorplanFilter
+        ? 'op geselecteerde plattegrond'
+        : (adminDashboardState.doorCustomerFilter ? `bij ${adminDashboardState.doorCustomerFilter}` : 'in alle klanten');
+      summary.textContent = `${results.length} deurcode${results.length === 1 ? '' : 's'} ${scope}`;
+      adminDoorResults.appendChild(summary);
 
       if (!results.length) {
         const empty = document.createElement('div');
@@ -1703,13 +2121,19 @@
         dot.className = 'admin-status-dot';
         dot.style.background = adminDoorColor(door);
         const label = document.createElement('span');
-        label.textContent = door.code || door.doorId;
+        label.textContent = adminDoorCodeLabel(door);
         code.append(dot, label);
         const meta = document.createElement('div');
         meta.className = 'admin-row-meta';
         meta.textContent = `${door.customer} · ${door.floorplanDisplayName || door.floorplan}`;
         item.append(code, meta);
-        item.addEventListener('click', () => openAdminFloorplan(door, door.doorId));
+        item.addEventListener('click', () => {
+          adminDashboardState.selectedCustomer = '';
+          adminDashboardState.selectedKey = adminFloorplanKey(door);
+          adminDashboardState.selectedDoorKey = adminDoorKey(door);
+          setAdminTab('details');
+          renderAdminDashboard();
+        });
         adminDoorResults.appendChild(item);
       });
     }
@@ -1726,24 +2150,37 @@
       adminDetailCustomer.value = record?.customer || '';
     }
 
-    function renderAdminDetail() {
-      const record = getSelectedAdminFloorplan();
-      if (!record) {
-        if (adminDetailEmpty) adminDetailEmpty.style.display = 'flex';
-        if (adminDetailContent) adminDetailContent.style.display = 'none';
-        return;
+    function resetAdminPreview(message = 'Preview laden na selectie') {
+      adminDashboardState.previewRequestId += 1;
+      adminDashboardState.previewKey = '';
+      if (adminDetailPreview) {
+        adminDetailPreview.textContent = message;
       }
+    }
 
-      if (adminDetailEmpty) adminDetailEmpty.style.display = 'none';
-      if (adminDetailContent) adminDetailContent.style.display = 'block';
-      if (adminDetailTitle) adminDetailTitle.textContent = record.displayName || record.name || 'Plattegrond';
-      if (adminDetailMeta) {
-        const repoLabel = record.repo === 'uploads' ? 'upload' : 'gallery';
-        adminDetailMeta.textContent = `${record.customer} · ${repoLabel} · technisch: ${record.name}`;
+    function getActiveAdminMetadataRecord() {
+      return adminDashboardState.metadataRecord || getSelectedAdminFloorplan();
+    }
+
+    function selectTopbarFloorplanRecord(record) {
+      if (!record) {
+        updatePickerButtons();
+        return false;
       }
-      if (adminDetailStats) {
-        adminDetailStats.textContent = `${record.done || 0} van ${record.doorsTotal || 0} deuren afgerond · ${record.open || 0} openstaand · ${record.attention || 0} aandacht nodig`;
+      const { customerIndex, floorplanIndex } = findFloorplanSelectionForAdminRecord(record);
+      if (customerIndex < 0 || floorplanIndex < 0) {
+        updatePickerButtons();
+        return false;
       }
+      customerSelect.value = String(customerIndex);
+      populateFloorplanDropdown(customerIndex);
+      floorplanSelect.value = String(floorplanIndex);
+      updatePickerButtons();
+      return true;
+    }
+
+    function renderAdminMetadataForm(record) {
+      if (!record) return;
       renderAdminCustomerSelect(record);
       if (adminDetailBuilding) adminDetailBuilding.value = record.building || '';
       if (adminDetailFloorLabel) adminDetailFloorLabel.value = record.floorLabel || record.displayName || record.name || '';
@@ -1753,11 +2190,78 @@
         adminDetailDelete.disabled = !canDelete;
         adminDetailDelete.textContent = canDelete ? 'Plattegrond verwijderen' : 'Gallery-plattegrond kan niet verwijderd worden';
       }
-      loadAdminPreview(record);
+      if (adminMetadataDialogContext) {
+        const repoLabel = record.repo === 'uploads' ? 'upload' : 'gallery';
+        adminMetadataDialogContext.textContent = `${record.customer} · ${record.displayName || record.name} · ${repoLabel}`;
+      }
+    }
+
+    function openAdminMetadataDialog(record) {
+      if (!record || !isAdminUser()) return;
+      adminDashboardState.metadataRecord = record;
+      adminDashboardState.selectedKey = adminFloorplanKey(record);
+      adminDashboardState.selectedDoorKey = '';
+      renderAdminMetadataForm(record);
+      if (adminMetadataDialogOverlay) adminMetadataDialogOverlay.hidden = false;
+      if (adminMetadataDialog) adminMetadataDialog.hidden = false;
+      requestAnimationFrame(() => adminDetailBuilding?.focus());
+    }
+
+    function hideAdminMetadataDialog() {
+      if (adminMetadataDialogOverlay) adminMetadataDialogOverlay.hidden = true;
+      if (adminMetadataDialog) adminMetadataDialog.hidden = true;
+      if (adminDetailError) adminDetailError.textContent = '';
+      adminDashboardState.metadataRecord = null;
+    }
+
+    function openSelectedTopbarMetadataDialog() {
+      if (!isAdminUser()) return;
+      const record = getSelectedTopbarFloorplanRecord();
+      if (!record) {
+        showToast('Kies eerst een plattegrond', 'error');
+        return;
+      }
+      openAdminMetadataDialog(record);
+    }
+
+    function renderAdminDetail() {
+      const record = getSelectedAdminFloorplan();
+      if (!record) {
+        if (adminDetailEmpty) adminDetailEmpty.style.display = 'flex';
+        if (adminDetailContent) adminDetailContent.style.display = 'none';
+        if (adminDoorDetailCard) adminDoorDetailCard.hidden = true;
+        resetAdminPreview();
+        return;
+      }
+
+      if (adminDetailEmpty) adminDetailEmpty.style.display = 'none';
+      if (adminDetailContent) adminDetailContent.style.display = 'block';
+      const selectedDoor = getSelectedAdminDoor();
+      if (adminDoorDetailCard) adminDoorDetailCard.hidden = !selectedDoor;
+      if (selectedDoor) {
+        if (adminDoorDetailDot) adminDoorDetailDot.style.background = adminDoorColor(selectedDoor);
+        if (adminDoorDetailCode) adminDoorDetailCode.textContent = selectedDoor.code || selectedDoor.doorId || 'Deur';
+        if (adminDoorDetailStatus) adminDoorDetailStatus.textContent = adminStatusLabel(selectedDoor);
+        if (adminDoorDetailMeta) {
+          adminDoorDetailMeta.textContent = `${selectedDoor.customer} · ${selectedDoor.floorplanDisplayName || selectedDoor.floorplan}`;
+        }
+      }
+      if (adminDetailTitle) adminDetailTitle.textContent = record.displayName || record.name || 'Plattegrond';
+      if (adminDetailMeta) {
+        const repoLabel = record.repo === 'uploads' ? 'upload' : 'gallery';
+        adminDetailMeta.textContent = `${record.customer} · ${repoLabel} · technisch: ${record.name}`;
+      }
+      if (adminDetailStats) {
+        adminDetailStats.textContent = `${record.done || 0} van ${record.doorsTotal || 0} deuren afgerond · ${record.open || 0} openstaand · ${record.attention || 0} aandacht nodig`;
+      }
+      if (adminDashboardState.activeTab === 'details') loadAdminPreview(record);
     }
 
     function renderAdminDashboard() {
+      setAdminTab(adminDashboardState.activeTab);
       renderAdminKpis();
+      renderAdminOverview();
+      renderAdminActivity();
       renderAdminCustomerFilters();
       renderAdminFloorplanList();
       renderAdminDoorResults();
@@ -1771,6 +2275,7 @@
       if (!force && adminDashboardState.data) {
         renderAdminDashboard();
         loadActiveUsers();
+        loadAdminActivity();
         return;
       }
 
@@ -1814,6 +2319,7 @@
       } finally {
         setAdminDashboardLoading(false);
         loadActiveUsers();
+        loadAdminActivity();
       }
     }
 
@@ -1841,6 +2347,21 @@
       updateRoleActionButtons();
     }
 
+    function returnToCurrentFloorplanFromDashboard() {
+      if (!hasCurrentFloorplanView()) return false;
+      restoreTopbarToCurrentFloorplan();
+      hideAdminDashboard();
+      refreshAllDoorColors();
+      refreshJotFormSubmissionCache().catch(err => {
+        console.warn('JotForm status na dashboard-terugkeer laden mislukt:', err);
+      });
+      statusController.poll().catch(err => {
+        console.warn('Status na dashboard-terugkeer laden mislukt:', err);
+      });
+      startPolling();
+      return true;
+    }
+
     async function loadAdminPreview(record) {
       if (!adminDetailPreview || !record) return;
       const key = adminFloorplanKey(record);
@@ -1857,15 +2378,58 @@
         adminDetailPreview.innerHTML = FD.FloorplanViewService.sanitizeSVGText(svgText);
         const svg = adminDetailPreview.querySelector('svg');
         if (svg) {
-          svg.removeAttribute('width');
-          svg.removeAttribute('height');
-          svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+          fitAdminPreviewSvg(svg);
         }
       } catch (err) {
         if (adminDashboardState.previewRequestId === requestId) {
           adminDetailPreview.textContent = 'Preview niet beschikbaar';
         }
       }
+    }
+
+    function parseSvgLength(value) {
+      const match = String(value || '').trim().match(/^(-?\d+(?:\.\d+)?)/);
+      const number = match ? Number(match[1]) : 0;
+      return Number.isFinite(number) && number > 0 ? number : 0;
+    }
+
+    function fitAdminPreviewSvg(svg) {
+      const width = parseSvgLength(svg.getAttribute('width'));
+      const height = parseSvgLength(svg.getAttribute('height'));
+      const viewBox = svg.getAttribute('viewBox');
+      if (!viewBox && width && height) {
+        svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
+      }
+
+      svg.removeAttribute('transform');
+      svg.removeAttribute('width');
+      svg.removeAttribute('height');
+      svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+      svg.style.position = 'static';
+      svg.style.inset = 'auto';
+      svg.style.top = 'auto';
+      svg.style.right = 'auto';
+      svg.style.bottom = 'auto';
+      svg.style.left = 'auto';
+      svg.style.transform = 'none';
+      svg.style.transformOrigin = '50% 50%';
+      svg.style.width = '100%';
+      svg.style.height = '100%';
+      svg.style.display = 'block';
+      svg.style.maxWidth = '100%';
+      svg.style.maxHeight = '100%';
+
+      requestAnimationFrame(() => {
+        if (!svg.isConnected) return;
+        const currentViewBox = svg.getAttribute('viewBox');
+        if (currentViewBox && !/^0\s+0\s+0\s+0$/.test(currentViewBox.trim())) return;
+        try {
+          const box = svg.getBBox();
+          if (box.width > 0 && box.height > 0) {
+            svg.setAttribute('viewBox', `${box.x} ${box.y} ${box.width} ${box.height}`);
+          }
+        } catch {}
+      });
     }
 
     function findFloorplanSelectionForAdminRecord(record) {
@@ -1907,11 +2471,12 @@
     }
 
     async function saveAdminDetail() {
-      const record = getSelectedAdminFloorplan();
+      const record = getActiveAdminMetadataRecord();
       if (!record) return;
       const nextCustomerName = adminDetailCustomer?.value || record.customer;
       const buildingName = adminDetailBuilding?.value.trim() || '';
       const floorLabel = adminDetailFloorLabel?.value.trim() || '';
+      const editingCurrentFloorplan = currentCustomer === record.customer && currentFloorplan === record.name;
       if (!floorLabel) {
         if (adminDetailError) adminDetailError.textContent = 'Vul een verdieping of naam in.';
         return;
@@ -1949,15 +2514,27 @@
           doorStatus = result.status;
           FD.StatusService.cacheDoorStatus(doorStatus);
         }
-        adminDashboardState.selectedCustomer = nextCustomerName;
-        adminDashboardState.selectedKey = adminFloorplanKey({
+        const nextRecord = result.record || {
           customer: nextCustomerName,
           name: record.name,
+          displayName: buildingName ? `${buildingName} - ${floorLabel}` : floorLabel,
+          building: buildingName,
+          floorLabel,
           repo: record.repo,
           file: record.file,
-        });
+          uploaded: record.uploaded,
+        };
+        if (editingCurrentFloorplan) {
+          currentCustomer = nextCustomerName;
+          updateStatusBar();
+          refreshAllDoorColors();
+        }
+        selectTopbarFloorplanRecord(nextRecord);
+        adminDashboardState.selectedCustomer = nextCustomerName;
+        adminDashboardState.selectedKey = adminFloorplanKey(nextRecord);
         adminDashboardState.previewKey = '';
         await loadAdminDashboard({ force: true });
+        hideAdminMetadataDialog();
         showToast('Plattegrondgegevens opgeslagen', 'success');
       } catch (err) {
         if (adminDetailError) {
@@ -1975,7 +2552,7 @@
     }
 
     async function deleteAdminDetailFloorplan() {
-      const record = getSelectedAdminFloorplan();
+      const record = getActiveAdminMetadataRecord();
       if (!record) return;
       if (!(record.repo === 'uploads' || record.uploaded)) {
         showToast('Gallery-plattegronden kunnen niet vanuit het dashboard verwijderd worden', 'error');
@@ -2021,6 +2598,7 @@
         adminDashboardState.selectedKey = '';
         adminDashboardState.previewKey = '';
         await loadAdminDashboard({ force: true });
+        hideAdminMetadataDialog();
         showToast('Plattegrond verwijderd', 'success');
       } catch (err) {
         if (adminDetailError) adminDetailError.textContent = 'Verwijderen mislukt: ' + (err.message || 'onbekende fout');
@@ -2052,8 +2630,16 @@
       getState: () => ({ customersLoading }),
       getItems: getSelectSheetItems,
       onCustomerChange: ({ value }) => {
-        const dashboardWasVisible = adminDashboardState.visible;
         if (isEditModeActive()) exitEditMode();
+        if (adminDashboardState.visible) {
+          if (value === '') {
+            resetFloorplanDropdown(true);
+          } else {
+            populateFloorplanDropdown(parseInt(value, 10));
+          }
+          updateRoleActionButtons();
+          return;
+        }
         resetFloorplanUI();
         currentCustomer = null;
         currentFloorplan = null;
@@ -2064,24 +2650,11 @@
           resetFloorplanDropdown(true);
           setEmptyState('Kies een klant en plattegrond<br>om te beginnen.', 'Gebruik de dropdowns bovenaan');
           loadingEl.classList.remove('hidden');
-          if (dashboardWasVisible) {
-            adminDashboardState.selectedCustomer = '';
-            adminDashboardState.selectedKey = '';
-            adminDashboardState.previewKey = '';
-            renderAdminDashboard();
-          }
           return;
         }
         setEmptyState('Kies een plattegrond<br>uit het dropdown menu.');
         loadingEl.classList.remove('hidden');
         populateFloorplanDropdown(parseInt(value, 10));
-        if (dashboardWasVisible) {
-          const customerIndex = parseInt(value, 10);
-          adminDashboardState.selectedCustomer = customers[customerIndex]?.customer || '';
-          adminDashboardState.selectedKey = '';
-          adminDashboardState.previewKey = '';
-          renderAdminDashboard();
-        }
       },
       onFloorplanChange: () => {
         updatePickerButtons();
@@ -2104,6 +2677,7 @@
 
     function updatePickerButtons() {
       selectionController.updatePickerButtons();
+      updateTopbarMetadataButton();
     }
 
     function renderSelectSheetItems() {
@@ -2204,14 +2778,18 @@
       fetchSvg: ({ floorplan }, options) => fetchFloorplanSVGCacheFirst(getFloorplanApiUrl(floorplan), options),
       setLoadingState,
       onBeforeLoad: () => {
+        const keepTopbarActionsStable = Boolean(svgContainer.querySelector('svg'));
+        topbarFloorplanActionsLocked = keepTopbarActionsStable;
         stopPolling();
         resetJotFormSubmissionCache();
         resetDoorCodeIndexState();
         deselectDoor();
-        btnReset.style.display = 'none';
+        if (!keepTopbarActionsStable) {
+          btnReset.style.display = 'none';
+          btnEdit.style.display = 'none';
+        }
         infoPanel.style.display = 'none';
         btnPanelToggle.style.display = 'none';
-        btnEdit.style.display = 'none';
         closeSidePanel();
         sidePanelController.clear();
         loadingEl.classList.add('hidden');
@@ -2224,6 +2802,7 @@
         infoPanel.style.display = 'flex';
         btnPanelToggle.style.display = 'block';
         btnReset.style.display = 'inline-block';
+        topbarFloorplanActionsLocked = false;
         populateSidePanel();
         updateDeleteButton();
         updateRoleActionButtons();
@@ -2233,6 +2812,9 @@
       onBeforeReveal: ({ size }) => fitToScreen(size.width, size.height),
       onRevalidated: () => showToast('Plattegrond bijgewerkt', 'success'),
       onError: (err) => {
+        topbarFloorplanActionsLocked = false;
+        btnReset.style.display = 'none';
+        btnEdit.style.display = 'none';
         loadingEl.textContent = 'Fout: ' + err.message;
       },
     });
@@ -2252,6 +2834,7 @@
       infoPanel.style.display = 'none';
       btnPanelToggle.style.display = 'none';
       btnEdit.style.display = 'none';
+      topbarFloorplanActionsLocked = false;
       closeSidePanel();
       sidePanelController.clear();
     }
@@ -2272,10 +2855,22 @@
       adminDashboardState.selectedCustomer = '';
       adminDashboardState.searchQuery = '';
       adminDashboardState.doorQuery = '';
+      adminDashboardState.doorOrder = 'asc';
+      adminDashboardState.doorCustomerFilter = '';
+      adminDashboardState.doorFloorplanFilter = '';
+      adminDashboardState.activeTab = 'overview';
+      adminDashboardState.selectedDoorKey = '';
+      adminDashboardState.activity = [];
+      adminDashboardState.activityLoading = false;
+      adminDashboardState.activityError = '';
+      adminDashboardState.activityUnavailable = false;
       adminDashboardState.previewKey = '';
       adminDashboardState.previewRequestId += 1;
       if (adminDashboardSearch) adminDashboardSearch.value = '';
       if (adminDoorSearch) adminDoorSearch.value = '';
+      if (adminDoorGroup) adminDoorGroup.value = '';
+      if (adminDoorCustomerFilter) adminDoorCustomerFilter.value = '';
+      if (adminDoorFloorplanFilter) adminDoorFloorplanFilter.value = '';
       renderActiveUsers(null);
       if (adminDashboardEl) adminDashboardEl.style.display = 'none';
       appContainer.classList.remove('admin-dashboard-active');
@@ -3819,9 +4414,15 @@
     btnJotform.addEventListener('click', openJotForm);
     btnDone.addEventListener('click', toggleDoorStatus);
     btnClose.addEventListener('click', deselectDoor);
-    btnReset.addEventListener('click', resetZoom);
+    btnReset.addEventListener('click', () => {
+      if (topbarFloorplanActionsLocked) return;
+      resetZoom();
+    });
     btnPanelToggle.addEventListener('click', toggleSidePanel);
-    btnEdit.addEventListener('click', enterEditMode);
+    btnEdit.addEventListener('click', () => {
+      if (topbarFloorplanActionsLocked) return;
+      enterEditMode();
+    });
     document.getElementById('btn-edit-save').addEventListener('click', saveEditMode);
     document.getElementById('btn-auto-number').addEventListener('click', toggleAutoNumbering);
     document.getElementById('auto-prefix-input').addEventListener('input', (e) => {
@@ -3908,10 +4509,18 @@
     topbarMenuController.bind();
     btnDashboard?.addEventListener('click', () => {
       if (adminDashboardState.visible) {
-        loadAdminDashboard({ force: true });
+        if (!returnToCurrentFloorplanFromDashboard()) {
+          loadAdminDashboard({ force: true });
+        }
       } else {
         showAdminDashboard();
       }
+    });
+    adminDashboardTabs.forEach(button => {
+      button.addEventListener('click', () => {
+        setAdminTab(button.dataset.adminTab || 'overview');
+        renderAdminDashboard();
+      });
     });
     adminDashboardRefresh?.addEventListener('click', () => loadAdminDashboard({ force: true }));
     adminDashboardSearch?.addEventListener('input', () => {
@@ -3923,9 +4532,29 @@
       adminDashboardState.doorQuery = adminDoorSearch.value;
       renderAdminDoorResults();
     });
+    adminDoorGroup?.addEventListener('change', () => {
+      adminDashboardState.doorOrder = adminDoorGroup.value === 'desc' ? 'desc' : 'asc';
+      renderAdminDoorResults();
+    });
+    adminDoorCustomerFilter?.addEventListener('change', () => {
+      adminDashboardState.doorCustomerFilter = adminDoorCustomerFilter.value || '';
+      adminDashboardState.doorFloorplanFilter = '';
+      renderAdminDoorResults();
+    });
+    adminDoorFloorplanFilter?.addEventListener('change', () => {
+      adminDashboardState.doorFloorplanFilter = adminDoorFloorplanFilter.value || '';
+      renderAdminDoorResults();
+    });
     adminDetailOpen?.addEventListener('click', () => openAdminFloorplan(getSelectedAdminFloorplan()));
+    adminDoorDetailOpen?.addEventListener('click', () => {
+      const selectedDoor = getSelectedAdminDoor();
+      openAdminFloorplan(getSelectedAdminFloorplan(), selectedDoor?.doorId || selectedDoor?.code || '');
+    });
+    btnTopbarMetadata?.addEventListener('click', openSelectedTopbarMetadataDialog);
     adminDetailSave?.addEventListener('click', saveAdminDetail);
     adminDetailDelete?.addEventListener('click', deleteAdminDetailFloorplan);
+    adminDetailCancel?.addEventListener('click', hideAdminMetadataDialog);
+    adminMetadataDialogOverlay?.addEventListener('click', hideAdminMetadataDialog);
     btnMenuLabels.addEventListener('click', (e) => {
       e.stopPropagation();
       toggleLabels();
