@@ -30,7 +30,7 @@
       jotformReturnRefreshMaxDuration: 90000,
       versionCheckUrl: 'version.json',
       versionCheckInterval: 15 * 60 * 1000,
-      offlineCacheVersion: 'fd-v1.8.165',
+      offlineCacheVersion: 'fd-v1.8.166',
     };
 
     const APP_UPDATE_EXPECTED_CACHE_KEY = 'fd_app_update_expected_cache';
@@ -1677,6 +1677,18 @@
       return Boolean(currentCustomer && currentFloorplan && svgContainer.querySelector('svg'));
     }
 
+    function topbarSelectionMatchesCurrentFloorplan() {
+      const { customer, floorplan } = getSelectedFloorplan();
+      if (!customer || !floorplan || !currentCustomer || !currentFloorplan) return false;
+      return customer.customer === currentCustomer && floorplan.name === currentFloorplan;
+    }
+
+    function canUseTopbarFloorplanActions() {
+      const { customer, floorplan } = getSelectedFloorplan();
+      if (!customer || !floorplan || adminDashboardState.visible || !hasCurrentFloorplanView()) return false;
+      return topbarFloorplanActionsLocked || topbarSelectionMatchesCurrentFloorplan();
+    }
+
     function restoreTopbarToCurrentFloorplan() {
       if (!currentCustomer || !currentFloorplan) return false;
       const customerIndex = customers.findIndex(customer => customer.customer === currentCustomer);
@@ -1707,13 +1719,20 @@
       }
       updateTopbarMetadataButton();
 
-      const selected = getSelectedFloorplan();
-      const hasFloorplan = Boolean(selected.floorplan || currentFloorplan);
-      const canWrite = hasFloorplan && canWriteCurrentFloorplan();
+      const canUseFloorplanActions = canUseTopbarFloorplanActions();
+      const canWrite = canUseFloorplanActions && canWriteCurrentFloorplan();
+      if (btnReset) {
+        btnReset.style.display = canUseFloorplanActions ? 'inline-block' : 'none';
+        btnReset.disabled = !canUseFloorplanActions;
+        btnReset.title = canUseFloorplanActions ? '' : 'Kies eerst een plattegrond';
+      }
       const editButton = document.getElementById('btn-edit');
       if (editButton) {
-        editButton.style.display = hasFloorplan && canWrite ? 'inline-block' : 'none';
-        editButton.title = canWrite ? '' : 'Alleen kijken op deze plattegrond';
+        editButton.style.display = canWrite ? 'inline-block' : 'none';
+        editButton.disabled = !canWrite;
+        editButton.title = canUseFloorplanActions
+          ? (canWrite ? '' : 'Alleen kijken op deze plattegrond')
+          : 'Kies eerst een plattegrond';
       }
       applyDoorActionPermissions();
     }
