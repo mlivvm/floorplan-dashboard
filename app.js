@@ -30,7 +30,7 @@
       jotformReturnRefreshMaxDuration: 90000,
       versionCheckUrl: 'version.json',
       versionCheckInterval: 15 * 60 * 1000,
-      offlineCacheVersion: 'fd-v1.8.160',
+      offlineCacheVersion: 'fd-v1.8.161',
     };
 
     const COLORS = {

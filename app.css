@@ -1353,19 +1353,24 @@
       }
 
       .admin-overview-card {
-        min-height: 0;
-        overflow: visible;
+        min-height: 230px;
+        overflow: hidden;
       }
 
       .admin-overview-card-wide {
-        min-height: 0;
+        min-height: 240px;
       }
 
       .admin-overview-list,
       .admin-activity-list {
-        flex: 0 0 auto;
-        overflow: visible;
-        padding-bottom: var(--fd-admin-space-3);
+        flex: 1 1 auto;
+        min-height: 0;
+        overflow-x: hidden;
+        overflow-y: auto;
+        overscroll-behavior-y: contain;
+        -webkit-overflow-scrolling: touch;
+        touch-action: pan-y;
+        scrollbar-gutter: stable;
       }
 
       .admin-overview-grid,
