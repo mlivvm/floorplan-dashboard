@@ -1344,16 +1344,28 @@
         padding: var(--fd-admin-space-4);
       }
 
+      .admin-tab-panel[data-admin-panel="overview"].active {
+        overscroll-behavior-y: contain;
+      }
+
       .admin-kpi-grid {
         grid-template-columns: repeat(3, minmax(0, 1fr));
       }
 
       .admin-overview-card {
-        min-height: 230px;
+        min-height: 0;
+        overflow: visible;
       }
 
       .admin-overview-card-wide {
-        min-height: 240px;
+        min-height: 0;
+      }
+
+      .admin-overview-list,
+      .admin-activity-list {
+        flex: 0 0 auto;
+        overflow: visible;
+        padding-bottom: var(--fd-admin-space-3);
       }
 
       .admin-overview-grid,
