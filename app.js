@@ -21,7 +21,7 @@
       workerStatusWriteTestCustomer: '--- TEST ---',
       jotformBaseUrl: 'https://eu.jotform.com/',
       jotformFormId: '250122093908351',
-      loginEmailNotificationsEnabled: false,
+      loginEmailNotificationsEnabled: true,
       pollInterval: 30000,
       sessionHeartbeatInterval: 60000,
       adminActiveUsersPollInterval: 60000,
@@ -29,7 +29,7 @@
       jotformReturnRefreshMaxDuration: 90000,
       versionCheckUrl: 'version.json',
       versionCheckInterval: 15 * 60 * 1000,
-      offlineCacheVersion: 'fd-v1.8.149',
+      offlineCacheVersion: 'fd-v1.8.150',
     };
 
     const COLORS = {
