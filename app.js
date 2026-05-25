@@ -30,8 +30,37 @@
       jotformReturnRefreshMaxDuration: 90000,
       versionCheckUrl: 'version.json',
       versionCheckInterval: 15 * 60 * 1000,
-      offlineCacheVersion: 'fd-v1.8.161',
+      offlineCacheVersion: 'fd-v1.8.162',
     };
+
+    const APP_UPDATE_EXPECTED_CACHE_KEY = 'fd_app_update_expected_cache';
+    const APP_UPDATE_EXPECTED_VERSION_KEY = 'fd_app_update_expected_version';
+    const APP_UPDATE_MESSAGE = 'FD_SKIP_WAITING';
+    const APP_SHELL_STYLES = [
+      'app.css',
+      'admin-dashboard-tokens.css',
+    ];
+    const APP_SHELL_SCRIPTS = [
+      'data-service.js',
+      'diagnostics-service.js',
+      'floorplan-cache-service.js',
+      'floorplan-view-service.js',
+      'auth-service.js',
+      'status-service.js',
+      'status-sync-service.js',
+      'mode-service.js',
+      'image-editor-service.js',
+      'viewport-service.js',
+      'marker-service.js',
+      'door-action-service.js',
+      'ui-shell-service.js',
+      'edit-ui-service.js',
+      'pdf-import-service.js',
+      'upload-service.js',
+      'select-sheet-service.js',
+      'side-panel-service.js',
+      'app.js',
+    ];
 
     const COLORS = {
       todo: '#1a73e8',
@@ -372,26 +401,49 @@
       return new RegExp(`${name}\\s*(?::|=)\\s*['"]${escapedVersion}['"]`);
     }
 
-    function appAssetCheckUrl(path) {
+    function appAssetCheckUrl(path, version) {
       const url = new URL(path, window.location.href);
+      if (version && path !== 'index.html' && path !== 'sw.js') {
+        url.searchParams.set('v', version);
+      }
       url.searchParams.set('_', String(Date.now()));
       return url.toString();
     }
 
+    function indexHtmlReady(indexText, version) {
+      if (!indexText || !version) return false;
+      if (!indexText.includes(`v${version}`)) return false;
+      if (!indexText.includes(`app.css?v=${version}`)) return false;
+      return APP_SHELL_SCRIPTS.every(script => indexText.includes(`${script}?v=${version}`));
+    }
+
+    function appCssReady(cssText, version) {
+      return Boolean(cssText && version && cssText.includes(`admin-dashboard-tokens.css?v=${version}`));
+    }
+
     async function remoteDeploymentReady(remote) {
-      if (!remote?.cache) return false;
+      if (!remote?.cache || !remote?.version) return false;
       try {
-        const [appResponse, swResponse] = await Promise.all([
-          fetch(appAssetCheckUrl('app.js'), { cache: 'no-store', credentials: 'same-origin' }),
-          fetch(appAssetCheckUrl('sw.js'), { cache: 'no-store', credentials: 'same-origin' }),
-        ]);
-        if (!appResponse.ok || !swResponse.ok) return false;
-        const [appText, swText] = await Promise.all([
-          appResponse.text(),
-          swResponse.text(),
-        ]);
-        return cacheVersionPattern('offlineCacheVersion', remote.cache).test(appText) &&
-          cacheVersionPattern('CACHE_NAME', remote.cache).test(swText);
+        const assets = [
+          'index.html',
+          ...APP_SHELL_STYLES,
+          ...APP_SHELL_SCRIPTS,
+          'sw.js',
+        ];
+        const responses = await Promise.all(assets.map(asset =>
+          fetch(appAssetCheckUrl(asset, remote.version), {
+            cache: 'no-store',
+            credentials: 'same-origin',
+          })
+        ));
+        if (responses.some(response => !response.ok)) return false;
+        const texts = await Promise.all(responses.map(response => response.text()));
+        const textByAsset = new Map(assets.map((asset, index) => [asset, texts[index]]));
+
+        return indexHtmlReady(textByAsset.get('index.html'), remote.version) &&
+          appCssReady(textByAsset.get('app.css'), remote.version) &&
+          cacheVersionPattern('offlineCacheVersion', remote.cache).test(textByAsset.get('app.js') || '') &&
+          cacheVersionPattern('CACHE_NAME', remote.cache).test(textByAsset.get('sw.js') || '');
       } catch (err) {
         return false;
       }
@@ -435,6 +487,137 @@
       }
     }
 
+    function rememberExpectedAppUpdate(update) {
+      try {
+        sessionStorage.setItem(APP_UPDATE_EXPECTED_CACHE_KEY, update.cache);
+        sessionStorage.setItem(APP_UPDATE_EXPECTED_VERSION_KEY, update.version);
+      } catch (err) {
+        console.warn('Updateverwachting opslaan mislukt:', err);
+      }
+    }
+
+    function clearExpectedAppUpdate() {
+      try {
+        sessionStorage.removeItem(APP_UPDATE_EXPECTED_CACHE_KEY);
+        sessionStorage.removeItem(APP_UPDATE_EXPECTED_VERSION_KEY);
+      } catch (err) {
+        console.warn('Updateverwachting wissen mislukt:', err);
+      }
+    }
+
+    function getExpectedAppUpdate() {
+      try {
+        const cache = sessionStorage.getItem(APP_UPDATE_EXPECTED_CACHE_KEY) || '';
+        const version = sessionStorage.getItem(APP_UPDATE_EXPECTED_VERSION_KEY) || cache.replace(/^fd-v/, '');
+        return cache ? { cache, version } : null;
+      } catch (err) {
+        return null;
+      }
+    }
+
+    function removeAppUpdateReloadMarker() {
+      const url = new URL(window.location.href);
+      if (!url.searchParams.has('fd_update')) return;
+      url.searchParams.delete('fd_update');
+      const nextUrl = `${url.pathname}${url.search}${url.hash}`;
+      window.history.replaceState(null, '', nextUrl);
+    }
+
+    function verifyExpectedAppUpdateAfterReload() {
+      const expected = getExpectedAppUpdate();
+      if (!expected) return;
+
+      if (expected.cache === CONFIG.offlineCacheVersion) {
+        clearExpectedAppUpdate();
+        removeAppUpdateReloadMarker();
+        return;
+      }
+
+      setAppUpdateAvailable(expected);
+      showToast('Update niet afgerond. Herlaad de pagina handmatig als deze knop blijft staan.', 'error');
+    }
+
+    function waitForTimeout(ms) {
+      return new Promise(resolve => setTimeout(resolve, ms));
+    }
+
+    function waitForServiceWorkerState(worker, states, timeoutMs) {
+      if (!worker) return Promise.resolve('');
+      const desiredStates = new Set(states);
+      if (desiredStates.has(worker.state)) return Promise.resolve(worker.state);
+
+      return new Promise(resolve => {
+        let settled = false;
+        let timer = null;
+        const done = state => {
+          if (settled) return;
+          settled = true;
+          if (timer) clearTimeout(timer);
+          worker.removeEventListener('statechange', onStateChange);
+          resolve(state || worker.state || '');
+        };
+        const onStateChange = () => {
+          if (desiredStates.has(worker.state)) done(worker.state);
+        };
+        timer = setTimeout(() => done(worker.state), timeoutMs);
+        worker.addEventListener('statechange', onStateChange);
+      });
+    }
+
+    function waitForServiceWorkerControllerChange(timeoutMs) {
+      if (!navigator.serviceWorker?.controller) return Promise.resolve(false);
+      return new Promise(resolve => {
+        let settled = false;
+        let timer = null;
+        const done = changed => {
+          if (settled) return;
+          settled = true;
+          if (timer) clearTimeout(timer);
+          navigator.serviceWorker.removeEventListener('controllerchange', onControllerChange);
+          resolve(Boolean(changed));
+        };
+        const onControllerChange = () => done(true);
+        timer = setTimeout(() => done(false), timeoutMs);
+        navigator.serviceWorker.addEventListener('controllerchange', onControllerChange);
+      });
+    }
+
+    function requestWaitingServiceWorkerActivation(registration) {
+      const waiting = registration?.waiting;
+      if (!waiting) return false;
+      waiting.postMessage({ type: APP_UPDATE_MESSAGE });
+      return true;
+    }
+
+    async function activateUpdatedServiceWorker() {
+      if (!navigator.serviceWorker) return false;
+
+      const controllerChange = waitForServiceWorkerControllerChange(12000);
+      let registration = serviceWorkerRegistration || await navigator.serviceWorker.getRegistration();
+      try {
+        if (registration?.update) {
+          await registration.update();
+        }
+      } catch (err) {
+        console.warn('Service worker update-check mislukt:', err);
+      }
+
+      registration = serviceWorkerRegistration || await navigator.serviceWorker.getRegistration() || registration;
+      if (!registration) return false;
+
+      if (registration.installing) {
+        await waitForServiceWorkerState(registration.installing, ['installed', 'activated', 'redundant'], 12000);
+      }
+      registration = await navigator.serviceWorker.getRegistration() || registration;
+      requestWaitingServiceWorkerActivation(registration);
+
+      const changed = await Promise.race([
+        controllerChange,
+        waitForTimeout(12000).then(() => false),
+      ]);
+      return changed || Boolean(registration.active);
+    }
+
     async function applyAppUpdate() {
       if (!pendingAppUpdate) return;
       if (!appMode.isInteractiveView()) {
@@ -457,33 +640,8 @@
       }
 
       setAppUpdateAvailable(null);
-      try {
-        if (serviceWorkerRegistration?.update) {
-          await serviceWorkerRegistration.update();
-        }
-      } catch (err) {
-        console.warn('Service worker update-check mislukt:', err);
-      }
-
-      try {
-        if (window.caches?.keys) {
-          const keys = await window.caches.keys();
-          await Promise.all(keys
-            .filter(key => /^fd-v\d+\.\d+\.\d+$/.test(key))
-            .map(key => window.caches.delete(key)));
-        }
-      } catch (err) {
-        console.warn('App cache legen mislukt:', err);
-      }
-
-      try {
-        if (navigator.serviceWorker?.getRegistrations) {
-          const registrations = await navigator.serviceWorker.getRegistrations();
-          await Promise.all(registrations.map(reg => reg.unregister()));
-        }
-      } catch (err) {
-        console.warn('Service worker reset mislukt:', err);
-      }
+      rememberExpectedAppUpdate(updateToApply);
+      await activateUpdatedServiceWorker();
 
       const reloadUrl = new URL(window.location.href);
       reloadUrl.searchParams.set('fd_update', String(Date.now()));
@@ -5853,14 +6011,16 @@
     // SERVICE WORKER REGISTRATION
     // ============================================================
 
+    verifyExpectedAppUpdateAfterReload();
     startAppUpdateChecks();
 
     if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('sw.js')
+      navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' })
         .then(reg => {
           serviceWorkerRegistration = reg;
           reg.onupdatefound = () => {
             const installing = reg.installing;
+            if (!installing) return;
             installing.onstatechange = () => {
               if (installing.state === 'activated' && navigator.serviceWorker.controller) checkForAppUpdate();
             };

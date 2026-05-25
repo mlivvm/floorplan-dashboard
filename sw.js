@@ -1,30 +1,30 @@
-const CACHE_NAME = 'fd-v1.8.161';
+const CACHE_NAME = 'fd-v1.8.162';
 const WORKER_API_HOSTNAME = 'floorplan-dashboard-api.mko-floorplan-dashboard.workers.dev';
 
 const STATIC_ASSETS = [
   './',
   'index.html',
-  'admin-dashboard-tokens.css',
-  'app.css',
-  'data-service.js',
-  'diagnostics-service.js',
-  'floorplan-cache-service.js',
-  'floorplan-view-service.js',
-  'auth-service.js',
-  'status-service.js',
-  'status-sync-service.js',
-  'mode-service.js',
-  'image-editor-service.js',
-  'viewport-service.js',
-  'marker-service.js',
-  'door-action-service.js',
-  'ui-shell-service.js',
-  'edit-ui-service.js',
-  'pdf-import-service.js',
-  'upload-service.js',
-  'select-sheet-service.js',
-  'side-panel-service.js',
-  'app.js',
+  'admin-dashboard-tokens.css?v=1.8.162',
+  'app.css?v=1.8.162',
+  'data-service.js?v=1.8.162',
+  'diagnostics-service.js?v=1.8.162',
+  'floorplan-cache-service.js?v=1.8.162',
+  'floorplan-view-service.js?v=1.8.162',
+  'auth-service.js?v=1.8.162',
+  'status-service.js?v=1.8.162',
+  'status-sync-service.js?v=1.8.162',
+  'mode-service.js?v=1.8.162',
+  'image-editor-service.js?v=1.8.162',
+  'viewport-service.js?v=1.8.162',
+  'marker-service.js?v=1.8.162',
+  'door-action-service.js?v=1.8.162',
+  'ui-shell-service.js?v=1.8.162',
+  'edit-ui-service.js?v=1.8.162',
+  'pdf-import-service.js?v=1.8.162',
+  'upload-service.js?v=1.8.162',
+  'select-sheet-service.js?v=1.8.162',
+  'side-panel-service.js?v=1.8.162',
+  'app.js?v=1.8.162',
   'version.json',
   'manifest.json',
   'icon-192.png',
@@ -64,7 +64,6 @@ self.addEventListener('install', (e) => {
   e.waitUntil(
     caches.open(CACHE_NAME)
       .then(cache => precacheStaticAssets(cache))
-      .then(() => self.skipWaiting())
   );
 });
 
@@ -76,6 +75,12 @@ self.addEventListener('activate', (e) => {
       ))
       .then(() => self.clients.claim())
   );
+});
+
+self.addEventListener('message', (e) => {
+  if (e.data?.type === 'FD_SKIP_WAITING') {
+    e.waitUntil(self.skipWaiting());
+  }
 });
 
 self.addEventListener('fetch', (e) => {
