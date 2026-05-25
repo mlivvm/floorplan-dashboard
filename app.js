@@ -23,11 +23,13 @@
       jotformFormId: '250122093908351',
       loginEmailNotificationsEnabled: false,
       pollInterval: 30000,
+      sessionHeartbeatInterval: 60000,
+      adminActiveUsersPollInterval: 60000,
       jotformReturnRefreshInterval: 2000,
       jotformReturnRefreshMaxDuration: 90000,
       versionCheckUrl: 'version.json',
       versionCheckInterval: 15 * 60 * 1000,
-      offlineCacheVersion: 'fd-v1.8.147',
+      offlineCacheVersion: 'fd-v1.8.148',
     };
 
     const COLORS = {
@@ -59,6 +61,10 @@
     let statusSync = null;
     let jotformReturnRefreshTimer = null;
     let jotformSubmissionLookupRetryTimer = null;
+    let sessionHeartbeatTimer = null;
+    let sessionHeartbeatInFlight = false;
+    let adminActiveUsersPollTimer = null;
+    let adminActiveUsersInFlight = false;
     let jotformFocusRefreshDoorId = null;
     let jotformFocusRefreshUntil = 0;
     let jotformFocusBaselineSubmission = null;
@@ -548,7 +554,15 @@
     appUpdateOverlay?.addEventListener('click', hideAppUpdateDialog);
 
     document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'visible') checkForAppUpdate();
+      if (document.visibilityState === 'visible') {
+        checkForAppUpdate();
+        startSessionHeartbeat();
+        runSessionHeartbeat();
+        startAdminActiveUsersPolling({ refreshNow: true });
+      } else {
+        stopSessionHeartbeat();
+        stopAdminActiveUsersPolling();
+      }
     });
 
     function updateConnectionIndicator() {
@@ -578,11 +592,16 @@
       flushStatusSyncQueue();
       scheduleFloorplanCacheWarmup();
       checkForAppUpdate();
+      startSessionHeartbeat();
+      runSessionHeartbeat();
+      startAdminActiveUsersPolling({ refreshNow: true });
     });
 
     window.addEventListener('offline', () => {
       updateConnectionIndicator();
       cancelFloorplanCacheWarmup();
+      stopSessionHeartbeat();
+      stopAdminActiveUsersPolling();
       showToast('Offline modus', 'error');
     });
 
@@ -1279,6 +1298,59 @@
       });
     }
 
+    function isPageVisibleAndOnline() {
+      return document.visibilityState !== 'hidden' && navigator.onLine !== false;
+    }
+
+    function shouldRunSessionHeartbeat() {
+      if (!isPageVisibleAndOnline()) return false;
+      if (appMode.is(AppModes.LOGIN)) return false;
+      if (typeof FD.DataService.refreshWorkerSessionUser !== 'function') return false;
+      if (!currentUser) refreshCurrentUser();
+      return Boolean(currentUser);
+    }
+
+    async function runSessionHeartbeat() {
+      if (!shouldRunSessionHeartbeat() || sessionHeartbeatInFlight) return;
+      sessionHeartbeatInFlight = true;
+      try {
+        await FD.DataService.refreshWorkerSessionUser(CONFIG, {
+          diagnostics: {
+            suppress: true,
+            background: true,
+            purpose: 'session_heartbeat',
+          },
+        });
+        refreshCurrentUser();
+        updateRoleActionButtons();
+      } catch (err) {
+        if (err?.status === 401 || err?.status === 403) {
+          stopSessionHeartbeat();
+          return;
+        }
+        if (navigator.onLine !== false) {
+          console.warn('Sessie heartbeat mislukt:', err);
+        }
+      } finally {
+        sessionHeartbeatInFlight = false;
+      }
+    }
+
+    function sessionHeartbeatTick() {
+      return runSessionHeartbeat();
+    }
+
+    function startSessionHeartbeat() {
+      if (sessionHeartbeatTimer || !shouldRunSessionHeartbeat()) return;
+      sessionHeartbeatTimer = window.setInterval(sessionHeartbeatTick, CONFIG.sessionHeartbeatInterval);
+    }
+
+    function stopSessionHeartbeat() {
+      if (!sessionHeartbeatTimer) return;
+      window.clearInterval(sessionHeartbeatTimer);
+      sessionHeartbeatTimer = null;
+    }
+
     function canManageUploads() {
       return FD.DataService.canManageUploads(CONFIG);
     }
@@ -1746,18 +1818,50 @@
     }
 
     async function loadActiveUsers() {
-      if (!isAdminUser()) return;
+      if (!isAdminUser() || adminActiveUsersInFlight) return;
+      adminActiveUsersInFlight = true;
       try {
         const result = await FD.DataService.fetchActiveUsers(CONFIG, {
           diagnostics: {
             purpose: 'admin_active_users',
+            background: true,
           },
         });
         renderActiveUsers(result.counts);
       } catch (err) {
         console.warn('Online gebruikers laden mislukt:', err);
         renderActiveUsers(null);
+      } finally {
+        adminActiveUsersInFlight = false;
       }
+    }
+
+    function shouldPollAdminActiveUsers() {
+      return Boolean(adminDashboardState.visible && isAdminUser() && isPageVisibleAndOnline());
+    }
+
+    function adminActiveUsersPollTick() {
+      if (!shouldPollAdminActiveUsers()) {
+        stopAdminActiveUsersPolling();
+        return;
+      }
+      return loadActiveUsers();
+    }
+
+    function startAdminActiveUsersPolling({ refreshNow = false } = {}) {
+      if (!shouldPollAdminActiveUsers()) return;
+      if (refreshNow) loadActiveUsers();
+      if (adminActiveUsersPollTimer) return;
+      adminActiveUsersPollTimer = window.setInterval(
+        adminActiveUsersPollTick,
+        CONFIG.adminActiveUsersPollInterval,
+      );
+    }
+
+    function stopAdminActiveUsersPolling() {
+      if (!adminActiveUsersPollTimer) return;
+      window.clearInterval(adminActiveUsersPollTimer);
+      adminActiveUsersPollTimer = null;
     }
 
     function renderAdminOverviewList(container, items, emptyText, badgeFn) {
@@ -2337,11 +2441,13 @@
       stopPolling();
       renderAdminDashboard();
       updateRoleActionButtons();
+      startAdminActiveUsersPolling();
       loadAdminDashboard({ force });
     }
 
     function hideAdminDashboard() {
       adminDashboardState.visible = false;
+      stopAdminActiveUsersPolling();
       appContainer.classList.remove('admin-dashboard-active');
       if (adminDashboardEl) adminDashboardEl.style.display = 'none';
       updateRoleActionButtons();
@@ -2871,6 +2977,7 @@
       if (adminDoorGroup) adminDoorGroup.value = '';
       if (adminDoorCustomerFilter) adminDoorCustomerFilter.value = '';
       if (adminDoorFloorplanFilter) adminDoorFloorplanFilter.value = '';
+      stopAdminActiveUsersPolling();
       renderActiveUsers(null);
       if (adminDashboardEl) adminDashboardEl.style.display = 'none';
       appContainer.classList.remove('admin-dashboard-active');
@@ -4501,6 +4608,7 @@
       appContainer.style.display = 'block';
       updateConnectionIndicator();
       updateStatusSyncIndicator();
+      startSessionHeartbeat();
       requestAnimationFrame(updateTopbarHeight);
       init();
     }
@@ -4592,10 +4700,14 @@
       showToast,
       onShowApp: showApp,
       onLogout: () => {
+        stopSessionHeartbeat();
+        stopAdminActiveUsersPolling();
         resetAppToStartScreen();
         stopPolling();
       },
       onSessionExpired: () => {
+        stopSessionHeartbeat();
+        stopAdminActiveUsersPolling();
         resetAppToStartScreen();
       },
     });
