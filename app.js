@@ -30,7 +30,7 @@
       jotformReturnRefreshMaxDuration: 90000,
       versionCheckUrl: 'version.json',
       versionCheckInterval: 15 * 60 * 1000,
-      offlineCacheVersion: 'fd-v1.8.154',
+      offlineCacheVersion: 'fd-v1.8.155',
     };
 
     const COLORS = {
@@ -1940,7 +1940,7 @@
       renderAdminOverviewList(
         adminOverviewAttention,
         attention,
-        adminDashboardState.loading ? 'Dashboard laden...' : 'Geen rode deuren gevonden.',
+        adminDashboardState.loading ? 'Dashboard laden...' : 'Geen deuren die aandacht nodig hebben.',
         record => `${record.attention || 0} rood`
       );
       renderAdminOverviewList(
@@ -2443,6 +2443,7 @@
             updatePickerButtons();
           }
         }
+        setAdminDashboardLoading(false);
         renderAdminDashboard();
       } catch (err) {
         console.warn('Admin dashboard laden mislukt:', err);
