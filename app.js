@@ -30,7 +30,7 @@
       jotformReturnRefreshMaxDuration: 90000,
       versionCheckUrl: 'version.json',
       versionCheckInterval: 15 * 60 * 1000,
-      offlineCacheVersion: 'fd-v1.8.155',
+      offlineCacheVersion: 'fd-v1.8.156',
     };
 
     const COLORS = {
@@ -364,6 +364,36 @@
       return url.toString();
     }
 
+    function cacheVersionPattern(name, cacheVersion) {
+      const escapedVersion = String(cacheVersion || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      return new RegExp(`${name}\\s*(?::|=)\\s*['"]${escapedVersion}['"]`);
+    }
+
+    function appAssetCheckUrl(path) {
+      const url = new URL(path, window.location.href);
+      url.searchParams.set('_', String(Date.now()));
+      return url.toString();
+    }
+
+    async function remoteDeploymentReady(remote) {
+      if (!remote?.cache) return false;
+      try {
+        const [appResponse, swResponse] = await Promise.all([
+          fetch(appAssetCheckUrl('app.js'), { cache: 'no-store', credentials: 'same-origin' }),
+          fetch(appAssetCheckUrl('sw.js'), { cache: 'no-store', credentials: 'same-origin' }),
+        ]);
+        if (!appResponse.ok || !swResponse.ok) return false;
+        const [appText, swText] = await Promise.all([
+          appResponse.text(),
+          swResponse.text(),
+        ]);
+        return cacheVersionPattern('offlineCacheVersion', remote.cache).test(appText) &&
+          cacheVersionPattern('CACHE_NAME', remote.cache).test(swText);
+      } catch (err) {
+        return false;
+      }
+    }
+
     async function checkForAppUpdate() {
       if (navigator.onLine === false) return false;
       try {
@@ -374,8 +404,9 @@
         if (!response.ok) return false;
         const remote = normalizeRemoteVersion(await response.json());
         const available = Boolean(remote && remote.cache !== CONFIG.offlineCacheVersion);
-        setAppUpdateAvailable(available ? remote : null);
-        return available;
+        const ready = available ? await remoteDeploymentReady(remote) : false;
+        setAppUpdateAvailable(ready ? remote : null);
+        return ready;
       } catch (err) {
         return false;
       }
@@ -412,6 +443,14 @@
       if (appUpdateConfirmButton) {
         appUpdateConfirmButton.disabled = true;
         appUpdateConfirmButton.textContent = 'Bijwerken...';
+      }
+
+      const updateToApply = pendingAppUpdate;
+      if (!(await remoteDeploymentReady(updateToApply))) {
+        hideAppUpdateDialog();
+        setAppUpdateAvailable(null);
+        showToast('Update wordt nog klaargezet. Probeer zo opnieuw.', 'error');
+        return;
       }
 
       setAppUpdateAvailable(null);
