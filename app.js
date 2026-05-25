@@ -29,7 +29,7 @@
       jotformReturnRefreshMaxDuration: 90000,
       versionCheckUrl: 'version.json',
       versionCheckInterval: 15 * 60 * 1000,
-      offlineCacheVersion: 'fd-v1.8.148',
+      offlineCacheVersion: 'fd-v1.8.149',
     };
 
     const COLORS = {
@@ -4316,6 +4316,7 @@
         const newFi = currentCustomers[newCi].floorplans.length - 1;
         floorplanSelect.value = newFi;
         updatePickerButtons();
+        if (adminDashboardState.visible) hideAdminDashboard();
         loadFloorplan(newCi, newFi);
       },
     });
