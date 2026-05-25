@@ -29,7 +29,7 @@
       jotformReturnRefreshMaxDuration: 90000,
       versionCheckUrl: 'version.json',
       versionCheckInterval: 15 * 60 * 1000,
-      offlineCacheVersion: 'fd-v1.8.150',
+      offlineCacheVersion: 'fd-v1.8.151',
     };
 
     const COLORS = {
@@ -2657,6 +2657,29 @@
       }
     }
 
+    function floorplanIdentityMatches(floorplan, target) {
+      if (!floorplan || !target) return false;
+      return floorplan.name === target.name &&
+        floorplan.file === target.file &&
+        (floorplan.repo === 'uploads' ? 'uploads' : 'gallery') === (target.repo === 'uploads' ? 'uploads' : 'gallery');
+    }
+
+    function adminRecordToUploadedFloorplanTarget(record) {
+      const customer = customers.find(item => item.customer === record.customer) || {
+        customer: record.customer,
+        floorplans: [],
+      };
+      const floorplan = (customer.floorplans || []).find(fp => floorplanIdentityMatches(fp, record)) || {
+        name: record.name,
+        file: record.file,
+        repo: record.repo === 'uploads' ? 'uploads' : 'gallery',
+        uploaded: true,
+        building: record.building || '',
+        floorLabel: record.floorLabel || '',
+      };
+      return { customer, floorplan };
+    }
+
     async function deleteAdminDetailFloorplan() {
       const record = getActiveAdminMetadataRecord();
       if (!record) return;
@@ -2664,57 +2687,8 @@
         showToast('Gallery-plattegronden kunnen niet vanuit het dashboard verwijderd worden', 'error');
         return;
       }
-      const ok = window.confirm(`Plattegrond "${record.displayName || record.name}" verwijderen? Dit verwijdert ook het uploadbestand.`);
-      if (!ok) return;
-
-      if (adminDetailDelete) {
-        adminDetailDelete.disabled = true;
-        adminDetailDelete.textContent = 'Verwijderen...';
-      }
-      busyOverlay.show({
-        title: 'Plattegrond verwijderen',
-        subtitle: 'Uploadbestand en klantkoppeling worden verwijderd...',
-      });
-      try {
-        const selectedBeforeDelete = getSelectedFloorplan();
-        const deletingCurrentFloorplan = selectedBeforeDelete.customer?.customer === record.customer &&
-          selectedBeforeDelete.floorplan?.name === record.name &&
-          selectedBeforeDelete.floorplan?.file === record.file &&
-          (selectedBeforeDelete.floorplan?.repo === 'uploads' ? 'uploads' : 'gallery') === record.repo;
-        const result = await FD.DataService.deleteUploadedFloorplan(CONFIG, {
-          customerName: record.customer,
-          floorplan: {
-            name: record.name,
-            file: record.file,
-            repo: record.repo,
-            uploaded: true,
-          },
-        });
-        customers = result.customers;
-        cacheCustomers();
-        populateCustomerDropdown();
-        if (deletingCurrentFloorplan) {
-          currentCustomer = null;
-          currentFloorplan = null;
-          resetFloorplanUI();
-          customerSelect.value = '';
-          resetFloorplanDropdown(true);
-          updatePickerButtons();
-        }
-        adminDashboardState.selectedKey = '';
-        adminDashboardState.previewKey = '';
-        await loadAdminDashboard({ force: true });
-        hideAdminMetadataDialog();
-        showToast('Plattegrond verwijderd', 'success');
-      } catch (err) {
-        if (adminDetailError) adminDetailError.textContent = 'Verwijderen mislukt: ' + (err.message || 'onbekende fout');
-      } finally {
-        if (adminDetailDelete) {
-          adminDetailDelete.disabled = false;
-          adminDetailDelete.textContent = 'Plattegrond verwijderen';
-        }
-        busyOverlay.hide();
-      }
+      hideAdminMetadataDialog();
+      uploadActionsController.showDeleteConfirm(adminRecordToUploadedFloorplanTarget(record));
     }
 
     const selectionController = FD.SelectSheetService.createSelectionController({
@@ -4359,6 +4333,70 @@
       overlayEl: metadataFpOverlay,
       popupEl: metadataFpPopup,
     });
+
+    function selectDeletedFloorplanCustomer(customerName, currentCustomers) {
+      const remainingCi = currentCustomers.findIndex(customer => customer.customer === customerName);
+      if (remainingCi >= 0) {
+        customerSelect.value = String(remainingCi);
+        populateFloorplanDropdown(remainingCi);
+        floorplanSelect.value = '';
+        updatePickerButtons();
+        setEmptyState('Kies een plattegrond<br>uit het dropdown menu.');
+        loadingEl.classList.remove('hidden');
+        return;
+      }
+
+      customerSelect.value = '';
+      resetFloorplanDropdown(true);
+      updatePickerButtons();
+      setEmptyState('Kies een klant en plattegrond<br>om te beginnen.', 'Gebruik de dropdowns bovenaan');
+      loadingEl.classList.remove('hidden');
+    }
+
+    function restoreTopbarSelectionAfterCustomerRefresh(selection) {
+      if (!selection?.customer || !selection?.floorplan) return;
+      selectTopbarFloorplanRecord({
+        customer: selection.customer.customer,
+        name: selection.floorplan.name,
+        repo: selection.floorplan.repo === 'uploads' ? 'uploads' : 'gallery',
+        file: selection.floorplan.file || '',
+      });
+    }
+
+    async function deleteUploadedFloorplanAndReset({ customer, floorplan: fp }) {
+      const customerName = customer.customer;
+      const selectedBeforeDelete = getSelectedFloorplan();
+      const deletingCurrentFloorplan = selectedBeforeDelete.customer?.customer === customerName &&
+        floorplanIdentityMatches(selectedBeforeDelete.floorplan, fp);
+
+      floorplanLoadController.cancel();
+      stopPolling();
+      const { customers: currentCustomers } = await FD.DataService.deleteUploadedFloorplan(CONFIG, {
+        customerName,
+        floorplan: fp,
+      });
+
+      customers = currentCustomers;
+      cacheCustomers();
+      populateCustomerDropdown();
+
+      if (deletingCurrentFloorplan) {
+        currentFloorplan = null;
+        currentCustomer = null;
+        resetFloorplanUI();
+        selectDeletedFloorplanCustomer(customerName, currentCustomers);
+      } else {
+        restoreTopbarSelectionAfterCustomerRefresh(selectedBeforeDelete);
+      }
+
+      if (adminDashboardState.visible || adminDashboardState.data) {
+        adminDashboardState.selectedKey = '';
+        adminDashboardState.selectedDoorKey = '';
+        adminDashboardState.previewKey = '';
+        await loadAdminDashboard({ force: true });
+      }
+    }
+
     const uploadActionsController = FD.UploadService.createUploadedFloorplanActionsController({
       controls: {
         deleteButton: document.getElementById('btn-delete-fp'),
@@ -4376,39 +4414,7 @@
       hideTopbarMenu,
       showToast,
       requestTopbarUpdate: () => requestAnimationFrame(updateTopbarHeight),
-      onDelete: async ({ customer, floorplan: fp }) => {
-        const customerName = customer.customer;
-        floorplanLoadController.cancel();
-        stopPolling();
-        const { customers: currentCustomers } = await FD.DataService.deleteUploadedFloorplan(CONFIG, {
-          customerName,
-          floorplan: fp,
-        });
-
-        // Reload
-        customers = currentCustomers;
-        cacheCustomers();
-        populateCustomerDropdown();
-
-        // Clear stale state
-        currentFloorplan = null;
-        currentCustomer = null;
-        resetFloorplanUI();
-
-        // Stay on same customer if still exists
-        const remainingCi = currentCustomers.findIndex(c => c.customer === customerName);
-        if (remainingCi >= 0) {
-          customerSelect.value = remainingCi;
-          populateFloorplanDropdown(remainingCi);
-          floorplanSelect.value = '';
-          updatePickerButtons();
-          setEmptyState('Kies een plattegrond<br>uit het dropdown menu.');
-          loadingEl.classList.remove('hidden');
-        } else {
-          customerSelect.value = '';
-          customerSelect.dispatchEvent(new Event('change'));
-        }
-      },
+      onDelete: deleteUploadedFloorplanAndReset,
     });
 
     function showMetadataDialog() {

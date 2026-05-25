@@ -1571,6 +1571,7 @@
     onDelete,
   }) {
     let bound = false;
+    let pendingDeleteTarget = null;
     const deleteDialog = FD.UIShellService.createPopupPair({
       overlayEl: controls.deleteOverlay,
       popupEl: controls.deletePopup,
@@ -1591,7 +1592,15 @@
       requestTopbarUpdate();
     }
 
-    function showDeleteConfirm() {
+    function normalizeDeleteTarget(target) {
+      if (!target?.customer || !target?.floorplan) return {};
+      return {
+        customer: target.customer,
+        floorplan: target.floorplan,
+      };
+    }
+
+    function showDeleteConfirm(target = null) {
       if (isEditMode()) {
         showToast('Sluit eerst de bewerkingsmodus', 'error');
         return;
@@ -1601,18 +1610,21 @@
         return;
       }
       hideTopbarMenu();
-      const { floorplan } = getSelection();
+      const current = normalizeDeleteTarget(target || getSelection());
+      const { floorplan } = current;
       if (!floorplan) return;
+      pendingDeleteTarget = current;
       controls.deleteMessage.textContent = 'Weet je zeker dat je "' + floorplan.name + '" wilt verwijderen?';
       deleteDialog.show();
     }
 
     function hideDeleteConfirm() {
+      pendingDeleteTarget = null;
       deleteDialog.hide();
     }
 
     async function confirmDelete() {
-      const { customer, floorplan } = getSelection();
+      const { customer, floorplan } = normalizeDeleteTarget(pendingDeleteTarget || getSelection());
       if (!customer || !floorplan) return;
       hideDeleteConfirm();
 
