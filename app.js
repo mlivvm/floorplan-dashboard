@@ -29,7 +29,7 @@
       jotformReturnRefreshMaxDuration: 90000,
       versionCheckUrl: 'version.json',
       versionCheckInterval: 15 * 60 * 1000,
-      offlineCacheVersion: 'fd-v1.8.152',
+      offlineCacheVersion: 'fd-v1.8.153',
     };
 
     const COLORS = {
@@ -413,6 +413,7 @@
         appUpdateConfirmButton.textContent = 'Bijwerken...';
       }
 
+      setAppUpdateAvailable(null);
       try {
         if (serviceWorkerRegistration?.update) {
           await serviceWorkerRegistration.update();
@@ -421,7 +422,29 @@
         console.warn('Service worker update-check mislukt:', err);
       }
 
-      window.location.reload();
+      try {
+        if (window.caches?.keys) {
+          const keys = await window.caches.keys();
+          await Promise.all(keys
+            .filter(key => /^fd-v\d+\.\d+\.\d+$/.test(key))
+            .map(key => window.caches.delete(key)));
+        }
+      } catch (err) {
+        console.warn('App cache legen mislukt:', err);
+      }
+
+      try {
+        if (navigator.serviceWorker?.getRegistrations) {
+          const registrations = await navigator.serviceWorker.getRegistrations();
+          await Promise.all(registrations.map(reg => reg.unregister()));
+        }
+      } catch (err) {
+        console.warn('Service worker reset mislukt:', err);
+      }
+
+      const reloadUrl = new URL(window.location.href);
+      reloadUrl.searchParams.set('fd_update', String(Date.now()));
+      window.location.replace(reloadUrl.toString());
     }
 
     function startAppUpdateChecks() {

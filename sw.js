@@ -1,4 +1,4 @@
-const CACHE_NAME = 'fd-v1.8.152';
+const CACHE_NAME = 'fd-v1.8.153';
 
 const STATIC_ASSETS = [
   './',
@@ -41,10 +41,23 @@ function cacheFallback(request) {
   return caches.match(request).then(cached => cached || offlineMissResponse());
 }
 
+function noStoreRequest(request) {
+  return new Request(request, { cache: 'no-store' });
+}
+
+async function precacheStaticAssets(cache) {
+  await Promise.all(STATIC_ASSETS.map(async asset => {
+    const request = noStoreRequest(asset);
+    const response = await fetch(request);
+    if (!response.ok) throw new Error(`Precache failed: ${asset}`);
+    await cache.put(request, response);
+  }));
+}
+
 self.addEventListener('install', (e) => {
   e.waitUntil(
     caches.open(CACHE_NAME)
-      .then(cache => cache.addAll(STATIC_ASSETS))
+      .then(cache => precacheStaticAssets(cache))
       .then(() => self.skipWaiting())
   );
 });
@@ -65,7 +78,7 @@ self.addEventListener('fetch', (e) => {
   // Version checks must reflect the current deployment, not an old app cache.
   if (url.origin === self.location.origin && url.pathname.endsWith('/version.json')) {
     e.respondWith(
-      fetch(new Request(e.request, { cache: 'no-store' }))
+      fetch(noStoreRequest(e.request))
         .catch(() => offlineMissResponse())
     );
     return;
@@ -85,7 +98,7 @@ self.addEventListener('fetch', (e) => {
     if (e.request.method !== 'GET') return;
 
     e.respondWith(
-      fetch(e.request)
+      fetch(noStoreRequest(e.request))
         .then(resp => {
           if (resp.ok) {
             const clone = resp.clone();
@@ -119,7 +132,7 @@ self.addEventListener('fetch', (e) => {
 
   // Static assets: network-first, fall back to cache
   e.respondWith(
-    fetch(e.request)
+    fetch(noStoreRequest(e.request))
       .then(resp => {
         if (resp.ok) {
           const clone = resp.clone();
