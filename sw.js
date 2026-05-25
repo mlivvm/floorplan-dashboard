@@ -1,9 +1,10 @@
-const CACHE_NAME = 'fd-v1.8.158';
+const CACHE_NAME = 'fd-v1.8.159';
 const WORKER_API_HOSTNAME = 'floorplan-dashboard-api.mko-floorplan-dashboard.workers.dev';
 
 const STATIC_ASSETS = [
   './',
   'index.html',
+  'admin-dashboard-tokens.css',
   'app.css',
   'data-service.js',
   'diagnostics-service.js',

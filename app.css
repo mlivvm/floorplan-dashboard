@@ -1,3 +1,5 @@
+@import url('./admin-dashboard-tokens.css');
+
     * {
       margin: 0;
       padding: 0;
@@ -965,9 +967,393 @@
       font-weight: 750;
     }
 
+    /* Admin dashboard polish: token-based surfaces, 48px touch targets, restrained operational density. */
+    .admin-dashboard {
+      gap: var(--fd-admin-space-4);
+      padding: var(--fd-admin-space-5);
+      background: var(--fd-admin-bg);
+      color: var(--fd-admin-text);
+      font-family: var(--fd-admin-font-family);
+    }
+
+    .admin-dashboard-header {
+      gap: var(--fd-admin-space-4);
+    }
+
+    .admin-dashboard-kicker {
+      color: var(--fd-admin-text-muted);
+      font-size: 11px;
+      font-weight: 800;
+    }
+
+    .admin-dashboard-header h2 {
+      color: var(--fd-admin-text);
+      font-size: 24px;
+      font-weight: 800;
+      letter-spacing: 0;
+    }
+
+    .admin-dashboard-meta {
+      margin-top: var(--fd-admin-space-2);
+      color: var(--fd-admin-text-subtle);
+      font-size: 13px;
+      font-weight: 700;
+      line-height: 1.3;
+    }
+
+    .admin-dashboard-actions {
+      gap: var(--fd-admin-space-3);
+    }
+
+    .admin-dashboard-primary,
+    .admin-dashboard-secondary,
+    .admin-dashboard-danger,
+    .admin-dashboard-tab,
+    .admin-dashboard-input,
+    .admin-filter-button,
+    .admin-door-result,
+    .admin-floorplan-row,
+    .admin-overview-item,
+    .admin-activity-item {
+      touch-action: manipulation;
+    }
+
+    .admin-dashboard-primary,
+    .admin-dashboard-secondary,
+    .admin-dashboard-danger {
+      min-height: 48px;
+      padding: 12px 16px;
+      border: 1px solid transparent;
+      border-radius: var(--fd-admin-radius);
+      font-size: 14px;
+      transition: background 140ms ease, border-color 140ms ease, box-shadow 140ms ease, transform 140ms ease;
+    }
+
+    .admin-dashboard-primary {
+      background: var(--fd-admin-primary);
+      color: var(--fd-admin-on-primary);
+      box-shadow: var(--fd-admin-shadow-sm);
+    }
+
+    .admin-dashboard-primary:not(:disabled):hover {
+      background: var(--fd-admin-primary-hover);
+      box-shadow: var(--fd-admin-shadow-md);
+      transform: translateY(-1px);
+    }
+
+    .admin-dashboard-secondary {
+      border-color: var(--fd-admin-border);
+      background: var(--fd-admin-control-muted);
+      color: var(--fd-admin-text);
+    }
+
+    .admin-dashboard-secondary:not(:disabled):hover {
+      border-color: var(--fd-admin-border-strong);
+      background: var(--fd-admin-surface);
+      box-shadow: var(--fd-admin-shadow-sm);
+    }
+
+    .admin-dashboard-danger {
+      border-color: var(--fd-admin-danger-border);
+      background: var(--fd-admin-danger-soft);
+      color: var(--fd-admin-danger-text);
+    }
+
+    .admin-dashboard-danger:not(:disabled):hover {
+      border-color: var(--fd-admin-danger);
+      background: var(--fd-admin-danger-hover);
+    }
+
+    .admin-dashboard-primary:focus-visible,
+    .admin-dashboard-secondary:focus-visible,
+    .admin-dashboard-danger:focus-visible,
+    .admin-dashboard-tab:focus-visible,
+    .admin-dashboard-input:focus-visible,
+    .admin-filter-button:focus-visible,
+    .admin-door-result:focus-visible,
+    .admin-floorplan-row:focus-visible,
+    .admin-overview-item:focus-visible,
+    .admin-activity-item:focus-visible,
+    .admin-metadata-close:focus-visible {
+      outline: 3px solid var(--fd-admin-focus);
+      outline-offset: 2px;
+    }
+
+    .admin-online-panel {
+      min-height: 48px;
+      padding: 8px 12px;
+      border-color: var(--fd-admin-border);
+      border-radius: var(--fd-admin-radius);
+      background: var(--fd-admin-surface);
+      color: var(--fd-admin-text-muted);
+      box-shadow: var(--fd-admin-shadow-sm);
+    }
+
+    .admin-online-title,
+    .admin-online-row span {
+      color: var(--fd-admin-text-muted);
+    }
+
+    .admin-online-row strong {
+      color: var(--fd-admin-text);
+    }
+
+    .admin-dashboard-tabs {
+      min-height: 58px;
+      padding: 5px;
+      border-color: var(--fd-admin-border);
+      border-radius: var(--fd-admin-radius-lg);
+      background: var(--fd-admin-surface);
+      box-shadow: var(--fd-admin-shadow-sm);
+    }
+
+    .admin-dashboard-tab {
+      min-height: 48px;
+      padding: 12px 16px;
+      border-radius: var(--fd-admin-radius);
+      color: var(--fd-admin-text-muted);
+      transition: background 140ms ease, color 140ms ease, box-shadow 140ms ease;
+    }
+
+    .admin-dashboard-tab:hover {
+      background: var(--fd-admin-surface-muted);
+      color: var(--fd-admin-text);
+    }
+
+    .admin-dashboard-tab.active {
+      background: var(--fd-admin-primary);
+      color: var(--fd-admin-on-primary);
+      box-shadow: var(--fd-admin-shadow-sm);
+    }
+
+    .admin-kpi-grid {
+      gap: var(--fd-admin-space-3);
+    }
+
+    .admin-kpi,
+    .admin-overview-card,
+    .admin-dashboard-sidebar,
+    .admin-floorplan-panel,
+    .admin-detail-preview-column,
+    .admin-door-detail-card,
+    .admin-metadata-dialog {
+      border-color: var(--fd-admin-border);
+      border-radius: var(--fd-admin-radius);
+      background: var(--fd-admin-surface);
+      box-shadow: var(--fd-admin-shadow-sm);
+    }
+
+    .admin-kpi {
+      min-height: 78px;
+      padding: 14px 15px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .admin-kpi::before {
+      content: "";
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 3px;
+      background: var(--fd-admin-info);
+    }
+
+    .admin-kpi:nth-child(2)::before,
+    .admin-kpi:nth-child(5)::before {
+      background: var(--fd-admin-accent);
+    }
+
+    .admin-kpi:nth-child(4)::before {
+      background: var(--fd-admin-warning);
+    }
+
+    .admin-kpi.attention::before {
+      background: var(--fd-admin-danger);
+    }
+
+    .admin-kpi span,
+    .admin-overview-card-title span,
+    .admin-panel-title span,
+    .admin-dashboard-label,
+    .admin-door-filter-field,
+    .admin-overview-item-meta,
+    .admin-activity-item-meta,
+    .admin-row-meta,
+    .admin-floorplan-customer,
+    .admin-floorplan-counts,
+    .admin-detail-heading p,
+    .admin-detail-stats,
+    .admin-door-detail-label,
+    .admin-door-detail-meta,
+    .admin-dashboard-empty {
+      color: var(--fd-admin-text-muted);
+    }
+
+    .admin-kpi strong,
+    .admin-overview-card-title strong,
+    .admin-panel-title strong,
+    .admin-floorplan-name,
+    .admin-door-code,
+    .admin-overview-item-main,
+    .admin-activity-item-main,
+    .admin-detail-heading h3,
+    .admin-door-detail-main {
+      color: var(--fd-admin-text);
+    }
+
+    .admin-kpi.attention strong {
+      color: var(--fd-admin-danger);
+    }
+
+    .admin-overview-grid {
+      gap: var(--fd-admin-space-4);
+    }
+
+    .admin-overview-card {
+      min-height: 270px;
+    }
+
+    .admin-overview-card-title,
+    .admin-panel-title,
+    .admin-metadata-dialog-header {
+      border-bottom-color: var(--fd-admin-border);
+      background: var(--fd-admin-surface);
+    }
+
+    .admin-overview-list,
+    .admin-activity-list {
+      padding: var(--fd-admin-space-2);
+      background: linear-gradient(180deg, var(--fd-admin-surface) 0%, var(--fd-admin-surface-muted) 100%);
+    }
+
+    .admin-overview-item,
+    .admin-activity-item,
+    .admin-door-result,
+    .admin-floorplan-row,
+    .admin-filter-button {
+      border-radius: var(--fd-admin-radius);
+      color: var(--fd-admin-text);
+      transition: background 120ms ease, box-shadow 120ms ease, border-color 120ms ease;
+    }
+
+    .admin-overview-item,
+    .admin-activity-item {
+      min-height: 60px;
+      border-bottom-color: var(--fd-admin-border);
+      padding: 12px;
+    }
+
+    .admin-overview-item:hover,
+    .admin-activity-item:hover,
+    .admin-door-result:hover,
+    .admin-filter-button:hover,
+    .admin-floorplan-row:hover,
+    .admin-filter-button.active,
+    .admin-floorplan-row.active {
+      background: var(--fd-admin-primary-soft);
+    }
+
+    .admin-dashboard-input {
+      min-height: 48px;
+      padding: 11px 12px;
+      border-color: var(--fd-admin-border-strong);
+      border-radius: var(--fd-admin-radius);
+      background: var(--fd-admin-surface);
+      color: var(--fd-admin-text);
+    }
+
+    .admin-dashboard-input:focus {
+      border-color: var(--fd-admin-focus);
+      box-shadow: 0 0 0 3px var(--fd-admin-focus-ring);
+      outline: none;
+    }
+
+    .admin-filter-button {
+      min-height: 48px;
+      padding: 11px 12px;
+    }
+
+    .admin-door-search-tab {
+      border-color: var(--fd-admin-border);
+      border-radius: var(--fd-admin-radius);
+      background: var(--fd-admin-surface);
+      box-shadow: var(--fd-admin-shadow-sm);
+    }
+
+    .admin-door-result {
+      min-height: 56px;
+      padding: 12px;
+      border-bottom-color: var(--fd-admin-border);
+    }
+
+    .admin-status-dot {
+      width: 12px;
+      height: 12px;
+      box-shadow: 0 0 0 2px var(--fd-admin-surface);
+    }
+
+    .admin-floorplans-layout,
+    .admin-detail-workspace {
+      gap: var(--fd-admin-space-4);
+    }
+
+    .admin-floorplan-row {
+      min-height: 64px;
+      padding: 14px 16px;
+      border-bottom-color: var(--fd-admin-border);
+    }
+
+    .admin-detail-preview {
+      border-color: var(--fd-admin-border);
+      background: var(--fd-admin-surface-muted);
+      color: var(--fd-admin-text-muted);
+    }
+
+    .admin-door-detail-card {
+      background: var(--fd-admin-primary-soft);
+    }
+
+    .admin-detail-stats {
+      background: var(--fd-admin-surface-muted);
+    }
+
+    .admin-metadata-dialog {
+      box-shadow: var(--fd-admin-shadow-lg);
+    }
+
+    .admin-metadata-close {
+      width: 48px;
+      height: 48px;
+      border-radius: var(--fd-admin-radius);
+      background: var(--fd-admin-surface-muted);
+      color: var(--fd-admin-text);
+    }
+
+    .admin-dashboard-empty {
+      margin: var(--fd-admin-space-2);
+      border: 1px dashed var(--fd-admin-border);
+      border-radius: var(--fd-admin-radius);
+      background: var(--fd-admin-surface-muted);
+    }
+
     @media (max-width: 980px) {
+      .admin-dashboard {
+        gap: var(--fd-admin-space-3);
+        padding: var(--fd-admin-space-4);
+      }
+
       .admin-kpi-grid {
         grid-template-columns: repeat(3, minmax(0, 1fr));
+      }
+
+      .admin-overview-card {
+        min-height: 230px;
+      }
+
+      .admin-overview-card-wide {
+        min-height: 240px;
       }
 
       .admin-overview-grid,
@@ -1039,7 +1425,7 @@
       }
 
       .admin-dashboard-tab {
-        min-height: 46px;
+        min-height: 48px;
         padding: 10px 12px;
       }
 

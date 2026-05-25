@@ -30,7 +30,7 @@
       jotformReturnRefreshMaxDuration: 90000,
       versionCheckUrl: 'version.json',
       versionCheckInterval: 15 * 60 * 1000,
-      offlineCacheVersion: 'fd-v1.8.158',
+      offlineCacheVersion: 'fd-v1.8.159',
     };
 
     const COLORS = {
@@ -113,6 +113,8 @@
       previewKey: '',
       previewRequestId: 0,
       metadataRecord: null,
+      lastUpdatedAt: '',
+      loadError: '',
     };
 
     function setDocumentAppMode(mode) {
@@ -185,6 +187,7 @@
     const btnTopbarMetadata = document.getElementById('btn-topbar-metadata');
     const adminDashboardEl = document.getElementById('admin-dashboard');
     const adminDashboardRefresh = document.getElementById('admin-dashboard-refresh');
+    const adminDashboardFreshness = document.getElementById('admin-dashboard-freshness');
     const adminDashboardTabs = Array.from(document.querySelectorAll('[data-admin-tab]'));
     const adminDashboardTabPanels = Array.from(document.querySelectorAll('[data-admin-panel]'));
     const adminOverviewAttention = document.getElementById('admin-overview-attention');
@@ -1861,6 +1864,7 @@
         adminDashboardRefresh.disabled = loading;
         adminDashboardRefresh.textContent = loading ? 'Laden...' : 'Vernieuwen';
       }
+      renderAdminFreshness();
     }
 
     function renderAdminKpis() {
@@ -1869,6 +1873,26 @@
         if (!el) return;
         el.textContent = String(Number(summary[key] || 0));
       });
+    }
+
+    function renderAdminFreshness() {
+      if (!adminDashboardFreshness) return;
+      if (adminDashboardState.loading) {
+        adminDashboardFreshness.textContent = 'Dashboard wordt bijgewerkt...';
+        return;
+      }
+      if (adminDashboardState.loadError && !adminDashboardState.data) {
+        adminDashboardFreshness.textContent = 'Laatste update mislukt';
+        return;
+      }
+      if (!adminDashboardState.lastUpdatedAt) {
+        adminDashboardFreshness.textContent = 'Nog niet bijgewerkt';
+        return;
+      }
+      const formatted = adminFormatDateTime(adminDashboardState.lastUpdatedAt);
+      adminDashboardFreshness.textContent = formatted
+        ? `Bijgewerkt ${formatted} (Amsterdam)`
+        : 'Bijgewerkt';
     }
 
     function renderActiveUsers(counts) {
@@ -2427,6 +2451,7 @@
 
     function renderAdminDashboard() {
       setAdminTab(adminDashboardState.activeTab);
+      renderAdminFreshness();
       renderAdminKpis();
       renderAdminOverview();
       renderAdminActivity();
@@ -2448,6 +2473,7 @@
       }
 
       setAdminDashboardLoading(true);
+      adminDashboardState.loadError = '';
       try {
         const data = await FD.DataService.fetchAdminOverview(CONFIG, {
           diagnostics: {
@@ -2455,6 +2481,7 @@
           },
         });
         adminDashboardState.data = data;
+        adminDashboardState.lastUpdatedAt = data.generated_at || data.generatedAt || new Date().toISOString();
         if (Array.isArray(data.customers) && data.customers.length) {
           const previousSelection = getSelectedFloorplan();
           const previousCustomerIndex = FD.SelectSheetService.selectedIndex(customerSelect);
@@ -2486,6 +2513,7 @@
         renderAdminDashboard();
       } catch (err) {
         console.warn('Admin dashboard laden mislukt:', err);
+        adminDashboardState.loadError = err.message || 'dashboard_failed';
         if (adminFloorplanList) {
           adminFloorplanList.innerHTML = '<div class="admin-dashboard-empty">Dashboard laden mislukt.</div>';
         }
@@ -3015,6 +3043,8 @@
       adminDashboardState.activityUnavailable = false;
       adminDashboardState.previewKey = '';
       adminDashboardState.previewRequestId += 1;
+      adminDashboardState.lastUpdatedAt = '';
+      adminDashboardState.loadError = '';
       if (adminDashboardSearch) adminDashboardSearch.value = '';
       if (adminDoorSearch) adminDoorSearch.value = '';
       if (adminDoorGroup) adminDoorGroup.value = '';
