@@ -1,4 +1,4 @@
-const CACHE_NAME = 'fd-v1.8.157';
+const CACHE_NAME = 'fd-v1.8.158';
 const WORKER_API_HOSTNAME = 'floorplan-dashboard-api.mko-floorplan-dashboard.workers.dev';
 
 const STATIC_ASSETS = [
@@ -142,6 +142,8 @@ self.addEventListener('fetch', (e) => {
     );
     return;
   }
+
+  if (url.origin !== self.location.origin) return;
 
   // Static assets: network-first, fall back to cache
   e.respondWith(

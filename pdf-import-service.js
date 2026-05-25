@@ -15,6 +15,10 @@
   async function loadPdfDocument(pdfjsLib, file) {
     if (!pdfjsLib) throw pdfError('PDF library niet geladen. Gebruik een foto.', 'pdfjs_missing');
     const arrayBuffer = await file.arrayBuffer();
+    const header = String.fromCharCode(...new Uint8Array(arrayBuffer.slice(0, 5)));
+    if (!header.startsWith('%PDF-')) {
+      throw pdfError('Gebruik een geldig PDF-bestand.', 'invalid_pdf_magic');
+    }
     const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
     if (pdf.numPages > MAX_PDF_PAGES) {
       throw pdfError(`Deze PDF heeft ${pdf.numPages} pagina's. Maximaal ${MAX_PDF_PAGES} pagina's per upload.`, 'too_many_pages');
@@ -72,7 +76,11 @@
   }
 
   function buildUploadSVGText({ imageDataUrl, width, height }) {
-    return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}">\n  <image href="${imageDataUrl}" width="${width}" height="${height}"/>\n</svg>`;
+    const href = String(imageDataUrl || '')
+      .replace(/&/g, '&amp;')
+      .replace(/"/g, '&quot;')
+      .replace(/</g, '&lt;');
+    return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}">\n  <image href="${href}" width="${width}" height="${height}"/>\n</svg>`;
   }
 
   function suggestedFloorplanName(fileName, pageNumber) {

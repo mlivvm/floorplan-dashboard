@@ -252,6 +252,17 @@
       }
 
       const jotFormWindow = typeof openWindow === 'function' ? openWindow('about:blank', '_blank') : null;
+      const stillCurrentSelection = () => {
+        const latest = state();
+        return latest.selectedDoor === selectedDoor &&
+          latest.currentCustomer === currentCustomer &&
+          latest.currentFloorplan === currentFloorplan;
+      };
+      const closeStaleWindow = () => {
+        if (jotFormWindow && !jotFormWindow.closed && typeof jotFormWindow.close === 'function') {
+          jotFormWindow.close();
+        }
+      };
 
       let context = null;
       try {
@@ -262,6 +273,10 @@
             existing = await findJotFormSubmission({ selectedDoor, currentCustomer, currentFloorplan });
           } catch (err) {
             if (err?.status !== 404 && err?.status !== 501) throw err;
+          }
+          if (!stillCurrentSelection()) {
+            closeStaleWindow();
+            return;
           }
           if (existing?.found && existing.editUrl) {
             if (typeof onBeforeOpenJotForm === 'function') {
@@ -283,6 +298,10 @@
         if (typeof prepareJotFormContext === 'function') {
           context = await prepareJotFormContext({ selectedDoor, currentCustomer, currentFloorplan });
         }
+        if (!stillCurrentSelection()) {
+          closeStaleWindow();
+          return;
+        }
 
         const url = buildJotFormUrl({
           baseUrl: config.baseUrl,
@@ -302,9 +321,7 @@
           openWindow(url, '_blank');
         }
       } catch (err) {
-        if (jotFormWindow && !jotFormWindow.closed && typeof jotFormWindow.close === 'function') {
-          jotFormWindow.close();
-        }
+        closeStaleWindow();
         throw err;
       }
     }
