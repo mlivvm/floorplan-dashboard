@@ -1640,7 +1640,7 @@
     function bind() {
       if (bound) return;
       bound = true;
-      controls.deleteButton.addEventListener('click', showDeleteConfirm);
+      controls.deleteButton.addEventListener('click', () => showDeleteConfirm());
       controls.deleteConfirmButton.addEventListener('click', confirmDelete);
       controls.deleteCancelButton.addEventListener('click', hideDeleteConfirm);
       controls.deleteOverlay.addEventListener('click', hideDeleteConfirm);

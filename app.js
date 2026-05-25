@@ -29,7 +29,7 @@
       jotformReturnRefreshMaxDuration: 90000,
       versionCheckUrl: 'version.json',
       versionCheckInterval: 15 * 60 * 1000,
-      offlineCacheVersion: 'fd-v1.8.151',
+      offlineCacheVersion: 'fd-v1.8.152',
     };
 
     const COLORS = {
@@ -2393,7 +2393,11 @@
         adminDashboardState.data = data;
         if (Array.isArray(data.customers) && data.customers.length) {
           const previousSelection = getSelectedFloorplan();
-          const previousCustomerName = previousSelection.customer?.customer || currentCustomer || '';
+          const previousCustomerIndex = FD.SelectSheetService.selectedIndex(customerSelect);
+          const previousCustomerName = previousSelection.customer?.customer ||
+            (previousCustomerIndex !== null ? customers[previousCustomerIndex]?.customer : '') ||
+            currentCustomer ||
+            '';
           const previousFloorplan = previousSelection.floorplan || null;
           const previousRepo = previousFloorplan?.repo === 'uploads' ? 'uploads' : 'gallery';
           customers = data.customers;
@@ -4369,31 +4373,39 @@
       const deletingCurrentFloorplan = selectedBeforeDelete.customer?.customer === customerName &&
         floorplanIdentityMatches(selectedBeforeDelete.floorplan, fp);
 
-      floorplanLoadController.cancel();
-      stopPolling();
-      const { customers: currentCustomers } = await FD.DataService.deleteUploadedFloorplan(CONFIG, {
-        customerName,
-        floorplan: fp,
+      busyOverlay.show({
+        title: 'Plattegrond verwijderen',
+        subtitle: 'Uploadbestand en klantkoppeling worden verwijderd...',
       });
+      try {
+        floorplanLoadController.cancel();
+        stopPolling();
+        const { customers: currentCustomers } = await FD.DataService.deleteUploadedFloorplan(CONFIG, {
+          customerName,
+          floorplan: fp,
+        });
 
-      customers = currentCustomers;
-      cacheCustomers();
-      populateCustomerDropdown();
+        customers = currentCustomers;
+        cacheCustomers();
+        populateCustomerDropdown();
 
-      if (deletingCurrentFloorplan) {
-        currentFloorplan = null;
-        currentCustomer = null;
-        resetFloorplanUI();
-        selectDeletedFloorplanCustomer(customerName, currentCustomers);
-      } else {
-        restoreTopbarSelectionAfterCustomerRefresh(selectedBeforeDelete);
-      }
+        if (deletingCurrentFloorplan) {
+          currentFloorplan = null;
+          currentCustomer = null;
+          resetFloorplanUI();
+          selectDeletedFloorplanCustomer(customerName, currentCustomers);
+        } else {
+          restoreTopbarSelectionAfterCustomerRefresh(selectedBeforeDelete);
+        }
 
-      if (adminDashboardState.visible || adminDashboardState.data) {
-        adminDashboardState.selectedKey = '';
-        adminDashboardState.selectedDoorKey = '';
-        adminDashboardState.previewKey = '';
-        await loadAdminDashboard({ force: true });
+        if (adminDashboardState.visible || adminDashboardState.data) {
+          adminDashboardState.selectedKey = '';
+          adminDashboardState.selectedDoorKey = '';
+          adminDashboardState.previewKey = '';
+          await loadAdminDashboard({ force: true });
+        }
+      } finally {
+        busyOverlay.hide();
       }
     }
 
