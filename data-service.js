@@ -792,6 +792,7 @@
     const rawCounts = data.counts && typeof data.counts === 'object' ? data.counts : {};
     return {
       generatedAt: String(data.generated_at || ''),
+      generatedAtAmsterdam: String(data.generated_at_amsterdam || ''),
       windowMinutes: Number(data.window_minutes || 10),
       counts: {
         admin: Number(rawCounts.admin || 0),
@@ -813,10 +814,12 @@
     });
     return {
       generatedAt: String(data.generated_at || ''),
+      generatedAtAmsterdam: String(data.generated_at_amsterdam || ''),
       limit: Number(data.limit || 30),
       activity: Array.isArray(data.activity) ? data.activity.map(row => ({
         id: Number(row.id || 0),
         createdAt: String(row.created_at || row.createdAt || ''),
+        createdAtAmsterdam: String(row.created_at_amsterdam || row.createdAtAmsterdam || ''),
         action: String(row.action || ''),
         result: String(row.result || ''),
         customer: String(row.customer || ''),

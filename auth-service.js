@@ -160,6 +160,7 @@
     templateId,
     type,
     attempts,
+    timeZone = 'Europe/Amsterdam',
     fetchImpl = global.fetch,
     logger = console,
   }) {
@@ -176,7 +177,7 @@
     }
     emailjsClient.send(serviceId, templateId, {
       type,
-      time: new Date().toLocaleString('nl-NL'),
+      time: new Date().toLocaleString('nl-NL', { timeZone }),
       attempts: attempts || '-',
       location,
     }).catch(err => logger.error('Email notificatie mislukt:', err));
@@ -220,6 +221,7 @@
         templateId: emailConfig.templateId,
         type,
         attempts,
+        timeZone: appConfig?.appTimeZone || 'Europe/Amsterdam',
         logger,
       });
     }

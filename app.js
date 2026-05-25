@@ -22,6 +22,7 @@
       jotformBaseUrl: 'https://eu.jotform.com/',
       jotformFormId: '250122093908351',
       loginEmailNotificationsEnabled: true,
+      appTimeZone: 'Europe/Amsterdam',
       pollInterval: 30000,
       sessionHeartbeatInterval: 60000,
       adminActiveUsersPollInterval: 60000,
@@ -29,7 +30,7 @@
       jotformReturnRefreshMaxDuration: 90000,
       versionCheckUrl: 'version.json',
       versionCheckInterval: 15 * 60 * 1000,
-      offlineCacheVersion: 'fd-v1.8.153',
+      offlineCacheVersion: 'fd-v1.8.154',
     };
 
     const COLORS = {
@@ -1689,6 +1690,7 @@
       const date = new Date(value || '');
       if (Number.isNaN(date.getTime())) return '';
       return new Intl.DateTimeFormat('nl-NL', {
+        timeZone: CONFIG.appTimeZone,
         day: '2-digit',
         month: '2-digit',
         hour: '2-digit',
