@@ -30,7 +30,7 @@
       jotformReturnRefreshMaxDuration: 90000,
       versionCheckUrl: 'version.json',
       versionCheckInterval: 15 * 60 * 1000,
-      offlineCacheVersion: 'fd-v1.8.162',
+      offlineCacheVersion: 'fd-v1.8.163',
     };
 
     const APP_UPDATE_EXPECTED_CACHE_KEY = 'fd_app_update_expected_cache';
@@ -1879,11 +1879,57 @@
     }
 
     function adminStatusLabel(item) {
-      if (item?.status === 'done' && item?.doorCondition === 'attention') return 'Aandacht nodig';
+      const isDone = item?.status === 'done' || item?.new_status === 'done' || item?.newStatus === 'done';
+      if (isDone && item?.doorCondition === 'attention') return 'Aandacht nodig';
       if (item?.new_status === 'done' || item?.newStatus === 'done') return 'Afgerond';
       if (item?.status === 'done') return 'Afgerond';
       if (item?.new_status === 'todo' || item?.newStatus === 'todo' || item?.result === 'todo') return 'Open';
       return 'Open';
+    }
+
+    function adminActivityKey(row) {
+      return [
+        row?.customer || '',
+        row?.floorplan || row?.name || '',
+        row?.doorId || row?.door_id || row?.code || '',
+      ].join('\n');
+    }
+
+    function adminActivityDoorCondition(row) {
+      const condition = String(row?.doorCondition || row?.door_condition || '').trim();
+      return ['ok', 'attention', 'unknown'].includes(condition) ? condition : 'unknown';
+    }
+
+    function isCompletedAdminActivity(row) {
+      const result = String(row?.result || '');
+      return row?.newStatus === 'done' ||
+        row?.new_status === 'done' ||
+        result === 'done' ||
+        result.startsWith('done_') ||
+        result.startsWith('already_done');
+    }
+
+    function normalizeAdminActivityRows(rows) {
+      const normalized = [];
+      const byKey = new Map();
+      (Array.isArray(rows) ? rows : []).forEach(row => {
+        if (!isCompletedAdminActivity(row)) return;
+        const key = adminActivityKey(row);
+        if (!key.trim()) return;
+        const existing = byKey.get(key);
+        const condition = adminActivityDoorCondition(row);
+        if (!existing) {
+          const copy = { ...row, doorCondition: condition };
+          byKey.set(key, copy);
+          normalized.push(copy);
+          return;
+        }
+        if (condition === 'attention') {
+          existing.doorCondition = 'attention';
+          existing.doorConditionLabel = row.doorConditionLabel || row.door_condition_label || existing.doorConditionLabel || '';
+        }
+      });
+      return normalized;
     }
 
     function adminFormatDateTime(value) {
@@ -2212,12 +2258,19 @@
         label.className = 'admin-activity-label';
         const dot = document.createElement('span');
         dot.className = 'admin-status-dot';
-        dot.style.background = adminDoorColor(door || {
+        const rowCondition = adminActivityDoorCondition(row);
+        const activityStatus = {
           status: row.newStatus === 'done' || row.new_status === 'done' ? 'done' : 'todo',
-          doorCondition: door?.doorCondition || 'unknown',
-        });
+          doorCondition: rowCondition === 'attention' || door?.doorCondition === 'attention'
+            ? 'attention'
+            : rowCondition || door?.doorCondition || 'unknown',
+          newStatus: row.newStatus || row.new_status || '',
+          new_status: row.new_status || row.newStatus || '',
+          result: row.result || '',
+        };
+        dot.style.background = adminDoorColor(activityStatus);
         const code = row.doorId || row.door_id || door?.doorId || door?.code || 'Deur';
-        label.append(dot, document.createTextNode(`${code} · ${adminStatusLabel(door || row)}`));
+        label.append(dot, document.createTextNode(`${code} · ${adminStatusLabel(activityStatus)}`));
         const time = document.createElement('span');
         time.className = 'admin-activity-time';
         time.textContent = adminFormatDateTime(row.createdAt || row.created_at);
@@ -2252,7 +2305,7 @@
             purpose: 'admin_activity',
           },
         });
-        adminDashboardState.activity = result.activity;
+        adminDashboardState.activity = normalizeAdminActivityRows(result.activity);
       } catch (err) {
         const unavailable = err?.status === 404 || err?.status === 501 || err?.code === 'not_implemented' || err?.message === 'not_implemented';
         if (!unavailable) {

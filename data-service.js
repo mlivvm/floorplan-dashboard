@@ -827,6 +827,8 @@
         doorId: String(row.door_id || row.doorId || ''),
         oldStatus: String(row.old_status || row.oldStatus || ''),
         newStatus: String(row.new_status || row.newStatus || ''),
+        doorCondition: String(row.door_condition || row.doorCondition || 'unknown'),
+        doorConditionLabel: String(row.door_condition_label || row.doorConditionLabel || ''),
       })) : [],
     };
   }
