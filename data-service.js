@@ -790,6 +790,25 @@
       },
     });
     const rawCounts = data.counts && typeof data.counts === 'object' ? data.counts : {};
+    const sessions = Array.isArray(data.sessions) ? data.sessions.map(row => ({
+      id: String(row.id || ''),
+      userId: String(row.user_id || row.userId || ''),
+      username: String(row.username || ''),
+      displayName: String(row.display_name || row.displayName || row.username || ''),
+      role: String(row.role || ''),
+      createdAt: String(row.created_at || row.createdAt || ''),
+      createdAtAmsterdam: String(row.created_at_amsterdam || row.createdAtAmsterdam || ''),
+      lastSeenAt: String(row.last_seen_at || row.lastSeenAt || ''),
+      lastSeenAtAmsterdam: String(row.last_seen_at_amsterdam || row.lastSeenAtAmsterdam || ''),
+      connectedSeconds: Number(row.connected_seconds || row.connectedSeconds || 0),
+      idleSeconds: Number(row.idle_seconds || row.idleSeconds || 0),
+      ipAddress: String(row.ip_address || row.ipAddress || ''),
+      ipHash: String(row.ip_hash || row.ipHash || ''),
+      locationLabel: String(row.location_label || row.locationLabel || ''),
+      deviceLabel: String(row.device_label || row.deviceLabel || ''),
+      cfColo: String(row.cf_colo || row.cfColo || ''),
+      current: Boolean(row.current),
+    })) : [];
     return {
       generatedAt: String(data.generated_at || ''),
       generatedAtAmsterdam: String(data.generated_at_amsterdam || ''),
@@ -799,6 +818,7 @@
         monteur: Number(rawCounts.monteur || 0),
         viewer: Number(rawCounts.viewer || 0),
       },
+      sessions,
     };
   }
 

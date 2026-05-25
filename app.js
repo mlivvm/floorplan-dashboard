@@ -30,7 +30,7 @@
       jotformReturnRefreshMaxDuration: 90000,
       versionCheckUrl: 'version.json',
       versionCheckInterval: 15 * 60 * 1000,
-      offlineCacheVersion: 'fd-v1.8.163',
+      offlineCacheVersion: 'fd-v1.8.164',
     };
 
     const APP_UPDATE_EXPECTED_CACHE_KEY = 'fd_app_update_expected_cache';
@@ -139,6 +139,7 @@
       activityLoading: false,
       activityError: '',
       activityUnavailable: false,
+      activeUsers: null,
       previewKey: '',
       previewRequestId: 0,
       metadataRecord: null,
@@ -262,11 +263,17 @@
       done: document.getElementById('admin-kpi-done'),
       attention: document.getElementById('admin-kpi-attention'),
     };
+    const adminOnlinePanel = document.getElementById('admin-online-panel');
     const adminOnlineEls = {
       admin: document.getElementById('admin-online-admin'),
       monteur: document.getElementById('admin-online-monteur'),
       viewer: document.getElementById('admin-online-viewer'),
     };
+    const adminSessionsOverlay = document.getElementById('admin-sessions-overlay');
+    const adminSessionsPopup = document.getElementById('admin-sessions-popup');
+    const adminSessionsClose = document.getElementById('admin-sessions-close');
+    const adminSessionsSummary = document.getElementById('admin-sessions-summary');
+    const adminSessionsList = document.getElementById('admin-sessions-list');
     const topbarMenu = document.getElementById('topbar-menu');
     const btnTopbarMenu = document.getElementById('btn-menu');
     const btnMenuLabels = document.getElementById('btn-menu-labels');
@@ -286,6 +293,10 @@
     const appUpdateDialog = FD.UIShellService.createPopupPair({
       overlayEl: appUpdateOverlay,
       popupEl: appUpdatePopup,
+    });
+    const adminSessionsDialog = FD.UIShellService.createPopupPair({
+      overlayEl: adminSessionsOverlay,
+      popupEl: adminSessionsPopup,
     });
     const busyOverlay = FD.UIShellService.createBusyOverlayController({
       overlayEl: busyOverlayEl,
@@ -767,8 +778,13 @@
     reportProblemCancel?.addEventListener('click', hideReportProblemDialog);
     reportProblemOverlay?.addEventListener('click', hideReportProblemDialog);
     document.addEventListener('keydown', event => {
-      if (event.key === 'Escape' && reportProblemPopup?.style.display !== 'none') {
+      if (event.key !== 'Escape') return;
+      if (reportProblemPopup?.style.display !== 'none') {
         hideReportProblemDialog();
+        return;
+      }
+      if (adminSessionsPopup?.style.display !== 'none') {
+        hideAdminSessionsPopup();
       }
     });
 
@@ -776,6 +792,14 @@
     appUpdateLaterButton?.addEventListener('click', hideAppUpdateDialog);
     appUpdateConfirmButton?.addEventListener('click', applyAppUpdate);
     appUpdateOverlay?.addEventListener('click', hideAppUpdateDialog);
+    adminOnlinePanel?.addEventListener('click', showAdminSessionsPopup);
+    adminOnlinePanel?.addEventListener('keydown', event => {
+      if (event.key !== 'Enter' && event.key !== ' ') return;
+      event.preventDefault();
+      showAdminSessionsPopup();
+    });
+    adminSessionsClose?.addEventListener('click', hideAdminSessionsPopup);
+    adminSessionsOverlay?.addEventListener('click', hideAdminSessionsPopup);
 
     document.addEventListener('visibilitychange', () => {
       if (document.visibilityState === 'visible') {
@@ -2109,6 +2133,112 @@
       });
     }
 
+    function adminSessionRoleLabel(role) {
+      if (role === 'admin') return 'admin';
+      if (role === 'monteur') return 'monteur';
+      if (role === 'viewer') return 'viewer';
+      return role || 'sessie';
+    }
+
+    function adminFormatDuration(seconds) {
+      const total = Math.max(0, Number(seconds || 0));
+      if (total < 60) return '< 1 min';
+      const minutes = Math.floor(total / 60);
+      if (minutes < 60) return `${minutes} min`;
+      const hours = Math.floor(minutes / 60);
+      const rest = minutes % 60;
+      if (hours < 24) return rest ? `${hours}u ${rest}m` : `${hours}u`;
+      const days = Math.floor(hours / 24);
+      const restHours = hours % 24;
+      return restHours ? `${days}d ${restHours}u` : `${days}d`;
+    }
+
+    function adminSessionLocationLabel(session) {
+      return session.locationLabel || (session.cfColo ? `Cloudflare ${session.cfColo}` : 'Onbekend');
+    }
+
+    function adminSessionIpLabel(session) {
+      if (session.ipAddress) return session.ipAddress;
+      if (session.ipHash) return `hash ${session.ipHash}`;
+      return 'Onbekend';
+    }
+
+    function appendAdminSessionField(container, label, value) {
+      const field = document.createElement('div');
+      field.className = 'admin-session-field';
+      const labelEl = document.createElement('span');
+      labelEl.textContent = label;
+      const valueEl = document.createElement('strong');
+      valueEl.textContent = value || '-';
+      field.append(labelEl, valueEl);
+      container.appendChild(field);
+    }
+
+    function renderAdminSessionsPopup() {
+      if (!adminSessionsList) return;
+      const activeUsers = adminDashboardState.activeUsers || {};
+      const sessions = Array.isArray(activeUsers.sessions) ? activeUsers.sessions : [];
+      const windowMinutes = Number(activeUsers.windowMinutes || 10);
+      if (adminSessionsSummary) {
+        const total = sessions.length;
+        adminSessionsSummary.textContent = `${total} actieve ${total === 1 ? 'sessie' : 'sessies'} in de laatste ${windowMinutes} minuten.`;
+      }
+      adminSessionsList.innerHTML = '';
+      if (!sessions.length) {
+        const empty = document.createElement('div');
+        empty.className = 'admin-dashboard-empty';
+        empty.textContent = 'Geen actieve sessies gevonden.';
+        adminSessionsList.appendChild(empty);
+        return;
+      }
+
+      sessions.forEach(session => {
+        const item = document.createElement('article');
+        item.className = 'admin-session-item';
+
+        const main = document.createElement('div');
+        main.className = 'admin-session-main';
+        const user = document.createElement('div');
+        user.className = 'admin-session-user';
+        user.textContent = session.displayName || session.username || 'Gebruiker';
+        const badges = document.createElement('div');
+        badges.className = 'admin-session-badges';
+        const roleBadge = document.createElement('span');
+        roleBadge.className = 'admin-session-badge';
+        roleBadge.textContent = adminSessionRoleLabel(session.role);
+        badges.appendChild(roleBadge);
+        if (session.current) {
+          const currentBadge = document.createElement('span');
+          currentBadge.className = 'admin-session-badge current';
+          currentBadge.textContent = 'dit scherm';
+          badges.appendChild(currentBadge);
+        }
+        main.append(user, badges);
+
+        const grid = document.createElement('div');
+        grid.className = 'admin-session-grid';
+        appendAdminSessionField(grid, 'IP', adminSessionIpLabel(session));
+        appendAdminSessionField(grid, 'Locatie', adminSessionLocationLabel(session));
+        appendAdminSessionField(grid, 'Verbonden', adminFormatDuration(session.connectedSeconds));
+        appendAdminSessionField(grid, 'Laatste hartslag', `${adminFormatDuration(session.idleSeconds)} geleden`);
+        appendAdminSessionField(grid, 'Apparaat', session.deviceLabel || 'Browser');
+        appendAdminSessionField(grid, 'Sessie', session.id || '-');
+        item.append(main, grid);
+        adminSessionsList.appendChild(item);
+      });
+    }
+
+    function showAdminSessionsPopup() {
+      if (!isAdminUser()) return;
+      renderAdminSessionsPopup();
+      adminSessionsDialog.show();
+      loadActiveUsers({ refreshNow: true });
+    }
+
+    function hideAdminSessionsPopup() {
+      adminSessionsDialog.hide();
+    }
+
     async function loadActiveUsers() {
       if (!isAdminUser() || adminActiveUsersInFlight) return;
       adminActiveUsersInFlight = true;
@@ -2119,10 +2249,14 @@
             background: true,
           },
         });
+        adminDashboardState.activeUsers = result;
         renderActiveUsers(result.counts);
+        if (adminSessionsPopup?.style.display !== 'none') renderAdminSessionsPopup();
       } catch (err) {
         console.warn('Online gebruikers laden mislukt:', err);
+        adminDashboardState.activeUsers = null;
         renderActiveUsers(null);
+        if (adminSessionsPopup?.style.display !== 'none') renderAdminSessionsPopup();
       } finally {
         adminActiveUsersInFlight = false;
       }

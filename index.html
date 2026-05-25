@@ -13,7 +13,7 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js" integrity="sha384-/1qUCSGwTur9vjf/z9lmu/eCUYbpOTgSjmpbMQZ1/CtX2v/WcAIKqRv+U1DUCG6e" crossorigin="anonymous"></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.6.2/cropper.min.css" integrity="sha384-6LFfkTKLRlzFtgx8xsWyBdKGpcMMQTkv+dB7rAbugeJAu1Ym2q1Aji1cjHBG12Xh" crossorigin="anonymous">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.6.2/cropper.min.js" integrity="sha384-jrOgQzBlDeUNdmQn3rUt/PZD+pdcRBdWd/HWRqRo+n2OR2QtGyjSaJC0GiCeH+ir" crossorigin="anonymous"></script>
-  <link rel="stylesheet" href="app.css?v=1.8.163">
+  <link rel="stylesheet" href="app.css?v=1.8.164">
 </head>
 <body>
 
@@ -25,7 +25,7 @@
 
   <!-- Login screen -->
   <div class="login-screen" id="login-screen" style="display:none;">
-    <div style="position:absolute; bottom:12px; left:16px; font-size:12px; color:#aaa;">v1.8.163</div>
+    <div style="position:absolute; bottom:12px; left:16px; font-size:12px; color:#aaa;">v1.8.164</div>
     <div class="login-box">
       <h1>Plattegrond Dashboard</h1>
       <p>Log in met je account</p>
@@ -41,7 +41,7 @@
 
   <!-- App (hidden until logged in) -->
   <div id="app-container" style="display:none;">
-  <div style="position:fixed; bottom:12px; left:16px; font-size:12px; color:#aaa; z-index:1000; pointer-events:none;">v1.8.163</div>
+  <div style="position:fixed; bottom:12px; left:16px; font-size:12px; color:#aaa; z-index:1000; pointer-events:none;">v1.8.164</div>
 
   <!-- Toast notification -->
   <div id="toast" style="display:none; position:fixed; top:calc(env(safe-area-inset-top) + var(--topbar-h, 52px) + 12px); left:50%; transform:translateX(-50%); padding:14px 28px; border-radius:10px; font-size:16px; font-weight:600; z-index:500; box-shadow:0 4px 16px rgba(0,0,0,0.25); cursor:pointer; max-width:90vw; text-align:center;"></div>
@@ -109,7 +109,7 @@
         <div class="admin-dashboard-meta" id="admin-dashboard-freshness">Nog niet bijgewerkt</div>
       </div>
       <div class="admin-dashboard-actions">
-        <section class="admin-online-panel" id="admin-online-panel" aria-label="Online gebruikers">
+        <section class="admin-online-panel" id="admin-online-panel" role="button" tabindex="0" aria-label="Online gebruikers bekijken">
           <div class="admin-online-title">Online nu</div>
           <div class="admin-online-rule"></div>
           <div class="admin-online-row"><span>admin</span><strong id="admin-online-admin">—</strong></div>
@@ -250,6 +250,18 @@
     </div>
 
   </section>
+
+  <div class="admin-sessions-overlay" id="admin-sessions-overlay" style="display:none;"></div>
+  <div class="admin-sessions-popup" id="admin-sessions-popup" style="display:none;" role="dialog" aria-modal="true" aria-labelledby="admin-sessions-title">
+    <div class="admin-sessions-header">
+      <div>
+        <h3 id="admin-sessions-title">Online sessies</h3>
+        <p id="admin-sessions-summary">Actieve schermen in de laatste 10 minuten.</p>
+      </div>
+      <button type="button" id="admin-sessions-close" class="admin-metadata-close" aria-label="Sluiten">&times;</button>
+    </div>
+    <div class="admin-sessions-list" id="admin-sessions-list"></div>
+  </div>
 
   <div class="admin-metadata-dialog-overlay" id="admin-metadata-dialog-overlay" hidden></div>
   <div class="admin-metadata-dialog" id="admin-metadata-dialog" hidden role="dialog" aria-modal="true" aria-labelledby="admin-metadata-dialog-title">
@@ -639,24 +651,24 @@
 
   </div><!-- /app-container -->
 
-  <script src="data-service.js?v=1.8.163"></script>
-  <script src="diagnostics-service.js?v=1.8.163"></script>
-  <script src="floorplan-cache-service.js?v=1.8.163"></script>
-  <script src="floorplan-view-service.js?v=1.8.163"></script>
-  <script src="auth-service.js?v=1.8.163"></script>
-  <script src="status-service.js?v=1.8.163"></script>
-  <script src="status-sync-service.js?v=1.8.163"></script>
-  <script src="mode-service.js?v=1.8.163"></script>
-  <script src="image-editor-service.js?v=1.8.163"></script>
-  <script src="viewport-service.js?v=1.8.163"></script>
-  <script src="marker-service.js?v=1.8.163"></script>
-  <script src="door-action-service.js?v=1.8.163"></script>
-  <script src="ui-shell-service.js?v=1.8.163"></script>
-  <script src="edit-ui-service.js?v=1.8.163"></script>
-  <script src="pdf-import-service.js?v=1.8.163"></script>
-  <script src="upload-service.js?v=1.8.163"></script>
-  <script src="select-sheet-service.js?v=1.8.163"></script>
-  <script src="side-panel-service.js?v=1.8.163"></script>
-  <script src="app.js?v=1.8.163"></script>
+  <script src="data-service.js?v=1.8.164"></script>
+  <script src="diagnostics-service.js?v=1.8.164"></script>
+  <script src="floorplan-cache-service.js?v=1.8.164"></script>
+  <script src="floorplan-view-service.js?v=1.8.164"></script>
+  <script src="auth-service.js?v=1.8.164"></script>
+  <script src="status-service.js?v=1.8.164"></script>
+  <script src="status-sync-service.js?v=1.8.164"></script>
+  <script src="mode-service.js?v=1.8.164"></script>
+  <script src="image-editor-service.js?v=1.8.164"></script>
+  <script src="viewport-service.js?v=1.8.164"></script>
+  <script src="marker-service.js?v=1.8.164"></script>
+  <script src="door-action-service.js?v=1.8.164"></script>
+  <script src="ui-shell-service.js?v=1.8.164"></script>
+  <script src="edit-ui-service.js?v=1.8.164"></script>
+  <script src="pdf-import-service.js?v=1.8.164"></script>
+  <script src="upload-service.js?v=1.8.164"></script>
+  <script src="select-sheet-service.js?v=1.8.164"></script>
+  <script src="side-panel-service.js?v=1.8.164"></script>
+  <script src="app.js?v=1.8.164"></script>
 </body>
 </html>

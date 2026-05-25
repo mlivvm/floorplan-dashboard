@@ -1,4 +1,4 @@
-@import url('./admin-dashboard-tokens.css?v=1.8.163');
+@import url('./admin-dashboard-tokens.css?v=1.8.164');
 
     * {
       margin: 0;
@@ -491,6 +491,7 @@
       align-items: center;
       gap: 9px;
       box-shadow: none;
+      cursor: pointer;
     }
 
     .admin-online-title {
@@ -527,6 +528,141 @@
       color: #334155;
       font-size: 12px;
       font-weight: 900;
+    }
+
+    .admin-sessions-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(15, 23, 42, 0.46);
+      z-index: 950;
+    }
+
+    .admin-sessions-popup {
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      width: min(620px, calc(100vw - 32px));
+      max-height: min(76vh, 720px);
+      overflow: hidden;
+      border-radius: 10px;
+      border: 1px solid #dfe4eb;
+      background: #ffffff;
+      box-shadow: 0 24px 70px rgba(15, 23, 42, 0.25);
+      z-index: 951;
+    }
+
+    .admin-sessions-header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 18px 20px 14px;
+      border-bottom: 1px solid #e6eaf0;
+    }
+
+    .admin-sessions-header h3 {
+      margin: 0;
+      font-size: 18px;
+      line-height: 1.2;
+      color: #1f2937;
+    }
+
+    .admin-sessions-header p {
+      margin: 4px 0 0;
+      font-size: 13px;
+      line-height: 1.35;
+      color: #66717f;
+    }
+
+    .admin-sessions-list {
+      max-height: calc(min(76vh, 720px) - 78px);
+      overflow: auto;
+      padding: 12px;
+      -webkit-overflow-scrolling: touch;
+    }
+
+    .admin-session-item {
+      display: grid;
+      gap: 10px;
+      padding: 12px;
+      border: 1px solid #e3e8ef;
+      border-radius: 8px;
+      background: #fbfcfe;
+    }
+
+    .admin-session-item + .admin-session-item {
+      margin-top: 10px;
+    }
+
+    .admin-session-main {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .admin-session-user {
+      min-width: 0;
+      font-size: 14px;
+      font-weight: 850;
+      color: #1f2937;
+      overflow-wrap: anywhere;
+    }
+
+    .admin-session-badges {
+      display: inline-flex;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+      gap: 6px;
+    }
+
+    .admin-session-badge {
+      min-height: 24px;
+      display: inline-flex;
+      align-items: center;
+      padding: 3px 8px;
+      border-radius: 999px;
+      background: #e8f0fe;
+      color: #174ea6;
+      font-size: 12px;
+      font-weight: 800;
+      white-space: nowrap;
+    }
+
+    .admin-session-badge.current {
+      background: #e6f4ea;
+      color: #137333;
+    }
+
+    .admin-session-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px 12px;
+      font-size: 13px;
+      color: #4b5563;
+    }
+
+    .admin-session-field {
+      min-width: 0;
+    }
+
+    .admin-session-field span {
+      display: block;
+      margin-bottom: 2px;
+      color: #7a8491;
+      font-size: 11px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0;
+    }
+
+    .admin-session-field strong {
+      display: block;
+      color: #263445;
+      font-size: 13px;
+      font-weight: 750;
+      overflow-wrap: anywhere;
     }
 
     .admin-dashboard-label {
@@ -1073,6 +1209,7 @@
     .admin-door-result:focus-visible,
     .admin-floorplan-row:focus-visible,
     .admin-overview-item:focus-visible,
+    .admin-online-panel:focus-visible,
     .admin-activity-item:focus-visible,
     .admin-metadata-close:focus-visible {
       outline: 3px solid var(--fd-admin-focus);
@@ -1427,6 +1564,19 @@
 
       .admin-online-panel {
         justify-content: flex-start;
+      }
+
+      .admin-session-main {
+        align-items: flex-start;
+        flex-direction: column;
+      }
+
+      .admin-session-badges {
+        justify-content: flex-start;
+      }
+
+      .admin-session-grid {
+        grid-template-columns: 1fr;
       }
 
       .admin-dashboard-header h2 {
