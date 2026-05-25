@@ -13,16 +13,31 @@
   function createDoorItem(onSelect) {
     const item = document.createElement('div');
     item.className = 'side-panel-item';
+    item.setAttribute('role', 'button');
+    item.setAttribute('tabindex', '0');
 
     const dot = document.createElement('span');
     dot.className = 'side-panel-dot';
 
+    const text = document.createElement('span');
+    text.className = 'side-panel-text';
+
     const label = document.createElement('span');
     label.className = 'side-panel-label';
 
+    const status = document.createElement('span');
+    status.className = 'side-panel-status';
+
+    text.appendChild(label);
+    text.appendChild(status);
     item.appendChild(dot);
-    item.appendChild(label);
+    item.appendChild(text);
     item.addEventListener('click', () => {
+      if (typeof onSelect === 'function') onSelect(item.dataset.doorId);
+    });
+    item.addEventListener('keydown', (event) => {
+      if (event.key !== 'Enter' && event.key !== ' ') return;
+      event.preventDefault();
       if (typeof onSelect === 'function') onSelect(item.dataset.doorId);
     });
     return item;
@@ -36,12 +51,26 @@
 
   function updateDoorItem(item, doorId, { selectedDoor, isDone, condition, colors }) {
     item.dataset.doorId = doorId;
+    item.setAttribute('aria-pressed', doorId === selectedDoor ? 'true' : 'false');
 
     const dot = item.querySelector('.side-panel-dot');
     if (dot) dot.style.background = doorColor({ isDone, condition, colors });
 
     const label = item.querySelector('.side-panel-label') || item.querySelector('span:last-child');
     if (label) label.textContent = doorId;
+
+    const status = item.querySelector('.side-panel-status');
+    if (status) {
+      if (isDone && condition === 'attention') {
+        status.textContent = 'Aandacht';
+      } else if (isDone && condition === 'checking') {
+        status.textContent = 'Controle';
+      } else if (isDone) {
+        status.textContent = 'Afgerond';
+      } else {
+        status.textContent = 'Open';
+      }
+    }
 
     item.classList.toggle('selected', doorId === selectedDoor);
   }

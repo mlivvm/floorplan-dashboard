@@ -30,9 +30,11 @@
     marker.dataset.doorId = doorId;
     marker.style.cursor = 'pointer';
     marker.style.pointerEvents = 'all';
-    marker.style.transition = 'opacity 0.2s';
+    marker.style.transition = 'opacity 0.18s ease, filter 0.18s ease';
     marker.style.stroke = 'transparent';
     marker.style.strokeWidth = '20';
+    marker.style.strokeLinejoin = 'round';
+    marker.style.vectorEffect = 'non-scaling-stroke';
   }
 
   function setMarkerCode(marker, doorId) {
@@ -66,6 +68,8 @@
     marker.style.transition = '';
     marker.style.stroke = '';
     marker.style.strokeWidth = '';
+    marker.style.strokeLinejoin = '';
+    marker.style.vectorEffect = '';
     marker.style.filter = '';
     marker.removeAttribute('data-door-id');
   }

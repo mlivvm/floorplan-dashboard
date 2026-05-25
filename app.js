@@ -30,7 +30,7 @@
       jotformReturnRefreshMaxDuration: 90000,
       versionCheckUrl: 'version.json',
       versionCheckInterval: 15 * 60 * 1000,
-      offlineCacheVersion: 'fd-v1.8.164',
+      offlineCacheVersion: 'fd-v1.8.165',
     };
 
     const APP_UPDATE_EXPECTED_CACHE_KEY = 'fd_app_update_expected_cache';
@@ -3450,23 +3450,33 @@
       const isSelected = marker.dataset.doorId === selectedDoor;
       const hasSelection = selectedDoor !== null;
       const condition = getDoorCondition(marker.dataset.doorId);
+      let color = COLORS.todo;
+      let filter = 'drop-shadow(0 1px 2px rgba(15, 23, 42, 0.28))';
 
       if (isDone && condition === 'attention') {
-        marker.style.fill = COLORS.attention;
+        color = COLORS.attention;
+        filter = 'drop-shadow(0 0 6px rgba(217, 48, 37, 0.62)) drop-shadow(0 1px 2px rgba(15, 23, 42, 0.22))';
       } else if (isDone && condition === 'checking') {
-        marker.style.fill = COLORS.checking;
+        color = COLORS.checking;
+        filter = 'drop-shadow(0 0 5px rgba(95, 99, 104, 0.38)) drop-shadow(0 1px 2px rgba(15, 23, 42, 0.18))';
       } else if (isDone) {
-        marker.style.fill = COLORS.done;
-      } else {
-        marker.style.fill = COLORS.todo;
+        color = COLORS.done;
+        filter = 'drop-shadow(0 0 5px rgba(52, 168, 83, 0.40)) drop-shadow(0 1px 2px rgba(15, 23, 42, 0.20))';
       }
+
+      marker.style.fill = color;
+      marker.style.stroke = 'transparent';
+      marker.style.strokeWidth = '20';
 
       if (isSelected) {
         marker.style.opacity = OPACITY.selected;
+        marker.style.filter = 'drop-shadow(0 0 9px rgba(26, 115, 232, 0.95)) drop-shadow(0 0 3px rgba(255, 255, 255, 0.98))';
       } else if (hasSelection) {
         marker.style.opacity = OPACITY.dimmed;
+        marker.style.filter = 'drop-shadow(0 1px 1px rgba(15, 23, 42, 0.16))';
       } else {
         marker.style.opacity = OPACITY.normal;
+        marker.style.filter = filter;
       }
     }
 
