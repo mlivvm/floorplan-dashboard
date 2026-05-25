@@ -1,4 +1,5 @@
-const CACHE_NAME = 'fd-v1.8.156';
+const CACHE_NAME = 'fd-v1.8.157';
+const WORKER_API_HOSTNAME = 'floorplan-dashboard-api.mko-floorplan-dashboard.workers.dev';
 
 const STATIC_ASSETS = [
   './',
@@ -43,6 +44,10 @@ function cacheFallback(request) {
 
 function noStoreRequest(request) {
   return new Request(request, { cache: 'no-store' });
+}
+
+function isCacheableWorkerGet(url) {
+  return url.hostname === WORKER_API_HOSTNAME && url.pathname === '/api/floorplan';
 }
 
 async function precacheStaticAssets(cache) {
@@ -92,10 +97,18 @@ self.addEventListener('fetch', (e) => {
     return;
   }
 
-  // Cloudflare Worker writes must remain network-only. Safe read endpoints are
-  // network-first with cache fallback for default Worker read integration.
-  if (url.hostname === 'floorplan-dashboard-api.mko-floorplan-dashboard.workers.dev') {
+  // Cloudflare Worker writes and auth-dependent reads must remain network-only.
+  // Floorplan SVG GETs are the only Worker responses cached for offline use.
+  if (url.hostname === WORKER_API_HOSTNAME) {
     if (e.request.method !== 'GET') return;
+
+    if (!isCacheableWorkerGet(url)) {
+      e.respondWith(
+        fetch(noStoreRequest(e.request))
+          .catch(() => offlineMissResponse())
+      );
+      return;
+    }
 
     e.respondWith(
       fetch(noStoreRequest(e.request))
