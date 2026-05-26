@@ -30,7 +30,7 @@
       jotformReturnRefreshMaxDuration: 90000,
       versionCheckUrl: 'version.json',
       versionCheckInterval: 15 * 60 * 1000,
-      offlineCacheVersion: 'fd-v1.8.166',
+      offlineCacheVersion: 'fd-v1.8.167',
     };
 
     const APP_UPDATE_EXPECTED_CACHE_KEY = 'fd_app_update_expected_cache';
@@ -135,6 +135,7 @@
       doorFloorplanFilter: '',
       activeTab: 'overview',
       selectedDoorKey: '',
+      overviewMetric: 'attention',
       activity: [],
       activityLoading: false,
       activityError: '',
@@ -222,6 +223,8 @@
     const adminDashboardTabPanels = Array.from(document.querySelectorAll('[data-admin-panel]'));
     const adminOverviewAttention = document.getElementById('admin-overview-attention');
     const adminOverviewOpen = document.getElementById('admin-overview-open');
+    const adminOverviewKpiTitle = document.getElementById('admin-overview-kpi-title');
+    const adminOverviewKpiSubtitle = document.getElementById('admin-overview-kpi-subtitle');
     const adminActivityList = document.getElementById('admin-activity-list');
     const adminDashboardSearch = document.getElementById('admin-dashboard-search');
     const adminCustomerFilters = document.getElementById('admin-customer-filters');
@@ -263,6 +266,7 @@
       done: document.getElementById('admin-kpi-done'),
       attention: document.getElementById('admin-kpi-attention'),
     };
+    const adminKpiButtons = Array.from(document.querySelectorAll('[data-admin-kpi]'));
     const adminOnlinePanel = document.getElementById('admin-online-panel');
     const adminOnlineEls = {
       admin: document.getElementById('admin-online-admin'),
@@ -2020,6 +2024,39 @@
       return adminFloorplanKey(door);
     }
 
+    const ADMIN_OVERVIEW_METRICS = {
+      customers: {
+        title: 'Klanten',
+        subtitle: 'Meeste plattegronden',
+        empty: 'Geen klanten gevonden.',
+      },
+      floorplans: {
+        title: 'Plattegronden',
+        subtitle: 'Alle beschikbare plattegronden',
+        empty: 'Geen plattegronden gevonden.',
+      },
+      doors: {
+        title: 'Deuren',
+        subtitle: 'Meeste deurmarkers',
+        empty: 'Geen deuren gevonden.',
+      },
+      open: {
+        title: 'Openstaande deuren',
+        subtitle: 'Nog te doen',
+        empty: 'Geen open deuren gevonden.',
+      },
+      done: {
+        title: 'Afgeronde deuren',
+        subtitle: 'Meeste afgerond',
+        empty: 'Geen afgeronde deuren gevonden.',
+      },
+      attention: {
+        title: 'Aandacht nodig',
+        subtitle: 'Rode status',
+        empty: 'Geen deuren die aandacht nodig hebben.',
+      },
+    };
+
     function getAdminData() {
       return adminDashboardState.data || { summary: {}, customers: [], floorplans: [], doors: [] };
     }
@@ -2119,6 +2156,12 @@
       Object.entries(adminKpiEls).forEach(([key, el]) => {
         if (!el) return;
         el.textContent = String(Number(summary[key] || 0));
+      });
+      const activeMetric = getActiveAdminOverviewMetric();
+      adminKpiButtons.forEach(button => {
+        const active = button.dataset.adminKpi === activeMetric;
+        button.classList.toggle('active', active);
+        button.setAttribute('aria-pressed', active ? 'true' : 'false');
       });
     }
 
@@ -2309,7 +2352,125 @@
       adminActiveUsersPollTimer = null;
     }
 
-    function renderAdminOverviewList(container, items, emptyText, badgeFn) {
+    function getActiveAdminOverviewMetric() {
+      return ADMIN_OVERVIEW_METRICS[adminDashboardState.overviewMetric]
+        ? adminDashboardState.overviewMetric
+        : 'attention';
+    }
+
+    function adminPlural(count, singular, plural) {
+      return `${count} ${count === 1 ? singular : plural}`;
+    }
+
+    function adminFloorplanDisplayName(record) {
+      return record?.displayName || record?.name || 'Plattegrond';
+    }
+
+    function createAdminFloorplanMetricItem(record, badge) {
+      return {
+        type: 'floorplan',
+        record,
+        label: adminFloorplanDisplayName(record),
+        meta: record.customer || 'Onbekende klant',
+        badge,
+      };
+    }
+
+    function sortAdminFloorplansByMetric(records, metric) {
+      return records.slice().sort((left, right) => {
+        const byCount = Number(right[metric] || 0) - Number(left[metric] || 0);
+        if (byCount) return byCount;
+        const byCustomer = ADMIN_COLLATOR.compare(left.customer || '', right.customer || '');
+        if (byCustomer) return byCustomer;
+        return ADMIN_COLLATOR.compare(adminFloorplanDisplayName(left), adminFloorplanDisplayName(right));
+      });
+    }
+
+    function getAdminCustomerMetricItems() {
+      const data = getAdminData();
+      const byCustomer = new Map();
+      const ensureCustomer = name => {
+        const key = name || 'Onbekende klant';
+        if (!byCustomer.has(key)) {
+          byCustomer.set(key, {
+            type: 'customer',
+            customer: key,
+            label: key,
+            floorplans: 0,
+            doors: 0,
+            open: 0,
+            done: 0,
+            attention: 0,
+          });
+        }
+        return byCustomer.get(key);
+      };
+
+      (data.customers || customers || []).forEach(customer => {
+        if (customer?.customer) ensureCustomer(customer.customer);
+      });
+      (data.floorplans || []).forEach(record => {
+        const item = ensureCustomer(record.customer);
+        item.floorplans += 1;
+        item.doors += Number(record.doorsTotal || 0);
+        item.open += Number(record.open || 0);
+        item.done += Number(record.done || 0);
+        item.attention += Number(record.attention || 0);
+      });
+
+      return Array.from(byCustomer.values())
+        .sort((left, right) => {
+          const byFloorplans = right.floorplans - left.floorplans;
+          if (byFloorplans) return byFloorplans;
+          return ADMIN_COLLATOR.compare(left.customer, right.customer);
+        })
+        .slice(0, 6)
+        .map(item => ({
+          ...item,
+          meta: `${adminPlural(item.floorplans, 'plattegrond', 'plattegronden')} · ${adminPlural(item.doors, 'deur', 'deuren')}`,
+          badge: item.attention > 0 ? `${item.attention} aandacht` : `${item.open} open`,
+        }));
+    }
+
+    function getAdminOverviewMetricItems(metric) {
+      const floorplans = getAdminData().floorplans || [];
+      if (metric === 'customers') return getAdminCustomerMetricItems();
+      if (metric === 'floorplans') {
+        return floorplans
+          .slice()
+          .sort((left, right) => {
+            const byCustomer = ADMIN_COLLATOR.compare(left.customer || '', right.customer || '');
+            if (byCustomer) return byCustomer;
+            return ADMIN_COLLATOR.compare(adminFloorplanDisplayName(left), adminFloorplanDisplayName(right));
+          })
+          .slice(0, 6)
+          .map(record => createAdminFloorplanMetricItem(record, adminPlural(Number(record.doorsTotal || 0), 'deur', 'deuren')));
+      }
+      if (metric === 'doors') {
+        return sortAdminFloorplansByMetric(floorplans, 'doorsTotal')
+          .filter(record => Number(record.doorsTotal || 0) > 0)
+          .slice(0, 6)
+          .map(record => createAdminFloorplanMetricItem(record, adminPlural(Number(record.doorsTotal || 0), 'deur', 'deuren')));
+      }
+      if (metric === 'open') {
+        return sortAdminFloorplansByMetric(floorplans, 'open')
+          .filter(record => Number(record.open || 0) > 0)
+          .slice(0, 6)
+          .map(record => createAdminFloorplanMetricItem(record, `${record.open || 0} open`));
+      }
+      if (metric === 'done') {
+        return sortAdminFloorplansByMetric(floorplans, 'done')
+          .filter(record => Number(record.done || 0) > 0)
+          .slice(0, 6)
+          .map(record => createAdminFloorplanMetricItem(record, `${record.done || 0} klaar`));
+      }
+      return sortAdminFloorplansByMetric(floorplans, 'attention')
+        .filter(record => Number(record.attention || 0) > 0)
+        .slice(0, 6)
+        .map(record => createAdminFloorplanMetricItem(record, `${record.attention || 0} rood`));
+    }
+
+    function renderAdminOverviewList(container, items, emptyText) {
       if (!container) return;
       container.innerHTML = '';
       if (!items.length) {
@@ -2327,17 +2488,27 @@
         const main = document.createElement('div');
         main.className = 'admin-overview-item-main';
         const title = document.createElement('span');
-        title.textContent = record.displayName || record.name || 'Plattegrond';
+        title.textContent = record.label || adminFloorplanDisplayName(record.record || record);
         const badge = document.createElement('span');
         badge.className = 'admin-overview-badge';
-        badge.textContent = badgeFn(record);
+        badge.textContent = record.badge || '';
         main.append(title, badge);
         const meta = document.createElement('div');
         meta.className = 'admin-overview-item-meta';
-        meta.textContent = record.customer || 'Onbekende klant';
+        meta.textContent = record.meta || record.customer || 'Onbekende klant';
         button.append(main, meta);
         button.addEventListener('click', () => {
-          adminDashboardState.selectedKey = adminFloorplanKey(record);
+          if (record.type === 'customer') {
+            adminDashboardState.selectedCustomer = record.customer || '';
+            adminDashboardState.selectedKey = '';
+            adminDashboardState.selectedDoorKey = '';
+            adminDashboardState.previewKey = '';
+            setAdminTab('floorplans');
+            renderAdminDashboard();
+            return;
+          }
+          const target = record.record || record;
+          adminDashboardState.selectedKey = adminFloorplanKey(target);
           adminDashboardState.selectedDoorKey = '';
           setAdminTab('details');
           renderAdminDashboard();
@@ -2347,27 +2518,26 @@
     }
 
     function renderAdminOverview() {
+      const activeMetric = getActiveAdminOverviewMetric();
+      const metricConfig = ADMIN_OVERVIEW_METRICS[activeMetric] || ADMIN_OVERVIEW_METRICS.attention;
+      const metricItems = getAdminOverviewMetricItems(activeMetric);
       const floorplans = getAdminData().floorplans || [];
-      const attention = floorplans
-        .filter(record => Number(record.attention || 0) > 0)
-        .sort((left, right) => Number(right.attention || 0) - Number(left.attention || 0))
-        .slice(0, 6);
       const open = floorplans
         .filter(record => Number(record.open || 0) > 0)
         .sort((left, right) => Number(right.open || 0) - Number(left.open || 0))
         .slice(0, 6);
 
+      if (adminOverviewKpiTitle) adminOverviewKpiTitle.textContent = metricConfig.title;
+      if (adminOverviewKpiSubtitle) adminOverviewKpiSubtitle.textContent = metricConfig.subtitle;
       renderAdminOverviewList(
         adminOverviewAttention,
-        attention,
-        adminDashboardState.loading ? 'Dashboard laden...' : 'Geen deuren die aandacht nodig hebben.',
-        record => `${record.attention || 0} rood`
+        metricItems,
+        adminDashboardState.loading ? 'Dashboard laden...' : metricConfig.empty
       );
       renderAdminOverviewList(
         adminOverviewOpen,
-        open,
-        adminDashboardState.loading ? 'Dashboard laden...' : 'Geen open deuren gevonden.',
-        record => `${record.open || 0} open`
+        open.map(record => createAdminFloorplanMetricItem(record, `${record.open || 0} open`)),
+        adminDashboardState.loading ? 'Dashboard laden...' : 'Geen open deuren gevonden.'
       );
     }
 
@@ -3401,6 +3571,7 @@
       adminDashboardState.doorFloorplanFilter = '';
       adminDashboardState.activeTab = 'overview';
       adminDashboardState.selectedDoorKey = '';
+      adminDashboardState.overviewMetric = 'attention';
       adminDashboardState.activity = [];
       adminDashboardState.activityLoading = false;
       adminDashboardState.activityError = '';
@@ -5115,6 +5286,14 @@
     adminDashboardTabs.forEach(button => {
       button.addEventListener('click', () => {
         setAdminTab(button.dataset.adminTab || 'overview');
+        renderAdminDashboard();
+      });
+    });
+    adminKpiButtons.forEach(button => {
+      button.addEventListener('click', () => {
+        const metric = button.dataset.adminKpi || 'attention';
+        if (!ADMIN_OVERVIEW_METRICS[metric]) return;
+        adminDashboardState.overviewMetric = metric;
         renderAdminDashboard();
       });
     });

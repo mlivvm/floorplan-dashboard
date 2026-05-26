@@ -13,7 +13,7 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js" integrity="sha384-/1qUCSGwTur9vjf/z9lmu/eCUYbpOTgSjmpbMQZ1/CtX2v/WcAIKqRv+U1DUCG6e" crossorigin="anonymous"></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.6.2/cropper.min.css" integrity="sha384-6LFfkTKLRlzFtgx8xsWyBdKGpcMMQTkv+dB7rAbugeJAu1Ym2q1Aji1cjHBG12Xh" crossorigin="anonymous">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.6.2/cropper.min.js" integrity="sha384-jrOgQzBlDeUNdmQn3rUt/PZD+pdcRBdWd/HWRqRo+n2OR2QtGyjSaJC0GiCeH+ir" crossorigin="anonymous"></script>
-  <link rel="stylesheet" href="app.css?v=1.8.166">
+  <link rel="stylesheet" href="app.css?v=1.8.167">
 </head>
 <body>
 
@@ -25,7 +25,7 @@
 
   <!-- Login screen -->
   <div class="login-screen" id="login-screen" style="display:none;">
-    <div style="position:absolute; bottom:12px; left:16px; font-size:12px; color:#aaa;">v1.8.166</div>
+    <div style="position:absolute; bottom:12px; left:16px; font-size:12px; color:#aaa;">v1.8.167</div>
     <div class="login-box">
       <img class="login-logo" src="icon-192.png" alt="">
       <h1>KEYROL Dashboard</h1>
@@ -42,7 +42,7 @@
 
   <!-- App (hidden until logged in) -->
   <div id="app-container" style="display:none;">
-  <div style="position:fixed; bottom:12px; left:16px; font-size:12px; color:#aaa; z-index:1000; pointer-events:none;">v1.8.166</div>
+  <div style="position:fixed; bottom:12px; left:16px; font-size:12px; color:#aaa; z-index:1000; pointer-events:none;">v1.8.167</div>
 
   <!-- Toast notification -->
   <div id="toast" style="display:none; position:fixed; top:calc(env(safe-area-inset-top) + var(--topbar-h, 52px) + 12px); left:50%; transform:translateX(-50%); padding:14px 28px; border-radius:10px; font-size:16px; font-weight:600; z-index:500; box-shadow:0 4px 16px rgba(0,0,0,0.25); cursor:pointer; max-width:90vw; text-align:center;"></div>
@@ -131,19 +131,19 @@
     <div class="admin-dashboard-tabshell">
       <section class="admin-tab-panel active" id="admin-tabpanel-overview" data-admin-panel="overview">
         <div class="admin-kpi-grid" id="admin-kpi-grid">
-          <div class="admin-kpi"><span>Klanten</span><strong id="admin-kpi-customers">0</strong></div>
-          <div class="admin-kpi"><span>Plattegronden</span><strong id="admin-kpi-floorplans">0</strong></div>
-          <div class="admin-kpi"><span>Deuren</span><strong id="admin-kpi-doors">0</strong></div>
-          <div class="admin-kpi"><span>Openstaand</span><strong id="admin-kpi-open">0</strong></div>
-          <div class="admin-kpi"><span>Afgerond</span><strong id="admin-kpi-done">0</strong></div>
-          <div class="admin-kpi attention"><span>Aandacht</span><strong id="admin-kpi-attention">0</strong></div>
+          <button type="button" class="admin-kpi" data-admin-kpi="customers" aria-pressed="false"><span>Klanten</span><strong id="admin-kpi-customers">0</strong></button>
+          <button type="button" class="admin-kpi" data-admin-kpi="floorplans" aria-pressed="false"><span>Plattegronden</span><strong id="admin-kpi-floorplans">0</strong></button>
+          <button type="button" class="admin-kpi" data-admin-kpi="doors" aria-pressed="false"><span>Deuren</span><strong id="admin-kpi-doors">0</strong></button>
+          <button type="button" class="admin-kpi" data-admin-kpi="open" aria-pressed="false"><span>Openstaand</span><strong id="admin-kpi-open">0</strong></button>
+          <button type="button" class="admin-kpi" data-admin-kpi="done" aria-pressed="false"><span>Afgerond</span><strong id="admin-kpi-done">0</strong></button>
+          <button type="button" class="admin-kpi attention" data-admin-kpi="attention" aria-pressed="true"><span>Aandacht</span><strong id="admin-kpi-attention">0</strong></button>
         </div>
 
         <div class="admin-overview-grid">
           <section class="admin-overview-card">
             <div class="admin-overview-card-title">
-              <strong>Aandacht nodig</strong>
-              <span>Rode status</span>
+              <strong id="admin-overview-kpi-title">Aandacht nodig</strong>
+              <span id="admin-overview-kpi-subtitle">Rode status</span>
             </div>
             <div class="admin-overview-list" id="admin-overview-attention"></div>
           </section>
@@ -652,24 +652,24 @@
 
   </div><!-- /app-container -->
 
-  <script src="data-service.js?v=1.8.166"></script>
-  <script src="diagnostics-service.js?v=1.8.166"></script>
-  <script src="floorplan-cache-service.js?v=1.8.166"></script>
-  <script src="floorplan-view-service.js?v=1.8.166"></script>
-  <script src="auth-service.js?v=1.8.166"></script>
-  <script src="status-service.js?v=1.8.166"></script>
-  <script src="status-sync-service.js?v=1.8.166"></script>
-  <script src="mode-service.js?v=1.8.166"></script>
-  <script src="image-editor-service.js?v=1.8.166"></script>
-  <script src="viewport-service.js?v=1.8.166"></script>
-  <script src="marker-service.js?v=1.8.166"></script>
-  <script src="door-action-service.js?v=1.8.166"></script>
-  <script src="ui-shell-service.js?v=1.8.166"></script>
-  <script src="edit-ui-service.js?v=1.8.166"></script>
-  <script src="pdf-import-service.js?v=1.8.166"></script>
-  <script src="upload-service.js?v=1.8.166"></script>
-  <script src="select-sheet-service.js?v=1.8.166"></script>
-  <script src="side-panel-service.js?v=1.8.166"></script>
-  <script src="app.js?v=1.8.166"></script>
+  <script src="data-service.js?v=1.8.167"></script>
+  <script src="diagnostics-service.js?v=1.8.167"></script>
+  <script src="floorplan-cache-service.js?v=1.8.167"></script>
+  <script src="floorplan-view-service.js?v=1.8.167"></script>
+  <script src="auth-service.js?v=1.8.167"></script>
+  <script src="status-service.js?v=1.8.167"></script>
+  <script src="status-sync-service.js?v=1.8.167"></script>
+  <script src="mode-service.js?v=1.8.167"></script>
+  <script src="image-editor-service.js?v=1.8.167"></script>
+  <script src="viewport-service.js?v=1.8.167"></script>
+  <script src="marker-service.js?v=1.8.167"></script>
+  <script src="door-action-service.js?v=1.8.167"></script>
+  <script src="ui-shell-service.js?v=1.8.167"></script>
+  <script src="edit-ui-service.js?v=1.8.167"></script>
+  <script src="pdf-import-service.js?v=1.8.167"></script>
+  <script src="upload-service.js?v=1.8.167"></script>
+  <script src="select-sheet-service.js?v=1.8.167"></script>
+  <script src="side-panel-service.js?v=1.8.167"></script>
+  <script src="app.js?v=1.8.167"></script>
 </body>
 </html>

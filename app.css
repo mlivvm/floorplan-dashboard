@@ -1,4 +1,4 @@
-@import url('./admin-dashboard-tokens.css?v=1.8.166');
+@import url('./admin-dashboard-tokens.css?v=1.8.167');
 
     * {
       margin: 0;
@@ -325,6 +325,10 @@
       border: 1px solid #dfe4eb;
       border-radius: 8px;
       background: white;
+      color: inherit;
+      font: inherit;
+      text-align: left;
+      cursor: pointer;
       display: flex;
       flex-direction: column;
       justify-content: space-between;
@@ -344,6 +348,15 @@
 
     .admin-kpi.attention strong {
       color: #d93025;
+    }
+
+    .admin-kpi:hover {
+      background: #eef4ff;
+    }
+
+    .admin-kpi.active {
+      border-color: #1769d2;
+      background: #eaf2ff;
     }
 
     .admin-overview-grid {
@@ -1209,6 +1222,7 @@
     .admin-dashboard-secondary:focus-visible,
     .admin-dashboard-danger:focus-visible,
     .admin-dashboard-tab:focus-visible,
+    .admin-kpi:focus-visible,
     .admin-dashboard-input:focus-visible,
     .admin-filter-button:focus-visible,
     .admin-door-result:focus-visible,
@@ -1298,6 +1312,21 @@
       padding: 14px 15px;
       position: relative;
       overflow: hidden;
+    }
+
+    .admin-kpi:hover {
+      background: var(--fd-admin-surface-strong);
+    }
+
+    .admin-kpi.active {
+      border-color: var(--fd-admin-primary);
+      background: var(--fd-admin-primary-soft);
+      box-shadow: 0 0 0 3px var(--fd-admin-focus-ring), var(--fd-admin-shadow-sm);
+    }
+
+    .admin-kpi.attention.active {
+      border-color: var(--fd-admin-danger-border);
+      background: var(--fd-admin-danger-soft);
     }
 
     .admin-kpi::before {
