@@ -1,4 +1,4 @@
-@import url('./admin-dashboard-tokens.css?v=1.9.0');
+@import url('./admin-dashboard-tokens.css?v=1.9.1');
 
     * {
       margin: 0;
@@ -3153,13 +3153,18 @@
 
     /* Menu and modal polish */
     #topbar-menu {
+      position: fixed !important;
+      top: calc(env(safe-area-inset-top) + var(--topbar-h, 52px) + 6px) !important;
+      right: max(12px, env(safe-area-inset-right)) !important;
       min-width: 232px !important;
+      max-width: calc(100vw - 24px) !important;
       margin-top: 8px !important;
       padding: 6px !important;
       border: 1px solid #d8e0ea !important;
       border-radius: 10px !important;
       background: #fff !important;
       box-shadow: 0 18px 42px rgba(17, 24, 39, 0.18) !important;
+      z-index: 1200 !important;
     }
 
     #topbar-menu button {
