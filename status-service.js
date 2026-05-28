@@ -1,8 +1,9 @@
 (function (global) {
   const FD = global.FD = global.FD || {};
 
-  const STATUS_CACHE_KEY = 'fd_status_cache';
-  const STATUS_QUEUE_KEY = 'fd_status_sync_queue';
+  const storageKey = FD.Env?.storageKey || (key => key);
+  const STATUS_CACHE_KEY = storageKey('fd_status_cache');
+  const STATUS_QUEUE_KEY = storageKey('fd_status_sync_queue');
   const DONE_AT_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/;
 
   function isDoneStatusValue(value) {

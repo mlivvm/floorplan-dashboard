@@ -10,6 +10,39 @@
   const WORKER_SESSION_EXPIRES_KEY = 'fd_worker_session_expires_at';
   const WORKER_SESSION_USER_KEY = 'fd_worker_session_user';
   const LAST_USERNAME_KEY = 'fd_login_username';
+  const AUTH_TOKEN_KEY = 'fd_auth_token';
+  const AUTH_TOKEN_TIME_KEY = 'fd_auth_time';
+
+  function authKeys(config = {}) {
+    return {
+      rememberSessionKey: config.rememberSessionKey || REMEMBER_SESSION_KEY,
+      legacyRememberKey: config.legacyRememberKey || LEGACY_REMEMBER_KEY,
+      savedPasswordKey: config.savedPasswordKey || SAVED_PASSWORD_KEY,
+      workerSessionTokenKey: config.workerSessionTokenKey || WORKER_SESSION_TOKEN_KEY,
+      workerSessionExpiresKey: config.workerSessionExpiresKey || WORKER_SESSION_EXPIRES_KEY,
+      workerSessionUserKey: config.workerSessionUserKey || WORKER_SESSION_USER_KEY,
+      lastUsernameKey: config.lastUsernameKey || LAST_USERNAME_KEY,
+      legacyTokenKey: config.legacyTokenKey || AUTH_TOKEN_KEY,
+      legacyTokenTimeKey: config.legacyTokenTimeKey || AUTH_TOKEN_TIME_KEY,
+    };
+  }
+
+  function removeStorageItem(storage, key) {
+    if (key) storage.removeItem(key);
+  }
+
+  function isStorageLike(value) {
+    return Boolean(value && typeof value.getItem === 'function' && typeof value.setItem === 'function');
+  }
+
+  function migrateKey(local, session, fromKey, toKey, { removeSource = true } = {}) {
+    if (!fromKey || !toKey || fromKey === toKey) return;
+    [local, session].forEach(storage => {
+      const value = storage.getItem(fromKey);
+      if (value !== null && storage.getItem(toKey) === null) storage.setItem(toKey, value);
+      if (removeSource) storage.removeItem(fromKey);
+    });
+  }
 
   function getAttempts(config, storage = localStorage) {
     return parseInt(storage.getItem(config.attemptsKey) || '0', 10);
@@ -37,64 +70,87 @@
     return Math.ceil((parseInt(lockout, 10) - now) / 60000);
   }
 
-  function clearStoredPassword(local = localStorage, session = sessionStorage) {
-    local.removeItem(SAVED_PASSWORD_KEY);
-    session.removeItem(SAVED_PASSWORD_KEY);
+  function clearStoredPassword(config = {}, local = localStorage, session = sessionStorage) {
+    const keys = authKeys(config);
+    [keys.savedPasswordKey, SAVED_PASSWORD_KEY].forEach(key => {
+      removeStorageItem(local, key);
+      removeStorageItem(session, key);
+    });
   }
 
-  function clearLegacyAuth(local = localStorage, session = sessionStorage) {
+  function clearLegacyAuth(config = {}, local = localStorage, session = sessionStorage) {
     local.removeItem(LEGACY_DIRECT_TOKEN_KEY);
     session.removeItem(LEGACY_DIRECT_TOKEN_KEY);
-    clearStoredPassword(local, session);
+    clearStoredPassword(config, local, session);
   }
 
-  function setWorkerSessionStorage(persistent, local = localStorage, session = sessionStorage) {
-    const localToken = local.getItem(WORKER_SESSION_TOKEN_KEY);
-    const localExpiresAt = local.getItem(WORKER_SESSION_EXPIRES_KEY);
-    const localUser = local.getItem(WORKER_SESSION_USER_KEY);
-    const sessionToken = session.getItem(WORKER_SESSION_TOKEN_KEY);
-    const sessionExpiresAt = session.getItem(WORKER_SESSION_EXPIRES_KEY);
-    const sessionUser = session.getItem(WORKER_SESSION_USER_KEY);
+  function migrateLegacyWorkerSession(config, local = localStorage, session = sessionStorage) {
+    if (config.allowLegacyMigration === false) return;
+    const keys = authKeys(config);
+    migrateKey(local, session, WORKER_SESSION_TOKEN_KEY, keys.workerSessionTokenKey);
+    migrateKey(local, session, WORKER_SESSION_EXPIRES_KEY, keys.workerSessionExpiresKey);
+    migrateKey(local, session, WORKER_SESSION_USER_KEY, keys.workerSessionUserKey);
+  }
+
+  function setWorkerSessionStorage(config, persistent, local = localStorage, session = sessionStorage) {
+    const keys = authKeys(config);
+    migrateLegacyWorkerSession(config, local, session);
+    const localToken = local.getItem(keys.workerSessionTokenKey);
+    const localExpiresAt = local.getItem(keys.workerSessionExpiresKey);
+    const localUser = local.getItem(keys.workerSessionUserKey);
+    const sessionToken = session.getItem(keys.workerSessionTokenKey);
+    const sessionExpiresAt = session.getItem(keys.workerSessionExpiresKey);
+    const sessionUser = session.getItem(keys.workerSessionUserKey);
 
     if (persistent) {
-      if (!localToken && sessionToken) local.setItem(WORKER_SESSION_TOKEN_KEY, sessionToken);
-      if (!localExpiresAt && sessionExpiresAt) local.setItem(WORKER_SESSION_EXPIRES_KEY, sessionExpiresAt);
-      if (!localUser && sessionUser) local.setItem(WORKER_SESSION_USER_KEY, sessionUser);
-      session.removeItem(WORKER_SESSION_TOKEN_KEY);
-      session.removeItem(WORKER_SESSION_EXPIRES_KEY);
-      session.removeItem(WORKER_SESSION_USER_KEY);
+      if (!localToken && sessionToken) local.setItem(keys.workerSessionTokenKey, sessionToken);
+      if (!localExpiresAt && sessionExpiresAt) local.setItem(keys.workerSessionExpiresKey, sessionExpiresAt);
+      if (!localUser && sessionUser) local.setItem(keys.workerSessionUserKey, sessionUser);
+      session.removeItem(keys.workerSessionTokenKey);
+      session.removeItem(keys.workerSessionExpiresKey);
+      session.removeItem(keys.workerSessionUserKey);
       return;
     }
 
-    if (localToken) session.setItem(WORKER_SESSION_TOKEN_KEY, localToken);
-    if (localExpiresAt) session.setItem(WORKER_SESSION_EXPIRES_KEY, localExpiresAt);
-    if (localUser) session.setItem(WORKER_SESSION_USER_KEY, localUser);
-    local.removeItem(WORKER_SESSION_TOKEN_KEY);
-    local.removeItem(WORKER_SESSION_EXPIRES_KEY);
-    local.removeItem(WORKER_SESSION_USER_KEY);
+    if (localToken) session.setItem(keys.workerSessionTokenKey, localToken);
+    if (localExpiresAt) session.setItem(keys.workerSessionExpiresKey, localExpiresAt);
+    if (localUser) session.setItem(keys.workerSessionUserKey, localUser);
+    local.removeItem(keys.workerSessionTokenKey);
+    local.removeItem(keys.workerSessionExpiresKey);
+    local.removeItem(keys.workerSessionUserKey);
   }
 
-  function migrateLegacyRemember(local = localStorage, session = sessionStorage) {
-    if (local.getItem(LEGACY_REMEMBER_KEY) === '1') {
-      local.setItem(REMEMBER_SESSION_KEY, '1');
+  function migrateLegacyRemember(config = {}, local = localStorage, session = sessionStorage) {
+    const keys = authKeys(config);
+    if (config.allowLegacyMigration !== false && local.getItem(keys.legacyRememberKey) === '1') {
+      local.setItem(keys.rememberSessionKey, '1');
     }
-    local.removeItem(LEGACY_REMEMBER_KEY);
-    session.removeItem(LEGACY_REMEMBER_KEY);
-    clearStoredPassword(local, session);
+    if (keys.legacyRememberKey !== keys.rememberSessionKey) {
+      local.removeItem(keys.legacyRememberKey);
+      session.removeItem(keys.legacyRememberKey);
+    }
+    clearStoredPassword(config, local, session);
   }
 
   function clearSession(config, local = localStorage, session = sessionStorage) {
+    const keys = authKeys(config);
     local.removeItem(config.tokenKey);
     local.removeItem(config.tokenTimeKey);
-    local.removeItem(WORKER_SESSION_TOKEN_KEY);
-    local.removeItem(WORKER_SESSION_EXPIRES_KEY);
-    local.removeItem(WORKER_SESSION_USER_KEY);
+    local.removeItem(keys.workerSessionTokenKey);
+    local.removeItem(keys.workerSessionExpiresKey);
+    local.removeItem(keys.workerSessionUserKey);
     session.removeItem(config.tokenKey);
     session.removeItem(config.tokenTimeKey);
-    session.removeItem(WORKER_SESSION_TOKEN_KEY);
-    session.removeItem(WORKER_SESSION_EXPIRES_KEY);
-    session.removeItem(WORKER_SESSION_USER_KEY);
-    clearLegacyAuth(local, session);
+    session.removeItem(keys.workerSessionTokenKey);
+    session.removeItem(keys.workerSessionExpiresKey);
+    session.removeItem(keys.workerSessionUserKey);
+    if (config.allowLegacyMigration !== false) {
+      [keys.legacyTokenKey, keys.legacyTokenTimeKey, WORKER_SESSION_TOKEN_KEY, WORKER_SESSION_EXPIRES_KEY, WORKER_SESSION_USER_KEY].forEach(key => {
+        local.removeItem(key);
+        session.removeItem(key);
+      });
+    }
+    clearLegacyAuth(config, local, session);
   }
 
   function recordSuccessfulLogin(config, rememberSession, now = Date.now(), local = localStorage, session = sessionStorage) {
@@ -106,42 +162,49 @@
     target.setItem(config.tokenTimeKey, now.toString());
     other.removeItem(config.tokenKey);
     other.removeItem(config.tokenTimeKey);
-    clearLegacyAuth(local, session);
+    clearLegacyAuth(config, local, session);
     clearLockout(config, local);
-    setWorkerSessionStorage(rememberSession, local, session);
+    setWorkerSessionStorage(config, rememberSession, local, session);
 
     if (rememberSession) {
-      local.setItem(REMEMBER_SESSION_KEY, '1');
+      local.setItem(authKeys(config).rememberSessionKey, '1');
     } else {
-      local.removeItem(REMEMBER_SESSION_KEY);
+      local.removeItem(authKeys(config).rememberSessionKey);
     }
     return { priorAttempts };
   }
 
   function migrateLegacySession(config, local = localStorage, session = sessionStorage) {
-    migrateLegacyRemember(local, session);
-    const rememberSession = isRememberSessionEnabled(local, session);
+    const keys = authKeys(config);
+    if (config.allowLegacyMigration !== false) {
+      migrateKey(local, session, keys.legacyTokenKey, config.tokenKey);
+      migrateKey(local, session, keys.legacyTokenTimeKey, config.tokenTimeKey);
+      migrateKey(local, session, LAST_USERNAME_KEY, keys.lastUsernameKey);
+    }
+    migrateLegacyRemember(config, local, session);
+    migrateLegacyWorkerSession(config, local, session);
+    const rememberSession = isRememberSessionEnabled(config, local, session);
     if (local.getItem(config.tokenKey) === AUTHENTICATED && !rememberSession) {
       session.setItem(config.tokenKey, AUTHENTICATED);
       session.setItem(config.tokenTimeKey, local.getItem(config.tokenTimeKey) || Date.now().toString());
       local.removeItem(config.tokenKey);
       local.removeItem(config.tokenTimeKey);
-      setWorkerSessionStorage(false, local, session);
+      setWorkerSessionStorage(config, false, local, session);
     } else if (local.getItem(config.tokenKey) === AUTHENTICATED) {
       session.removeItem(config.tokenKey);
       session.removeItem(config.tokenTimeKey);
-      setWorkerSessionStorage(true, local, session);
+      setWorkerSessionStorage(config, true, local, session);
     } else if (session.getItem(config.tokenKey) === AUTHENTICATED) {
-      setWorkerSessionStorage(false, local, session);
+      setWorkerSessionStorage(config, false, local, session);
     }
-    clearLegacyAuth(local, session);
+    clearLegacyAuth(config, local, session);
   }
 
   function isSessionValid(config, local = localStorage, session = sessionStorage) {
     migrateLegacySession(config, local, session);
     const hasAuth = local.getItem(config.tokenKey) === AUTHENTICATED ||
       session.getItem(config.tokenKey) === AUTHENTICATED;
-    clearLegacyAuth(local, session);
+    clearLegacyAuth(config, local, session);
     if (!hasAuth) {
       clearSession(config, local, session);
       return false;
@@ -149,9 +212,14 @@
     return true;
   }
 
-  function isRememberSessionEnabled(local = localStorage, session = sessionStorage) {
-    migrateLegacyRemember(local, session);
-    return local.getItem(REMEMBER_SESSION_KEY) === '1';
+  function isRememberSessionEnabled(config = {}, local = localStorage, session = sessionStorage) {
+    if (isStorageLike(config)) {
+      session = local || sessionStorage;
+      local = config;
+      config = {};
+    }
+    migrateLegacyRemember(config, local, session);
+    return local.getItem(authKeys(config).rememberSessionKey) === '1';
   }
 
   async function sendLoginNotification({
@@ -231,9 +299,12 @@
     }
 
     function restoreRememberSession() {
-      elements.rememberCheckbox.checked = isRememberSessionEnabled();
+      const keys = authKeys(loginConfig);
+      elements.rememberCheckbox.checked = isRememberSessionEnabled(loginConfig);
       if (elements.usernameInput) {
-        elements.usernameInput.value = localStorage.getItem(LAST_USERNAME_KEY) || 'admin';
+        elements.usernameInput.value = localStorage.getItem(keys.lastUsernameKey) ||
+          (loginConfig.allowLegacyMigration === false ? '' : localStorage.getItem(LAST_USERNAME_KEY)) ||
+          'admin';
       }
     }
 
@@ -256,11 +327,13 @@
     }
 
     function hasValidWorkerSession() {
+      const keys = authKeys(loginConfig);
+      migrateLegacyWorkerSession(loginConfig);
       try {
         const sessions = [localStorage, sessionStorage];
         return sessions.some(storage => {
-          const token = storage.getItem(WORKER_SESSION_TOKEN_KEY);
-          const expiresAt = storage.getItem(WORKER_SESSION_EXPIRES_KEY);
+          const token = storage.getItem(keys.workerSessionTokenKey);
+          const expiresAt = storage.getItem(keys.workerSessionExpiresKey);
           if (!token || !expiresAt) return false;
           const expiresTime = Date.parse(expiresAt);
           return Number.isFinite(expiresTime) && expiresTime > Date.now() + 60000;
@@ -273,7 +346,7 @@
     function hasPersistentStoredLogin() {
       try {
         return localStorage.getItem(loginConfig.tokenKey) === AUTHENTICATED &&
-          isRememberSessionEnabled();
+          isRememberSessionEnabled(loginConfig);
       } catch {
         return false;
       }
@@ -377,7 +450,7 @@
         loginConfig,
         rememberSession
       );
-      localStorage.setItem(LAST_USERNAME_KEY, username);
+      localStorage.setItem(authKeys(loginConfig).lastUsernameKey, username);
 
       elements.loginButton.textContent = 'Inloggen';
       notifyLogin('Succesvol ingelogd', priorAttempts > 0 ? priorAttempts + ' foute pogingen vooraf' : '0');

@@ -2,26 +2,47 @@
     // CONFIGURATION
     // ============================================================
 
+    const APP_VERSION = '1.9.0';
+    const ENV_CONFIG = window.FD?.Env?.config || window.FD_ENV_CONFIG || {};
+    const envStorageKey = (key) => (
+      typeof ENV_CONFIG.storageKey === 'function'
+        ? ENV_CONFIG.storageKey(key)
+        : key
+    );
+    const envCacheNameForVersion = (version) => (
+      typeof ENV_CONFIG.cacheNameForVersion === 'function'
+        ? ENV_CONFIG.cacheNameForVersion(version)
+        : `fd-v${version}`
+    );
+    const cacheVersionToVersion = (cacheName) => (
+      typeof ENV_CONFIG.cacheVersionToVersion === 'function'
+        ? ENV_CONFIG.cacheVersionToVersion(cacheName)
+        : String(cacheName || '').replace(/^fd(?:-[a-z0-9-]+)?-v/i, '')
+    );
+
     const CONFIG = {
+      environment: ENV_CONFIG.environment || 'live',
+      storagePrefix: ENV_CONFIG.storagePrefix || '',
       svgBaseUrl: 'fd-floorplan://gallery/',
       svgUploadsUrl: 'fd-floorplan://uploads/',
-      workerApiBaseUrl: 'https://floorplan-dashboard-api.mko-floorplan-dashboard.workers.dev',
-      workerReadProxyFlagKey: 'fd_use_worker_read_proxy',
+      workerApiBaseUrl: ENV_CONFIG.workerApiBaseUrl || 'https://floorplan-dashboard-api.mko-floorplan-dashboard.workers.dev',
+      workerReadProxyFlagKey: envStorageKey('fd_use_worker_read_proxy'),
       workerReadProxyEnabled: true,
-      workerSessionAuthFlagKey: 'fd_use_worker_auth',
-      workerSessionTokenKey: 'fd_worker_session_token',
-      workerSessionExpiresKey: 'fd_worker_session_expires_at',
-      workerSessionUserKey: 'fd_worker_session_user',
-      workerStatusWriteFlagKey: 'fd_use_worker_status_write',
+      workerSessionAuthFlagKey: envStorageKey('fd_use_worker_auth'),
+      workerSessionTokenKey: envStorageKey('fd_worker_session_token'),
+      workerSessionExpiresKey: envStorageKey('fd_worker_session_expires_at'),
+      workerSessionUserKey: envStorageKey('fd_worker_session_user'),
+      workerStatusWriteFlagKey: envStorageKey('fd_use_worker_status_write'),
       workerStatusWriteEnabled: true,
-      workerFloorplanWriteFlagKey: 'fd_use_worker_floorplan_write',
+      workerFloorplanWriteFlagKey: envStorageKey('fd_use_worker_floorplan_write'),
       workerFloorplanWriteEnabled: true,
-      workerUploadWriteFlagKey: 'fd_use_worker_upload_write',
+      workerUploadWriteFlagKey: envStorageKey('fd_use_worker_upload_write'),
       workerUploadWriteEnabled: true,
       workerStatusWriteTestCustomer: '--- TEST ---',
       jotformBaseUrl: 'https://eu.jotform.com/',
-      jotformFormId: '250122093908351',
-      loginEmailNotificationsEnabled: true,
+      jotformFormId: ENV_CONFIG.jotformFormId || '250122093908351',
+      jotformMode: ENV_CONFIG.jotformMode || 'live',
+      loginEmailNotificationsEnabled: ENV_CONFIG.loginEmailNotificationsEnabled !== false,
       appTimeZone: 'Europe/Amsterdam',
       pollInterval: 30000,
       sessionHeartbeatInterval: 60000,
@@ -30,11 +51,11 @@
       jotformReturnRefreshMaxDuration: 90000,
       versionCheckUrl: 'version.json',
       versionCheckInterval: 15 * 60 * 1000,
-      offlineCacheVersion: 'fd-v1.8.167',
+      offlineCacheVersion: envCacheNameForVersion(APP_VERSION),
     };
 
-    const APP_UPDATE_EXPECTED_CACHE_KEY = 'fd_app_update_expected_cache';
-    const APP_UPDATE_EXPECTED_VERSION_KEY = 'fd_app_update_expected_version';
+    const APP_UPDATE_EXPECTED_CACHE_KEY = envStorageKey('fd_app_update_expected_cache');
+    const APP_UPDATE_EXPECTED_VERSION_KEY = envStorageKey('fd_app_update_expected_version');
     const APP_UPDATE_MESSAGE = 'FD_SKIP_WAITING';
     const APP_SHELL_STYLES = [
       'app.css',
@@ -213,6 +234,10 @@
     const appUpdateMessage = document.getElementById('app-update-message');
     const appUpdateConfirmButton = document.getElementById('app-update-confirm');
     const appUpdateLaterButton = document.getElementById('app-update-later');
+    const environmentBadges = [
+      document.getElementById('login-environment-badge'),
+      document.getElementById('topbar-environment-badge'),
+    ].filter(Boolean);
     const busyOverlayEl = document.getElementById('busy-overlay');
     const btnDashboard = document.getElementById('btn-dashboard');
     const btnTopbarMetadata = document.getElementById('btn-topbar-metadata');
@@ -294,6 +319,16 @@
       menuEl: topbarMenu,
       documentEl: document,
     });
+
+    function renderEnvironmentBadges() {
+      const isStaging = CONFIG.environment === 'staging';
+      environmentBadges.forEach(badge => {
+        badge.hidden = !isStaging;
+        if (isStaging) badge.textContent = 'STAGING';
+      });
+    }
+
+    renderEnvironmentBadges();
     const appUpdateDialog = FD.UIShellService.createPopupPair({
       overlayEl: appUpdateOverlay,
       popupEl: appUpdatePopup,
@@ -386,8 +421,8 @@
     function normalizeRemoteVersion(data) {
       const version = String(data?.version || '').trim();
       const cache = String(data?.cache || '').trim();
-      const normalizedCache = cache || (version ? `fd-v${version}` : '');
-      const normalizedVersion = version || normalizedCache.replace(/^fd-v/, '');
+      const normalizedVersion = version || cacheVersionToVersion(cache);
+      const normalizedCache = normalizedVersion ? envCacheNameForVersion(normalizedVersion) : cache;
       if (!normalizedCache || !normalizedVersion) return null;
       return {
         version: normalizedVersion,
@@ -411,9 +446,19 @@
       return url.toString();
     }
 
-    function cacheVersionPattern(name, cacheVersion) {
-      const escapedVersion = String(cacheVersion || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      return new RegExp(`${name}\\s*(?::|=)\\s*['"]${escapedVersion}['"]`);
+    function appVersionPattern(version) {
+      const escapedVersion = String(version || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      return new RegExp(`APP_VERSION\\s*=\\s*['"]${escapedVersion}['"]`);
+    }
+
+    function cacheVersionPattern(name, version) {
+      const escapedVersion = String(version || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      return new RegExp(`${name}\\s*(?::|=)\\s*['"]fd(?:-[a-z0-9-]+)?-v${escapedVersion}['"]`, 'i');
+    }
+
+    function assetVersionReady(source, cacheName, version) {
+      return appVersionPattern(version).test(source || '') ||
+        cacheVersionPattern(cacheName, version).test(source || '');
     }
 
     function appAssetCheckUrl(path, version) {
@@ -457,8 +502,8 @@
 
         return indexHtmlReady(textByAsset.get('index.html'), remote.version) &&
           appCssReady(textByAsset.get('app.css'), remote.version) &&
-          cacheVersionPattern('offlineCacheVersion', remote.cache).test(textByAsset.get('app.js') || '') &&
-          cacheVersionPattern('CACHE_NAME', remote.cache).test(textByAsset.get('sw.js') || '');
+          assetVersionReady(textByAsset.get('app.js'), 'offlineCacheVersion', remote.version) &&
+          assetVersionReady(textByAsset.get('sw.js'), 'CACHE_NAME', remote.version);
       } catch (err) {
         return false;
       }
@@ -523,7 +568,7 @@
     function getExpectedAppUpdate() {
       try {
         const cache = sessionStorage.getItem(APP_UPDATE_EXPECTED_CACHE_KEY) || '';
-        const version = sessionStorage.getItem(APP_UPDATE_EXPECTED_VERSION_KEY) || cache.replace(/^fd-v/, '');
+        const version = sessionStorage.getItem(APP_UPDATE_EXPECTED_VERSION_KEY) || cacheVersionToVersion(cache);
         return cache ? { cache, version } : null;
       } catch (err) {
         return null;
@@ -861,8 +906,8 @@
     // DATA LOADING
     // ============================================================
 
-    const CUSTOMERS_CACHE_KEY = 'fd_customers_cache';
-    const JOTFORM_RETURN_CONTEXT_KEY = 'fd_jotform_return_context';
+    const CUSTOMERS_CACHE_KEY = envStorageKey('fd_customers_cache');
+    const JOTFORM_RETURN_CONTEXT_KEY = envStorageKey('fd_jotform_return_context');
 
     function readCachedCustomers() {
       try {
@@ -906,6 +951,10 @@
         repo: floorplan?.repo === 'uploads' ? 'uploads' : 'gallery',
         file,
       };
+    }
+
+    function isJotFormLookupEnabled() {
+      return CONFIG.jotformMode !== 'shared-form-limited';
     }
 
     function currentFloorplanDoneStatusFingerprint(target = currentJotFormLookupTarget()) {
@@ -1002,6 +1051,7 @@
     }
 
     function isJotFormConditionChecking(doorId) {
+      if (!isJotFormLookupEnabled()) return false;
       if (!doorId || !getDoorStatus(doorId)) return false;
       if (navigator.onLine === false || !canWriteCurrentFloorplan()) return false;
       if (hasManualNewFormHint(doorId)) return false;
@@ -1024,6 +1074,7 @@
 
     function getJotFormButtonStateForDoor({ selectedDoor: doorId, isDone } = {}) {
       if (!doorId || !isDone) return { action: 'new' };
+      if (!isJotFormLookupEnabled()) return { action: 'new' };
       const key = jotformSubmissionCacheKey();
       const cached = key && jotformSubmissionCache.key === key
         ? jotformSubmissionCache.submissions?.[doorId]
@@ -1146,6 +1197,10 @@
     }
 
     async function refreshJotFormSubmissionCache({ force = false } = {}) {
+      if (!isJotFormLookupEnabled()) {
+        resetJotFormSubmissionCache();
+        return null;
+      }
       const target = currentJotFormLookupTarget();
       const key = jotformSubmissionCacheKey(target);
       if (!target || !key || navigator.onLine === false || !canWriteCurrentFloorplan()) {
@@ -1246,6 +1301,7 @@
     }
 
     function saveJotFormReturnContext() {
+      if (!isJotFormLookupEnabled()) return;
       const context = currentJotFormReturnContext();
       if (!context) return;
       const saved = FD.DoorActionService.saveReturnContext(
@@ -1258,6 +1314,7 @@
     }
 
     function readJotFormReturnContext() {
+      if (!isJotFormLookupEnabled()) return null;
       return FD.DoorActionService.readReturnContext(localStorage, JOTFORM_RETURN_CONTEXT_KEY);
     }
 
@@ -3450,7 +3507,7 @@
       openWindow: (url, target) => window.open(url, target),
       onBeforeOpenJotForm: saveJotFormReturnContext,
       getJotFormButtonState: getJotFormButtonStateForDoor,
-      findJotFormSubmission: ({ selectedDoor, currentCustomer, currentFloorplan }) => {
+      findJotFormSubmission: isJotFormLookupEnabled() ? (({ selectedDoor, currentCustomer, currentFloorplan }) => {
         const cached = getCachedJotFormSubmission(selectedDoor);
         if (cached?.editUrl) {
           return Promise.resolve({ ok: true, found: true, editUrl: cached.editUrl });
@@ -3467,14 +3524,17 @@
             purpose: 'jotform_submission_lookup',
           },
         });
+      }) : null,
+      prepareJotFormContext: ({ selectedDoor, currentCustomer, currentFloorplan }) => {
+        if (!isJotFormLookupEnabled()) return Promise.resolve(null);
+        return FD.DataService.createJotFormContext(CONFIG, {
+          customer: currentCustomer.customer || currentCustomer,
+          floorplan: currentFloorplan.name || currentFloorplan,
+          repo: currentFloorplan.repo === 'uploads' ? 'uploads' : 'gallery',
+          file: currentFloorplan.file,
+          doorId: selectedDoor,
+        });
       },
-      prepareJotFormContext: ({ selectedDoor, currentCustomer, currentFloorplan }) => FD.DataService.createJotFormContext(CONFIG, {
-        customer: currentCustomer.customer || currentCustomer,
-        floorplan: currentFloorplan.name || currentFloorplan,
-        repo: currentFloorplan.repo === 'uploads' ? 'uploads' : 'gallery',
-        file: currentFloorplan.file,
-        doorId: selectedDoor,
-      }),
     });
 
     const floorplanLoadController = FD.FloorplanViewService.createLoadController({
@@ -3735,7 +3795,7 @@
     let autoNumbering = false;
     let autoPrefix = '';
     let autoPadding = 3;
-    const LABELS_STORAGE_KEY = 'fd_show_labels';
+    const LABELS_STORAGE_KEY = envStorageKey('fd_show_labels');
     let showLabels = localStorage.getItem(LABELS_STORAGE_KEY) === '1';
     let editLabelElements = [];
 
@@ -5254,10 +5314,18 @@
 
     const LOGIN_CONFIG = {
       lockoutMinutes: 10,
-      tokenKey: 'fd_auth_token',
-      tokenTimeKey: 'fd_auth_time',
-      lockoutKey: 'fd_lockout',
-      attemptsKey: 'fd_attempts',
+      tokenKey: envStorageKey('fd_auth_token'),
+      tokenTimeKey: envStorageKey('fd_auth_time'),
+      lockoutKey: envStorageKey('fd_lockout'),
+      attemptsKey: envStorageKey('fd_attempts'),
+      rememberSessionKey: envStorageKey('fd_remember_session'),
+      legacyRememberKey: 'fd_remember_pw',
+      savedPasswordKey: envStorageKey('fd_saved_password'),
+      workerSessionTokenKey: CONFIG.workerSessionTokenKey,
+      workerSessionExpiresKey: CONFIG.workerSessionExpiresKey,
+      workerSessionUserKey: CONFIG.workerSessionUserKey,
+      lastUsernameKey: envStorageKey('fd_login_username'),
+      allowLegacyMigration: CONFIG.environment !== 'staging',
     };
 
     function showApp() {

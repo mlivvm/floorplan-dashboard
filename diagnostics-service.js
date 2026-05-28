@@ -1,6 +1,7 @@
 (function (global) {
   const FD = global.FD = global.FD || {};
-  const QUEUE_KEY = 'fd_diagnostics_queue';
+  const storageKey = FD.Env?.storageKey || (key => key);
+  const QUEUE_KEY = storageKey('fd_diagnostics_queue');
   const MAX_QUEUE = 25;
   const MAX_RUNTIME_ERRORS = 8;
 
@@ -16,7 +17,7 @@
   }
 
   function appVersion(config) {
-    return String(config?.offlineCacheVersion || '').replace(/^fd-v/, '') || '';
+    return String(config?.offlineCacheVersion || '').replace(/^fd(?:-[a-z0-9-]+)?-v/i, '') || '';
   }
 
   function readQueue() {

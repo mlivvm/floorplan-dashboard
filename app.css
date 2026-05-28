@@ -1,4 +1,4 @@
-@import url('./admin-dashboard-tokens.css?v=1.8.167');
+@import url('./admin-dashboard-tokens.css?v=1.9.0');
 
     * {
       margin: 0;
@@ -55,6 +55,37 @@
       font-weight: 800;
       letter-spacing: 0;
       white-space: nowrap;
+    }
+
+    .environment-badge {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 28px;
+      padding: 5px 9px;
+      border-radius: 7px;
+      background: #f7c948;
+      color: #111827;
+      font-size: 12px;
+      font-weight: 900;
+      letter-spacing: 0;
+      line-height: 1;
+      box-shadow: 0 1px 4px rgba(15, 23, 42, 0.18);
+    }
+
+    .environment-badge[hidden] {
+      display: none;
+    }
+
+    .environment-badge-login {
+      position: absolute;
+      top: calc(env(safe-area-inset-top) + 14px);
+      right: 16px;
+      z-index: 2;
+    }
+
+    .environment-badge-topbar {
+      flex: 0 0 auto;
     }
 
     .topbar-spacer {

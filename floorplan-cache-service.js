@@ -1,6 +1,7 @@
 (function (global) {
   const FD = global.FD = global.FD || {};
-  const MANIFEST_KEY = 'fd_floorplan_cache_manifest';
+  const storageKey = FD.Env?.storageKey || (key => key);
+  const MANIFEST_KEY = storageKey('fd_floorplan_cache_manifest');
 
   function getStorage() {
     try {
