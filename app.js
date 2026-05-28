@@ -2,7 +2,7 @@
     // CONFIGURATION
     // ============================================================
 
-    const APP_VERSION = '1.9.1';
+    const APP_VERSION = '1.9.2';
     const ENV_CONFIG = window.FD?.Env?.config || window.FD_ENV_CONFIG || {};
     const envStorageKey = (key) => (
       typeof ENV_CONFIG.storageKey === 'function'
