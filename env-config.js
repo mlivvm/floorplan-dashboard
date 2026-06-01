@@ -7,30 +7,36 @@
   const isStagingPath = /\/floorplan-dashboard-staging(?:\/|$)/.test(pathname);
   const isLocalHost = !hostname || hostname === 'localhost' || hostname === '127.0.0.1';
 
-  const LIVE_WORKER = 'https://floorplan-dashboard-api.mko-floorplan-dashboard.workers.dev';
-  const STAGING_WORKER = 'https://floorplan-dashboard-api-staging.mko-floorplan-dashboard.workers.dev';
+      const LIVE_WORKER = 'https://floorplan-dashboard-api.mko-floorplan-dashboard.workers.dev';
+      const STAGING_WORKER = 'https://floorplan-dashboard-api-staging.mko-floorplan-dashboard.workers.dev';
+      const jotformForms = {
+        maintenance: { label: 'Onderhoud', formId: '250122093908351' },
+        inspection: { label: 'Opname', formId: '243196137549364' },
+      };
 
   const liveConfig = {
     environment: 'live',
     storagePrefix: 'fd_live_',
     cachePrefix: 'fd-live-v',
     workerApiBaseUrl: LIVE_WORKER,
-    workerApiHostname: 'floorplan-dashboard-api.mko-floorplan-dashboard.workers.dev',
-    jotformMode: 'live',
-    jotformFormId: '250122093908351',
-    loginEmailNotificationsEnabled: true,
-  };
+        workerApiHostname: 'floorplan-dashboard-api.mko-floorplan-dashboard.workers.dev',
+        jotformMode: 'live',
+        jotformFormId: '250122093908351',
+        jotformForms,
+        loginEmailNotificationsEnabled: true,
+      };
 
   const stagingConfig = {
     environment: 'staging',
     storagePrefix: 'fd_staging_',
     cachePrefix: 'fd-staging-v',
     workerApiBaseUrl: STAGING_WORKER,
-    workerApiHostname: 'floorplan-dashboard-api-staging.mko-floorplan-dashboard.workers.dev',
-    jotformMode: 'shared-form-limited',
-    jotformFormId: '250122093908351',
-    loginEmailNotificationsEnabled: false,
-  };
+        workerApiHostname: 'floorplan-dashboard-api-staging.mko-floorplan-dashboard.workers.dev',
+        jotformMode: 'shared-form-limited',
+        jotformFormId: '250122093908351',
+        jotformForms,
+        loginEmailNotificationsEnabled: false,
+      };
 
   const localConfig = {
     ...liveConfig,

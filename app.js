@@ -2,8 +2,13 @@
     // CONFIGURATION
     // ============================================================
 
-    const APP_VERSION = '1.9.10';
+    const APP_VERSION = '1.9.11';
     const ENV_CONFIG = window.FD?.Env?.config || window.FD_ENV_CONFIG || {};
+    const DEFAULT_JOTFORM_FORM_ID = '250122093908351';
+    const DEFAULT_JOTFORM_FORMS = {
+      maintenance: { label: 'Onderhoud', formId: DEFAULT_JOTFORM_FORM_ID },
+      inspection: { label: 'Opname', formId: '243196137549364' },
+    };
     const envStorageKey = (key) => (
       typeof ENV_CONFIG.storageKey === 'function'
         ? ENV_CONFIG.storageKey(key)
@@ -18,6 +23,22 @@
       typeof ENV_CONFIG.cacheVersionToVersion === 'function'
         ? ENV_CONFIG.cacheVersionToVersion(cacheName)
         : String(cacheName || '').replace(/^fd(?:-[a-z0-9-]+)?-v/i, '')
+    );
+    function normalizeConfiguredJotFormForms(envForms, fallbackFormId) {
+      const source = envForms && typeof envForms === 'object' ? envForms : {};
+      const forms = {};
+      Object.entries(DEFAULT_JOTFORM_FORMS).forEach(([type, defaults]) => {
+        const override = source[type] && typeof source[type] === 'object' ? source[type] : {};
+        forms[type] = {
+          label: String(override.label || defaults.label),
+          formId: String(override.formId || (type === 'maintenance' ? fallbackFormId : '') || defaults.formId || '').trim(),
+        };
+      });
+      return forms;
+    }
+    const CONFIGURED_JOTFORM_FORMS = normalizeConfiguredJotFormForms(
+      ENV_CONFIG.jotformForms,
+      ENV_CONFIG.jotformFormId || DEFAULT_JOTFORM_FORM_ID
     );
 
     const CONFIG = {
@@ -40,7 +61,8 @@
       workerUploadWriteEnabled: true,
       workerStatusWriteTestCustomer: '--- TEST ---',
       jotformBaseUrl: 'https://eu.jotform.com/',
-      jotformFormId: ENV_CONFIG.jotformFormId || '250122093908351',
+      jotformFormId: CONFIGURED_JOTFORM_FORMS.maintenance.formId,
+      jotformForms: CONFIGURED_JOTFORM_FORMS,
       jotformMode: ENV_CONFIG.jotformMode || 'live',
       loginEmailNotificationsEnabled: ENV_CONFIG.loginEmailNotificationsEnabled !== false,
       appTimeZone: 'Europe/Amsterdam',
@@ -117,6 +139,7 @@
     let adminActiveUsersPollTimer = null;
     let adminActiveUsersInFlight = false;
     let jotformFocusRefreshDoorId = null;
+    let jotformFocusRefreshFormType = 'maintenance';
     let jotformFocusRefreshUntil = 0;
     let jotformFocusBaselineSubmission = null;
     const jotformManualNewFormHints = new Map();
@@ -219,7 +242,13 @@
     const locationAddressNote = document.getElementById('location-address-note');
     const doorNameEl = document.getElementById('door-name');
     const doorStatusEl = document.getElementById('door-status');
-    const btnJotform = document.getElementById('btn-jotform');
+    const btnJotformInspection = document.getElementById('btn-jotform-inspection');
+    const btnJotformMaintenance = document.getElementById('btn-jotform-maintenance');
+    const btnJotforms = {
+      inspection: btnJotformInspection,
+      maintenance: btnJotformMaintenance,
+    };
+    const btnJotform = btnJotformMaintenance;
     const btnDone = document.getElementById('btn-done');
     const btnClose = document.getElementById('btn-close');
     const btnReset = document.getElementById('btn-reset');
@@ -940,12 +969,26 @@
       return FD.FloorplanCacheService.getFloorplanApiUrl(fp, CONFIG);
     }
 
-    function currentJotFormReturnContext() {
+    function normalizeJotFormFormType(value) {
+      const type = String(value || '').trim();
+      return Object.prototype.hasOwnProperty.call(CONFIG.jotformForms || {}, type)
+        ? type
+        : 'maintenance';
+    }
+
+    function jotFormFormTypes() {
+      return Object.entries(CONFIG.jotformForms || {})
+        .filter(([, form]) => form?.formId)
+        .map(([type]) => normalizeJotFormFormType(type));
+    }
+
+    function currentJotFormReturnContext(formType = 'maintenance') {
       const { customer, floorplan } = getSelectedFloorplan();
       return FD.DoorActionService.createReturnContext({
         customer: customer || currentCustomer,
         floorplan: floorplan || currentFloorplan,
         doorId: selectedDoor,
+        formType,
       });
     }
 
@@ -1039,25 +1082,85 @@
       }
     }
 
+    function normalizeJotFormSubmission(item) {
+      if (!item?.editUrl) return null;
+      return {
+        editUrl: String(item.editUrl),
+        formType: normalizeJotFormFormType(item.formType),
+        statusDoneAt: String(item.statusDoneAt || ''),
+        lastSeenAt: String(item.lastSeenAt || ''),
+        doorCondition: ['ok', 'attention', 'unknown'].includes(item.doorCondition) ? item.doorCondition : 'unknown',
+        doorConditionLabel: String(item.doorConditionLabel || ''),
+      };
+    }
+
+    function setJotFormSubmissionInMap(submissions, doorId, formType, submission) {
+      const type = normalizeJotFormFormType(formType);
+      if (!submissions[doorId] || submissions[doorId].editUrl) submissions[doorId] = {};
+      if (submission?.editUrl) {
+        submissions[doorId][type] = {
+          ...submission,
+          formType: type,
+        };
+      } else if (submissions[doorId]) {
+        delete submissions[doorId][type];
+        if (Object.keys(submissions[doorId]).length === 0) delete submissions[doorId];
+      }
+    }
+
+    function markJotFormChecked(checkedDoors, doorId, formType) {
+      const type = normalizeJotFormFormType(formType);
+      if (!checkedDoors[doorId] || checkedDoors[doorId] === true) checkedDoors[doorId] = {};
+      checkedDoors[doorId][type] = true;
+    }
+
+    function isJotFormChecked(checkedDoors, doorId, formType) {
+      const type = normalizeJotFormFormType(formType);
+      return checkedDoors?.[doorId] === true || checkedDoors?.[doorId]?.[type] === true;
+    }
+
     function normalizeJotFormSubmissionMap(response) {
       const source = response?.submissions && typeof response.submissions === 'object'
         ? response.submissions
         : {};
-      return Object.fromEntries(Object.entries(source)
-        .filter(([doorId, item]) => doorId && item?.editUrl)
-        .map(([doorId, item]) => [doorId, {
-          editUrl: String(item.editUrl),
-          statusDoneAt: String(item.statusDoneAt || ''),
-          lastSeenAt: String(item.lastSeenAt || ''),
-          doorCondition: ['ok', 'attention', 'unknown'].includes(item.doorCondition) ? item.doorCondition : 'unknown',
-          doorConditionLabel: String(item.doorConditionLabel || ''),
-        }]));
+      const normalized = {};
+      Object.entries(source).forEach(([doorId, item]) => {
+        if (!doorId || !item || typeof item !== 'object') return;
+
+        const direct = normalizeJotFormSubmission(item);
+        if (direct) {
+          setJotFormSubmissionInMap(normalized, doorId, direct.formType, direct);
+        }
+
+        jotFormFormTypes().forEach(formType => {
+          const nested = normalizeJotFormSubmission(item[formType]);
+          if (nested) setJotFormSubmissionInMap(normalized, doorId, formType, nested);
+        });
+      });
+      return normalized;
     }
 
-    function getCachedJotFormSubmission(doorId) {
+    function getCachedJotFormSubmission(doorId, formType = 'maintenance') {
       const key = jotformSubmissionCacheKey();
       if (!doorId || !key || jotformSubmissionCache.key !== key) return null;
-      return jotformSubmissionCache.submissions?.[doorId] || null;
+      const bucket = jotformSubmissionCache.submissions?.[doorId];
+      if (!bucket) return null;
+      if (bucket.editUrl) return normalizeJotFormSubmission(bucket);
+      return bucket[normalizeJotFormFormType(formType)] || null;
+    }
+
+    function getCachedJotFormSubmissionsForDoor(doorId) {
+      const key = jotformSubmissionCacheKey();
+      if (!doorId || !key || jotformSubmissionCache.key !== key) return [];
+      const bucket = jotformSubmissionCache.submissions?.[doorId];
+      if (!bucket) return [];
+      if (bucket.editUrl) {
+        const direct = normalizeJotFormSubmission(bucket);
+        return direct ? [direct] : [];
+      }
+      return jotFormFormTypes()
+        .map(formType => bucket[formType])
+        .filter(Boolean);
     }
 
     function isJotFormConditionChecking(doorId) {
@@ -1076,24 +1179,25 @@
 
     function getDoorCondition(doorId) {
       if (!doorId || !getDoorStatus(doorId)) return 'unknown';
-      const submission = getCachedJotFormSubmission(doorId);
-      if (submission?.doorCondition === 'attention') return 'attention';
+      const submissions = getCachedJotFormSubmissionsForDoor(doorId);
+      if (submissions.some(submission => submission?.doorCondition === 'attention')) return 'attention';
       if (isJotFormConditionChecking(doorId)) return 'checking';
       return 'unknown';
     }
 
-    function getJotFormButtonStateForDoor({ selectedDoor: doorId, isDone } = {}) {
+    function getJotFormButtonStateForDoor({ selectedDoor: doorId, isDone, formType = 'maintenance' } = {}) {
+      const type = normalizeJotFormFormType(formType);
       if (!doorId || !isDone) return { action: 'new' };
       if (!isJotFormLookupEnabled()) return { action: 'new' };
       const key = jotformSubmissionCacheKey();
       const cached = key && jotformSubmissionCache.key === key
-        ? jotformSubmissionCache.submissions?.[doorId]
+        ? getCachedJotFormSubmission(doorId, type)
         : null;
       if (cached?.editUrl) return { action: 'edit', editUrl: cached.editUrl };
       if (hasManualNewFormHint(doorId)) return { action: 'new' };
       if (!key || jotformSubmissionCache.key !== key) return { action: 'open', loading: true };
       if (jotformSubmissionCache.loading || !jotformSubmissionCache.ready) return { action: 'open', loading: true };
-      if (jotformSubmissionCache.allChecked || jotformSubmissionCache.checkedDoors?.[doorId]) {
+      if (jotformSubmissionCache.allChecked || isJotFormChecked(jotformSubmissionCache.checkedDoors, doorId, type)) {
         return { action: 'new' };
       }
       return { action: 'open', loading: true };
@@ -1129,15 +1233,19 @@
         applyDoorActionPermissions();
       }
 
-      const pending = FD.DataService.findJotFormSubmission(CONFIG, {
-        ...target,
-        doorId,
-      }, {
-        diagnostics: {
-          purpose: 'jotform_submission_selected_lookup',
-          background: true,
-        },
-      }).then(response => {
+      const selectedFormTypes = jotFormFormTypes();
+      const pending = Promise.all(selectedFormTypes.map(formType => (
+        FD.DataService.findJotFormSubmission(CONFIG, {
+          ...target,
+          doorId,
+          formType,
+        }, {
+          diagnostics: {
+            purpose: 'jotform_submission_selected_lookup',
+            background: true,
+          },
+        }).then(response => ({ formType, response }))
+      ))).then(results => {
         if (jotformSubmissionCache.requestId !== requestId || jotformSubmissionCache.key !== key) return null;
         const submissions = {
           ...(jotformSubmissionCache.submissions || {}),
@@ -1145,23 +1253,34 @@
         const checkedDoors = {
           ...(jotformSubmissionCache.checkedDoors || {}),
         };
-        if (response?.found && response.editUrl) {
-          clearJotFormSubmissionLookupRetry();
-          checkedDoors[doorId] = true;
-          submissions[doorId] = {
-            editUrl: String(response.editUrl),
-            statusDoneAt: String(response.statusDoneAt || ''),
-            lastSeenAt: String(response.lastSeenAt || ''),
-            doorCondition: ['ok', 'attention', 'unknown'].includes(response.doorCondition) ? response.doorCondition : 'unknown',
-            doorConditionLabel: String(response.doorConditionLabel || ''),
-          };
-        } else {
-          if (doorId === jotformFocusRefreshDoorId && Date.now() <= jotformFocusRefreshUntil) {
-            scheduleJotFormSubmissionLookupRetry(doorId);
+        let foundAny = false;
+        let foundFocusForm = false;
+        results.forEach(({ formType, response }) => {
+          const type = normalizeJotFormFormType(response?.formType || formType);
+          const submission = normalizeJotFormSubmission({ ...response, formType: type });
+          if (response?.found && submission?.editUrl) {
+            foundAny = true;
+            if (type === jotformFocusRefreshFormType) foundFocusForm = true;
+            markJotFormChecked(checkedDoors, doorId, type);
+            setJotFormSubmissionInMap(submissions, doorId, type, submission);
           } else {
-            checkedDoors[doorId] = true;
+            setJotFormSubmissionInMap(submissions, doorId, type, null);
+            if (
+              doorId === jotformFocusRefreshDoorId &&
+              type === jotformFocusRefreshFormType &&
+              Date.now() <= jotformFocusRefreshUntil
+            ) {
+              // Keep this one pending while the webhook catches up.
+            } else {
+              markJotFormChecked(checkedDoors, doorId, type);
+            }
           }
-          delete submissions[doorId];
+        });
+        const waitingForFocusForm = doorId === jotformFocusRefreshDoorId && Date.now() <= jotformFocusRefreshUntil;
+        if (foundFocusForm || !waitingForFocusForm) {
+          clearJotFormSubmissionLookupRetry();
+        } else if (!foundAny || !foundFocusForm) {
+          scheduleJotFormSubmissionLookupRetry(doorId);
         }
         jotformSubmissionCache = {
           key,
@@ -1302,17 +1421,18 @@
 
     function markJotFormExternalOpen(context) {
       jotformFocusRefreshDoorId = context?.doorId || null;
+      jotformFocusRefreshFormType = normalizeJotFormFormType(context?.formType);
       jotformFocusRefreshUntil = context?.doorId
         ? Date.now() + CONFIG.jotformReturnRefreshMaxDuration
         : 0;
       jotformFocusBaselineSubmission = context?.doorId
-        ? getCachedJotFormSubmission(context.doorId)
+        ? getCachedJotFormSubmission(context.doorId, jotformFocusRefreshFormType)
         : null;
     }
 
-    function saveJotFormReturnContext() {
+    function saveJotFormReturnContext(openContext = {}) {
       if (!isJotFormLookupEnabled()) return;
-      const context = currentJotFormReturnContext();
+      const context = currentJotFormReturnContext(openContext.formType);
       if (!context) return;
       const saved = FD.DoorActionService.saveReturnContext(
         localStorage,
@@ -1350,6 +1470,7 @@
     function clearJotFormReturnFastRefresh() {
       stopJotFormReturnFastRefreshTimer();
       jotformFocusBaselineSubmission = null;
+      jotformFocusRefreshFormType = 'maintenance';
     }
 
     function clearJotFormSubmissionLookupRetry() {
@@ -1372,23 +1493,25 @@
     function refreshAfterJotFormFocus() {
       if (!jotformFocusRefreshDoorId || Date.now() > jotformFocusRefreshUntil) {
         jotformFocusRefreshDoorId = null;
+        jotformFocusRefreshFormType = 'maintenance';
         jotformFocusRefreshUntil = 0;
         jotformFocusBaselineSubmission = null;
         return;
       }
       if (selectedDoor !== jotformFocusRefreshDoorId || navigator.onLine === false) return;
-      startJotFormReturnFastRefresh(jotformFocusRefreshDoorId);
+      startJotFormReturnFastRefresh(jotformFocusRefreshDoorId, jotformFocusRefreshFormType);
     }
 
-    function startJotFormReturnFastRefresh(doorId) {
+    function startJotFormReturnFastRefresh(doorId, formType = jotformFocusRefreshFormType) {
       stopJotFormReturnFastRefreshTimer();
       if (!doorId || navigator.onLine === false || typeof statusController?.poll !== 'function') return;
 
       const deadline = Date.now() + CONFIG.jotformReturnRefreshMaxDuration;
       const baselineSubmission = jotformFocusBaselineSubmission;
+      const type = normalizeJotFormFormType(formType);
 
       function submissionChangedAfterExternalOpen() {
-        const current = getCachedJotFormSubmission(doorId);
+        const current = getCachedJotFormSubmission(doorId, type);
         if (!baselineSubmission) return Boolean(current?.editUrl);
         if (!current?.editUrl) return false;
         if (current.editUrl !== baselineSubmission.editUrl) return true;
@@ -1462,10 +1585,11 @@
 
       await loadFloorplan(customerIndex, floorplanIndex);
 
-      if (FD.MarkerService.markerExists(svgContainer, context.doorId)) {
-        selectDoor(context.doorId);
-        startJotFormReturnFastRefresh(context.doorId);
-        showToast('Terug uit JotForm', 'success');
+          if (FD.MarkerService.markerExists(svgContainer, context.doorId)) {
+            selectDoor(context.doorId);
+            jotformFocusRefreshFormType = normalizeJotFormFormType(context.formType);
+            startJotFormReturnFastRefresh(context.doorId, jotformFocusRefreshFormType);
+            showToast('Terug uit JotForm', 'success');
       } else {
         showToast('Terug uit JotForm, deur niet gevonden', 'error');
       }
@@ -1842,12 +1966,15 @@
       btnDone.classList.toggle('disabled', !allowed);
       btnDone.title = allowed ? '' : 'Alleen kijken op deze plattegrond';
 
-      const jotformPending = btnJotform.dataset.jotformPending === '1';
-      btnJotform.classList.toggle('disabled', !allowed || jotformPending);
-      btnJotform.title = !allowed
-        ? 'Alleen kijken op deze plattegrond'
-        : (jotformPending ? 'Formulierstatus controleren...' : '');
-    }
+          Object.values(btnJotforms).forEach(button => {
+            if (!button) return;
+            const jotformPending = button.dataset.jotformPending === '1';
+            button.classList.toggle('disabled', !allowed || jotformPending);
+            button.title = !allowed
+              ? 'Alleen kijken op deze plattegrond'
+              : (jotformPending ? 'Formulierstatus controleren...' : '');
+          });
+        }
 
     function hasCurrentFloorplanView() {
       return Boolean(currentCustomer && currentFloorplan && svgContainer.querySelector('svg'));
@@ -3793,12 +3920,14 @@
         doorNameEl,
         doorStatusEl,
         btnJotform,
+        btnJotforms,
         btnClose,
         btnDone,
       },
       config: {
         baseUrl: CONFIG.jotformBaseUrl,
         formId: CONFIG.jotformFormId,
+        forms: CONFIG.jotformForms,
       },
       colors: { done: COLORS.done, todo: COLORS.todo, attention: COLORS.attention, checking: COLORS.checking },
       getState: () => {
@@ -3819,10 +3948,11 @@
       openWindow: (url, target) => window.open(url, target),
       onBeforeOpenJotForm: saveJotFormReturnContext,
       getJotFormButtonState: getJotFormButtonStateForDoor,
-      findJotFormSubmission: isJotFormLookupEnabled() ? (({ selectedDoor, currentCustomer, currentFloorplan }) => {
-        const cached = getCachedJotFormSubmission(selectedDoor);
+      findJotFormSubmission: isJotFormLookupEnabled() ? (({ selectedDoor, currentCustomer, currentFloorplan, formType = 'maintenance' }) => {
+        const type = normalizeJotFormFormType(formType);
+        const cached = getCachedJotFormSubmission(selectedDoor, type);
         if (cached?.editUrl) {
-          return Promise.resolve({ ok: true, found: true, editUrl: cached.editUrl });
+          return Promise.resolve({ ok: true, found: true, formType: type, editUrl: cached.editUrl });
         }
         const target = {
           customer: currentCustomer.customer || currentCustomer,
@@ -3830,6 +3960,7 @@
           repo: currentFloorplan.repo === 'uploads' ? 'uploads' : 'gallery',
           file: currentFloorplan.file,
           doorId: selectedDoor,
+          formType: type,
         };
         return FD.DataService.findJotFormSubmission(CONFIG, target, {
           diagnostics: {
@@ -3837,7 +3968,7 @@
           },
         });
       }) : null,
-      prepareJotFormContext: ({ selectedDoor, currentCustomer, currentFloorplan }) => {
+      prepareJotFormContext: ({ selectedDoor, currentCustomer, currentFloorplan, formType = 'maintenance' }) => {
         if (!isJotFormLookupEnabled()) return Promise.resolve(null);
         return FD.DataService.createJotFormContext(CONFIG, {
           customer: currentCustomer.customer || currentCustomer,
@@ -3845,6 +3976,7 @@
           repo: currentFloorplan.repo === 'uploads' ? 'uploads' : 'gallery',
           file: currentFloorplan.file,
           doorId: selectedDoor,
+          formType: normalizeJotFormFormType(formType),
         });
       },
     });
@@ -4080,16 +4212,18 @@
     // JOTFORM LINK
     // ============================================================
 
-    async function openJotForm() {
-      if (btnJotform.classList.contains('disabled')) return;
-      if (!canWriteCurrentFloorplan()) {
-        showToast('Alleen kijken op deze plattegrond', 'error');
-        return;
-      }
-      try {
-        await doorActionController.openJotForm();
-      } catch (err) {
-        showToast(err?.status === 403 ? 'Geen rechten voor JotForm op deze plattegrond' : 'JotForm openen mislukt', 'error');
+        async function openJotForm(formType = 'maintenance') {
+          const type = normalizeJotFormFormType(formType);
+          const button = btnJotforms[type] || btnJotform;
+          if (button?.classList.contains('disabled')) return;
+          if (!canWriteCurrentFloorplan()) {
+            showToast('Alleen kijken op deze plattegrond', 'error');
+            return;
+          }
+          try {
+            await doorActionController.openJotForm(type);
+          } catch (err) {
+            showToast(err?.status === 403 ? 'Geen rechten voor JotForm op deze plattegrond' : 'JotForm openen mislukt', 'error');
         console.warn('JotForm context aanmaken mislukt:', err);
       }
     }
@@ -5572,7 +5706,9 @@
 
     selectionController.bind();
 
-    btnJotform.addEventListener('click', openJotForm);
+        Object.entries(btnJotforms).forEach(([formType, button]) => {
+          button?.addEventListener('click', () => openJotForm(formType));
+        });
     btnDone.addEventListener('click', toggleDoorStatus);
     btnClose.addEventListener('click', deselectDoor);
     btnReset.addEventListener('click', () => {

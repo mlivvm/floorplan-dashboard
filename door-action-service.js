@@ -1,16 +1,56 @@
 (function (global) {
   const FD = global.FD = global.FD || {};
   const DEFAULT_RETURN_CONTEXT_MAX_AGE_MS = 8 * 60 * 60 * 1000;
+  const DEFAULT_JOTFORM_FORM_TYPE = 'maintenance';
+  const JOTFORM_FORM_TYPE_LABELS = {
+    inspection: 'Opname',
+    maintenance: 'Onderhoud',
+  };
 
   function setActionDisabled(button, disabled) {
     if (!button) return;
     button.classList.toggle('disabled', disabled);
   }
 
+  function normalizeJotFormFormType(value) {
+    const type = String(value || '').trim();
+    return Object.prototype.hasOwnProperty.call(JOTFORM_FORM_TYPE_LABELS, type)
+      ? type
+      : DEFAULT_JOTFORM_FORM_TYPE;
+  }
+
+  function getJotFormButtons(elements = {}) {
+    const buttons = elements.btnJotforms && typeof elements.btnJotforms === 'object'
+      ? { ...elements.btnJotforms }
+      : {};
+    if (elements.btnJotform && !buttons[DEFAULT_JOTFORM_FORM_TYPE]) {
+      buttons[DEFAULT_JOTFORM_FORM_TYPE] = elements.btnJotform;
+    }
+    return Object.entries(buttons)
+      .map(([type, button]) => ({ type: normalizeJotFormFormType(type), button }))
+      .filter(({ button }) => button);
+  }
+
+  function setJotFormActionsDisabled(elements, disabled) {
+    getJotFormButtons(elements).forEach(({ button }) => setActionDisabled(button, disabled));
+  }
+
+  function getJotFormForm(config = {}, formType = DEFAULT_JOTFORM_FORM_TYPE) {
+    const type = normalizeJotFormFormType(formType);
+    const forms = config.forms && typeof config.forms === 'object' ? config.forms : {};
+    const form = forms[type] && typeof forms[type] === 'object' ? forms[type] : {};
+    return {
+      type,
+      label: String(form.label || JOTFORM_FORM_TYPE_LABELS[type] || 'JotForm'),
+      formId: String(form.formId || (type === DEFAULT_JOTFORM_FORM_TYPE ? config.formId : '') || '').trim(),
+    };
+  }
+
   function renderDoorInfo({
     doorNameEl,
     doorStatusEl,
     btnJotform,
+    btnJotforms,
     btnClose,
   }, { doorId, isDone, condition = 'unknown', colors }) {
     doorNameEl.textContent = doorId;
@@ -20,7 +60,7 @@
     doorStatusEl.style.color = needsAttention
       ? (colors.attention || colors.done)
       : (checking ? (colors.checking || colors.done) : (isDone ? colors.done : colors.todo));
-    setActionDisabled(btnJotform, false);
+    setJotFormActionsDisabled({ btnJotform, btnJotforms }, false);
     setActionDisabled(btnClose, false);
   }
 
@@ -28,18 +68,20 @@
     doorNameEl,
     doorStatusEl,
     btnJotform,
+    btnJotforms,
     btnClose,
   }) {
     doorNameEl.textContent = '—';
     doorStatusEl.textContent = '';
-    setActionDisabled(btnJotform, true);
+    setJotFormActionsDisabled({ btnJotform, btnJotforms }, true);
     setActionDisabled(btnClose, true);
   }
 
-  function renderJotFormButton(button, { doorId, isDone, lookupState = {} }) {
+  function renderJotFormButton(button, { doorId, isDone, lookupState = {}, form = {} }) {
     if (!button) return;
+    const baseLabel = String(form.label || 'JotForm');
     if (!doorId) {
-      button.textContent = 'JotForm';
+      button.textContent = baseLabel;
       button.dataset.jotformAction = 'none';
       button.dataset.jotformPending = '0';
       setActionDisabled(button, true);
@@ -47,15 +89,15 @@
     }
 
     let action = 'new';
-    let label = 'Nieuw formulier';
+    let label = baseLabel;
     let pending = false;
     if (isDone) {
       if (lookupState?.editUrl || lookupState?.action === 'edit') {
         action = 'edit';
-        label = 'Aanpassen formulier';
+        label = `${baseLabel} aanpassen`;
       } else if (lookupState?.loading || lookupState?.action === 'open') {
         action = 'open';
-        label = 'Nieuw formulier';
+        label = baseLabel;
         pending = true;
       }
     }
@@ -63,7 +105,7 @@
     button.textContent = label;
     button.dataset.jotformAction = action;
     button.dataset.jotformPending = pending ? '1' : '0';
-    setActionDisabled(button, pending);
+    setActionDisabled(button, pending || !form.formId);
   }
 
   function renderDoneButton(button, { doorId, isDone }) {
@@ -82,7 +124,7 @@
     }
   }
 
-  function buildJotFormUrl({ baseUrl, formId, customer, doorId, floorplan, context }) {
+  function buildJotFormUrl({ baseUrl, formId, formType = DEFAULT_JOTFORM_FORM_TYPE, customer, doorId, floorplan, context }) {
     const params = new URLSearchParams();
     const customerName = customer?.customer || customer || '';
     const floorplanName = floorplan?.name || floorplan || '';
@@ -99,13 +141,14 @@
     params.set('fd_floorplan_file', floorplanFile);
     params.set('fd_floorplan_repo', floorplanRepo);
     params.set('fd_door_id', signedDoorId);
+    params.set('fd_form_type', normalizeJotFormFormType(formType));
     if (appOrigin) params.set('fd_app_origin', appOrigin);
     if (returnUrl) params.set('fd_return_url', returnUrl);
     if (context?.contextToken) params.set('fd_context_token', context.contextToken);
     return `${baseUrl}${formId}?${params.toString()}`;
   }
 
-  function createReturnContext({ customer, floorplan, doorId, now = Date.now() }) {
+  function createReturnContext({ customer, floorplan, doorId, formType = DEFAULT_JOTFORM_FORM_TYPE, now = Date.now() }) {
     if (!customer || !floorplan || !doorId) return null;
     return {
       customerName: customer.customer || customer,
@@ -113,6 +156,7 @@
       floorplanFile: floorplan.file || '',
       floorplanRepo: floorplan.repo === 'uploads' ? 'uploads' : 'gallery',
       doorId,
+      formType: normalizeJotFormFormType(formType),
       appOrigin: global.location?.origin || '',
       returnUrl: global.location?.origin ? `${global.location.origin}${global.location.pathname}?jotformReturn=1` : '',
       savedAt: now,
@@ -202,13 +246,16 @@
       const currentState = state();
       const { selectedDoor } = currentState;
       const isDone = selectedDoor && typeof getDoorStatus === 'function' ? getDoorStatus(selectedDoor) : false;
-      const lookupState = selectedDoor && typeof getJotFormButtonState === 'function'
-        ? getJotFormButtonState({ ...currentState, isDone })
-        : {};
-      renderJotFormButton(elements.btnJotform, {
-        doorId: selectedDoor,
-        isDone,
-        lookupState,
+      getJotFormButtons(elements).forEach(({ type, button }) => {
+        const lookupState = selectedDoor && typeof getJotFormButtonState === 'function'
+          ? getJotFormButtonState({ ...currentState, isDone, formType: type })
+          : {};
+        renderJotFormButton(button, {
+          doorId: selectedDoor,
+          isDone,
+          lookupState,
+          form: getJotFormForm(config, type),
+        });
       });
     }
 
@@ -241,7 +288,13 @@
       updateDoneButton();
     }
 
-    async function openJotForm() {
+    async function openJotForm(formType = DEFAULT_JOTFORM_FORM_TYPE) {
+      const type = normalizeJotFormFormType(formType);
+      const form = getJotFormForm(config, type);
+      if (!form.formId) {
+        if (typeof showToast === 'function') showToast('JotForm formulier ontbreekt', 'error');
+        return;
+      }
       const { selectedDoor, currentCustomer, currentFloorplan, online } = state();
       if (!selectedDoor) return;
       if (online === false) {
@@ -270,7 +323,7 @@
         if (isDone && typeof findJotFormSubmission === 'function') {
           let existing = null;
           try {
-            existing = await findJotFormSubmission({ selectedDoor, currentCustomer, currentFloorplan });
+            existing = await findJotFormSubmission({ selectedDoor, currentCustomer, currentFloorplan, formType: type });
           } catch (err) {
             if (err?.status !== 404 && err?.status !== 501) throw err;
           }
@@ -280,7 +333,7 @@
           }
           if (existing?.found && existing.editUrl) {
             if (typeof onBeforeOpenJotForm === 'function') {
-              onBeforeOpenJotForm({ url: existing.editUrl, selectedDoor, currentCustomer, currentFloorplan });
+              onBeforeOpenJotForm({ url: existing.editUrl, selectedDoor, currentCustomer, currentFloorplan, formType: type });
             }
             if (jotFormWindow && !jotFormWindow.closed) {
               jotFormWindow.location.href = existing.editUrl;
@@ -296,7 +349,7 @@
         }
 
         if (typeof prepareJotFormContext === 'function') {
-          context = await prepareJotFormContext({ selectedDoor, currentCustomer, currentFloorplan });
+          context = await prepareJotFormContext({ selectedDoor, currentCustomer, currentFloorplan, formType: type });
         }
         if (!stillCurrentSelection()) {
           closeStaleWindow();
@@ -305,14 +358,15 @@
 
         const url = buildJotFormUrl({
           baseUrl: config.baseUrl,
-          formId: config.formId,
+          formId: form.formId,
+          formType: type,
           customer: currentCustomer,
           doorId: selectedDoor,
           floorplan: currentFloorplan,
           context,
         });
         if (typeof onBeforeOpenJotForm === 'function') {
-          onBeforeOpenJotForm({ url, selectedDoor, currentCustomer, currentFloorplan });
+          onBeforeOpenJotForm({ url, selectedDoor, currentCustomer, currentFloorplan, formType: type });
         }
 
         if (jotFormWindow && !jotFormWindow.closed) {
@@ -343,6 +397,7 @@
     clearDoorInfo,
     findFloorplanIndex,
     hasReturnParam,
+    normalizeJotFormFormType,
     readReturnContext,
     renderJotFormButton,
     renderDoneButton,

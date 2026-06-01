@@ -1,4 +1,4 @@
-@import url('./admin-dashboard-tokens.css?v=1.9.10');
+@import url('./admin-dashboard-tokens.css?v=1.9.11');
 
     * {
       margin: 0;
@@ -2096,13 +2096,20 @@
       color: #64748b;
     }
 
-    .info-panel-actions {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      flex: 0 0 auto;
-      white-space: nowrap;
-    }
+        .info-panel-actions {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          flex: 0 0 auto;
+          white-space: nowrap;
+        }
+
+        .jotform-actions {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          flex: 0 0 auto;
+        }
 
     .info-panel .btn {
       font-size: 15px;
@@ -2124,11 +2131,17 @@
       box-shadow: 0 1px 1px rgba(15, 23, 42, 0.12);
     }
 
-    .info-panel .btn-jotform {
-      background: #1a73e8;
-      color: white;
-      min-width: 148px;
-    }
+        .info-panel .btn-jotform {
+          background: #1a73e8;
+          color: white;
+          min-width: 122px;
+          max-width: 138px;
+          padding-left: 10px;
+          padding-right: 10px;
+          font-size: 13.5px;
+          line-height: 1.12;
+          white-space: normal;
+        }
 
     .info-panel .btn-done {
       background: #34a853;
@@ -2177,20 +2190,33 @@
       }
     }
 
-    @media (max-width: 560px) {
-      .info-panel-count {
-        display: none;
-      }
+        @media (max-width: 560px) {
+          .info-panel-count {
+            display: none;
+          }
 
-      .info-panel .btn {
-        min-height: 44px;
-        padding: 8px 12px;
-      }
+          .info-panel-actions {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto auto;
+            width: 100%;
+            gap: 6px;
+          }
 
-      .info-panel .btn-jotform {
-        min-width: 136px;
-      }
-    }
+          .jotform-actions {
+            display: contents;
+          }
+
+          .info-panel .btn {
+            min-height: 44px;
+            padding: 8px 12px;
+          }
+
+          .info-panel .btn-jotform {
+            width: 100%;
+            min-width: 0;
+            max-width: none;
+          }
+        }
 
     /* Side panel toggle button */
     .btn-panel-toggle {
