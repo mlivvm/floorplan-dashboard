@@ -1110,12 +1110,12 @@
       const result = await pdfService.renderPdfPageToCanvas(elements.pdfState.pdf, page.pageNumber, {
         scale: pdfService.UPLOAD_RENDER_SCALE,
       });
-      const dataUrl = pdfService.canvasToUploadJPEG(result.canvas, {
+      const uploadImage = pdfService.uploadJPEGResult(result.canvas, {
         errorMessage: `Pagina ${page.pageNumber} is te groot. Crop de pagina kleiner of probeer een lagere kwaliteit PDF.`,
       });
-      page.outputWidth = result.width;
-      page.outputHeight = result.height;
-      return { dataUrl, width: result.width, height: result.height };
+      page.outputWidth = uploadImage.width;
+      page.outputHeight = uploadImage.height;
+      return { dataUrl: uploadImage.dataUrl, width: uploadImage.width, height: uploadImage.height };
     }
 
     function restoreActivePdfEditorState() {
@@ -1231,8 +1231,8 @@
           const rendered = await FD.PdfImportService.renderPdfPageToCanvas(state.pdf, page.pageNumber, {
             scale: FD.PdfImportService.UPLOAD_RENDER_SCALE,
           });
-          dataUrl = FD.PdfImportService.canvasToUploadJPEG(rendered.canvas, {
-            errorMessage: `Pagina ${page.pageNumber} is te groot. Probeer een kleinere uitsnede.`,
+          dataUrl = FD.PdfImportService.canvasToEditorPreviewJPEG(rendered.canvas, {
+            errorMessage: `Pagina ${page.pageNumber} is te groot voor de bewerk-preview.`,
           });
         }
         if (runId !== state.activeEditorRun) return;
@@ -1321,14 +1321,14 @@
           imageSmoothingEnabled: true,
           imageSmoothingQuality: 'high',
         });
-        const dataUrl = FD.PdfImportService.canvasToUploadJPEG(outputCanvas, {
+        const uploadImage = FD.PdfImportService.uploadJPEGResult(outputCanvas, {
           errorMessage: `Pagina ${page.pageNumber} is te groot. Maak de uitsnede kleiner.`,
         });
-        page.editDataUrl = dataUrl;
-        page.outputWidth = outputCanvas.width;
-        page.outputHeight = outputCanvas.height;
-        page.cropData = { x: 0, y: 0, width: outputCanvas.width, height: outputCanvas.height };
-        page.thumbnailDataUrl = await FD.PdfImportService.dataUrlToThumbnail(dataUrl);
+        page.editDataUrl = uploadImage.dataUrl;
+        page.outputWidth = uploadImage.width;
+        page.outputHeight = uploadImage.height;
+        page.cropData = { x: 0, y: 0, width: uploadImage.width, height: uploadImage.height };
+        page.thumbnailDataUrl = await FD.PdfImportService.dataUrlToThumbnail(uploadImage.dataUrl);
         page.edited = true;
         page.status = 'ready';
         page.error = '';

@@ -5,6 +5,7 @@
   const THUMB_RENDER_SCALE = 0.3;
   const UPLOAD_RENDER_SCALE = 1.5;
   const MAX_UPLOAD_DATA_URL_LENGTH = 1040000;
+  const EDITOR_PREVIEW_MAX_DATA_URL_LENGTH = 12 * 1024 * 1024;
 
   function pdfError(message, code) {
     const err = new Error(message);
@@ -26,14 +27,39 @@
     return pdf;
   }
 
-  async function renderPdfPageToCanvas(pdf, pageNumber, { scale = UPLOAD_RENDER_SCALE, rotation = 0, documentRef = document } = {}) {
+  async function renderPdfPageToCanvas(pdf, pageNumber, {
+    scale = UPLOAD_RENDER_SCALE,
+    rotation = 0,
+    documentRef = document,
+  } = {}) {
     const page = await pdf.getPage(pageNumber);
     const viewport = page.getViewport({ scale, rotation });
     const canvas = documentRef.createElement('canvas');
     canvas.width = Math.max(1, Math.ceil(viewport.width));
     canvas.height = Math.max(1, Math.ceil(viewport.height));
     await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
-    return { canvas, width: canvas.width, height: canvas.height };
+    return { canvas, width: canvas.width, height: canvas.height, scale };
+  }
+
+  function encodeCanvasJPEGWithinLength(canvas, {
+    maxLength,
+    startQuality = 0.82,
+    minQuality = 0.28,
+    qualityStep = 0.08,
+  }) {
+    let quality = startQuality;
+    let dataUrl;
+    let lastQuality = quality;
+    while (quality >= minQuality) {
+      lastQuality = quality;
+      dataUrl = canvas.toDataURL('image/jpeg', quality);
+      if (dataUrl.length <= maxLength) break;
+      const nextQuality = quality - qualityStep;
+      if (nextQuality < minQuality && quality !== minQuality) quality = minQuality;
+      else quality = nextQuality;
+    }
+
+    return { dataUrl, quality: lastQuality };
   }
 
   function canvasToUploadJPEG(canvas, {
@@ -43,15 +69,83 @@
     qualityStep = 0.08,
     errorMessage = 'Pagina is te groot. Maak de uitsnede kleiner.',
   } = {}) {
-    let quality = startQuality;
-    let dataUrl;
-    do {
-      dataUrl = canvas.toDataURL('image/jpeg', quality);
-      quality -= qualityStep;
-    } while (dataUrl.length > maxLength && quality > minQuality);
+    const result = encodeCanvasJPEGWithinLength(canvas, {
+      maxLength,
+      startQuality,
+      minQuality,
+      qualityStep,
+    });
+    const dataUrl = result.dataUrl;
 
     if (dataUrl.length > maxLength) throw new Error(errorMessage);
     return dataUrl;
+  }
+
+  function resizeCanvas(canvas, scale, documentRef = document) {
+    const width = Math.max(1, Math.round(canvas.width * scale));
+    const height = Math.max(1, Math.round(canvas.height * scale));
+    const output = documentRef.createElement('canvas');
+    output.width = width;
+    output.height = height;
+    output.getContext('2d').drawImage(canvas, 0, 0, width, height);
+    return output;
+  }
+
+  function uploadJPEGResult(canvas, {
+    maxLength = MAX_UPLOAD_DATA_URL_LENGTH,
+    startQuality = 0.82,
+    minQuality = 0.28,
+    qualityStep = 0.08,
+    resizeStep = 0.85,
+    minScale = 0.35,
+    documentRef = document,
+    errorMessage = 'Pagina is te groot. Maak de uitsnede kleiner.',
+  } = {}) {
+    const scales = [1];
+    let nextScale = resizeStep;
+    while (nextScale > minScale) {
+      scales.push(nextScale);
+      nextScale *= resizeStep;
+    }
+    if (scales[scales.length - 1] !== minScale) scales.push(minScale);
+
+    for (const scale of scales) {
+      const sourceCanvas = scale === 1 ? canvas : resizeCanvas(canvas, scale, documentRef);
+      const result = encodeCanvasJPEGWithinLength(sourceCanvas, {
+        maxLength,
+        startQuality,
+        minQuality,
+        qualityStep,
+      });
+      if (result.dataUrl.length <= maxLength) {
+        return {
+          dataUrl: result.dataUrl,
+          width: sourceCanvas.width,
+          height: sourceCanvas.height,
+          scale,
+          quality: result.quality,
+          resized: scale < 1,
+        };
+      }
+    }
+
+    throw new Error(errorMessage);
+  }
+
+  function canvasToEditorPreviewJPEG(canvas, {
+    maxLength = EDITOR_PREVIEW_MAX_DATA_URL_LENGTH,
+    startQuality = 0.82,
+    minQuality = 0.5,
+    qualityStep = 0.08,
+    errorMessage = 'Pagina is te groot voor de bewerk-preview.',
+  } = {}) {
+    return canvasToUploadJPEG(canvas, {
+      maxLength,
+      startQuality,
+      minQuality,
+      qualityStep,
+      errorMessage,
+    });
   }
 
   function dataUrlToImage(dataUrl) {
@@ -97,9 +191,12 @@
     THUMB_RENDER_SCALE,
     UPLOAD_RENDER_SCALE,
     MAX_UPLOAD_DATA_URL_LENGTH,
+    EDITOR_PREVIEW_MAX_DATA_URL_LENGTH,
     loadPdfDocument,
     renderPdfPageToCanvas,
     canvasToUploadJPEG,
+    uploadJPEGResult,
+    canvasToEditorPreviewJPEG,
     dataUrlToThumbnail,
     buildUploadSVGText,
     suggestedFloorplanName,
