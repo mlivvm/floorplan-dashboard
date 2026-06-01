@@ -5,6 +5,7 @@
   const MAX_IMAGE_UPLOAD_BYTES = 20 * 1024 * 1024;
   const MAX_PDF_UPLOAD_BYTES = 50 * 1024 * 1024;
   const MAX_UPLOAD_DATA_URL_LENGTH = 1040000;
+  const MAX_PDF_DUPLICATES_PER_PAGE = 10;
 
   function hide(el) {
     if (el) el.style.display = 'none';
@@ -340,9 +341,13 @@
   }
 
   function nextPdfCopyIndex(state, sourcePageNumber) {
-    return Math.max(1, ...(state.pages || [])
+    const used = new Set((state.pages || [])
       .filter(page => pdfSourcePageNumber(page) === sourcePageNumber)
-      .map(page => pdfCopyIndex(page))) + 1;
+      .map(page => pdfCopyIndex(page)));
+    for (let copyIndex = 2; copyIndex <= MAX_PDF_DUPLICATES_PER_PAGE + 1; copyIndex += 1) {
+      if (!used.has(copyIndex)) return copyIndex;
+    }
+    return MAX_PDF_DUPLICATES_PER_PAGE + 2;
   }
 
   function suggestedPdfItemName(fileName, sourcePageNumber, copyIndex) {
@@ -808,6 +813,20 @@
       loading.textContent = 'Laden...';
       thumb.appendChild(loading);
     }
+    if (pdfCopyIndex(page) > 1) {
+      const removeButton = document.createElement('button');
+      removeButton.type = 'button';
+      removeButton.className = 'upload-pdf-page-remove';
+      removeButton.textContent = '×';
+      removeButton.title = `${pageLabel} verwijderen`;
+      removeButton.setAttribute('aria-label', `${pageLabel} verwijderen`);
+      removeButton.disabled = page.status === 'uploading';
+      removeButton.addEventListener('click', event => {
+        event.stopPropagation();
+        removeDuplicatedPdfPage(elements, page);
+      });
+      thumb.appendChild(removeButton);
+    }
 
     const body = document.createElement('div');
     body.className = 'upload-pdf-page-body';
@@ -877,6 +896,13 @@
     const state = elements.pdfState;
     if (!state || !page || ['rendering', 'uploading', 'error'].includes(page.status)) return;
     const sourcePageNumber = pdfSourcePageNumber(page);
+    const duplicateCount = (state.pages || []).filter(item => (
+      pdfSourcePageNumber(item) === sourcePageNumber && pdfCopyIndex(item) > 1
+    )).length;
+    if (duplicateCount >= MAX_PDF_DUPLICATES_PER_PAGE) {
+      showToast(`Maximaal ${MAX_PDF_DUPLICATES_PER_PAGE} duplicaten per PDF-pagina`, 'error');
+      return;
+    }
     const copyIndex = nextPdfCopyIndex(state, sourcePageNumber);
     const duplicate = createPdfPageItem(state, {
       sourcePageNumber,
@@ -892,6 +918,18 @@
       pdfSourcePageNumber(item) === sourcePageNumber ? index : lastIndex
     ), -1);
     state.pages.splice(lastSourceIndex + 1, 0, duplicate);
+    renderPdfPages(elements);
+  }
+
+  function removeDuplicatedPdfPage(elements, page) {
+    const state = elements.pdfState;
+    if (!state || !page || pdfCopyIndex(page) <= 1 || page.status === 'uploading') return;
+    const itemId = ensurePdfItemId(state, page);
+    state.pages = (state.pages || []).filter(item => ensurePdfItemId(state, item) !== itemId);
+    if (state.activePage && ensurePdfItemId(state, state.activePage) === itemId) {
+      state.activePage = null;
+      state.activeOriginalCropData = null;
+    }
     renderPdfPages(elements);
   }
 
