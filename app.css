@@ -1,4 +1,4 @@
-@import url('./admin-dashboard-tokens.css?v=1.9.3');
+@import url('./admin-dashboard-tokens.css?v=1.9.4');
 
     * {
       margin: 0;
@@ -3709,22 +3709,43 @@
 
     .upload-pdf-page-actions {
       margin-top: auto;
-      display: grid;
-      grid-template-columns: minmax(0, 1fr) auto;
-      align-items: center;
+      display: flex;
+      flex-direction: column;
+      align-items: stretch;
       gap: 8px;
     }
 
-    .upload-pdf-page-edit {
+    .upload-pdf-page-buttons {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      gap: 8px;
+    }
+
+    .upload-pdf-page-edit,
+    .upload-pdf-page-duplicate {
       border: none;
       border-radius: 8px;
-      background: #eef4ff;
-      color: #174ea6;
       font-size: 15px;
       font-weight: 800;
       padding: 10px 12px;
       cursor: pointer;
-      min-width: 96px;
+      min-width: 0;
+      min-height: 42px;
+    }
+
+    .upload-pdf-page-edit {
+      background: #eef4ff;
+      color: #174ea6;
+    }
+
+    .upload-pdf-page-duplicate {
+      background: #f1f3f4;
+      color: #3c4043;
+    }
+
+    .upload-pdf-page-duplicate:disabled {
+      opacity: 0.55;
+      cursor: not-allowed;
     }
 
     .upload-pdf-crop-wrap {
@@ -4014,11 +4035,15 @@
       }
 
       .upload-pdf-page {
-        min-height: 236px;
+        min-height: 284px;
       }
 
       .upload-pdf-page-thumb {
         height: 150px;
+      }
+
+      .upload-pdf-page-buttons {
+        grid-template-columns: 1fr;
       }
 
       .upload-pdf-name-row {

@@ -1,11 +1,11 @@
 {
-  "version": "1.9.3",
-  "cache": "fd-live-v1.9.3",
+  "version": "1.9.4",
+  "cache": "fd-live-v1.9.4",
   "environment": "live",
-  "sourceCommit": "d3e2ccbad0eb770387bd6175ac0cc4f283e5fcf1",
-  "sourceShortCommit": "d3e2ccbad0eb",
+  "sourceCommit": "8892e460b0834905c878161f0fede196853d671c",
+  "sourceShortCommit": "8892e460b083",
   "sourceDirty": false,
-  "deployedAt": "2026-06-01T00:54:27.642Z",
+  "deployedAt": "2026-06-01T01:23:05.366Z",
   "appUrl": "https://mlivvm.github.io/floorplan-dashboard/",
   "workerBaseUrl": "https://floorplan-dashboard-api.mko-floorplan-dashboard.workers.dev"
 }

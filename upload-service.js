@@ -308,6 +308,70 @@
     return cropData ? { ...cropData } : null;
   }
 
+  function pdfSourcePageNumber(page) {
+    return Number(page?.sourcePageNumber || page?.pageNumber || 1);
+  }
+
+  function pdfCopyIndex(page) {
+    return Math.max(1, Number(page?.copyIndex || 1));
+  }
+
+  function pdfPageLabel(page) {
+    const sourcePage = pdfSourcePageNumber(page);
+    const copyIndex = pdfCopyIndex(page);
+    return copyIndex > 1 ? `Pagina ${sourcePage} - uitsnede ${copyIndex}` : `Pagina ${sourcePage}`;
+  }
+
+  function pdfPageShortLabel(page) {
+    const sourcePage = pdfSourcePageNumber(page);
+    const copyIndex = pdfCopyIndex(page);
+    return copyIndex > 1 ? `P${sourcePage}.${copyIndex}` : `P${sourcePage}`;
+  }
+
+  function nextPdfItemId(state, sourcePageNumber) {
+    const nextId = Math.max(1, Number(state.nextItemId || 1));
+    state.nextItemId = nextId + 1;
+    return `pdf-page-${sourcePageNumber}-${nextId}`;
+  }
+
+  function ensurePdfItemId(state, page) {
+    if (!page.itemId) page.itemId = nextPdfItemId(state, pdfSourcePageNumber(page));
+    return page.itemId;
+  }
+
+  function nextPdfCopyIndex(state, sourcePageNumber) {
+    return Math.max(1, ...(state.pages || [])
+      .filter(page => pdfSourcePageNumber(page) === sourcePageNumber)
+      .map(page => pdfCopyIndex(page))) + 1;
+  }
+
+  function suggestedPdfItemName(fileName, sourcePageNumber, copyIndex) {
+    const base = FD.PdfImportService.suggestedFloorplanName(fileName, sourcePageNumber);
+    return copyIndex > 1 ? `${base} - uitsnede ${copyIndex}` : base;
+  }
+
+  function createPdfPageItem(state, { sourcePageNumber, copyIndex = 1, fileName = '' }) {
+    const suggestedName = suggestedPdfItemName(fileName, sourcePageNumber, copyIndex);
+    return {
+      itemId: nextPdfItemId(state, sourcePageNumber),
+      pageNumber: sourcePageNumber,
+      sourcePageNumber,
+      copyIndex,
+      selected: true,
+      thumbnailDataUrl: '',
+      previewDataUrl: '',
+      editDataUrl: '',
+      outputWidth: 0,
+      outputHeight: 0,
+      floorplanName: suggestedName,
+      floorLabel: suggestedName,
+      buildingName: '',
+      edited: false,
+      status: 'rendering',
+      error: '',
+    };
+  }
+
   function browserYield() {
     return new Promise(resolve => {
       if (typeof requestAnimationFrame === 'function') requestAnimationFrame(() => resolve());
@@ -555,6 +619,7 @@
     state.latestUploadedPage = null;
     state.batchCustomerName = '';
     state.pdfFitZoomRatio = null;
+    state.nextItemId = 1;
     hide(elements.pdfProcessing);
     hide(elements.pdfOverview);
     hide(elements.pdfEditor);
@@ -601,9 +666,13 @@
     const state = elements.pdfState;
     const total = state.pages.length;
     const selected = selectedPdfPages(state).length;
+    const sourceTotal = new Set(state.pages.map(page => pdfSourcePageNumber(page))).size;
+    const duplicateTotal = Math.max(0, total - sourceTotal);
     elements.pdfTitle.textContent = "Pagina's kiezen";
-    elements.pdfSummary.textContent = total
-      ? `${total} pagina's gevonden. Klik op een pagina om te croppen of te roteren.`
+    elements.pdfSummary.textContent = total && duplicateTotal
+      ? `${sourceTotal} PDF-pagina${sourceTotal === 1 ? '' : "'s"} met ${duplicateTotal} extra uitsnede${duplicateTotal === 1 ? '' : 's'}.`
+      : total
+        ? `${total} pagina${total === 1 ? '' : "'s"} gevonden. Gebruik Dupliceren voor meerdere plattegronden op één pagina.`
       : "Geen pagina's gevonden.";
     elements.pdfCount.textContent = `${selected} van ${total} geselecteerd`;
     if (elements.pdfNextButton) elements.pdfNextButton.disabled = selected === 0;
@@ -677,7 +746,7 @@
       loading.style.display = 'none';
     };
 
-    if (title) title.textContent = `Pagina ${page.pageNumber} bekijken`;
+    if (title) title.textContent = `${pdfPageLabel(page)} bekijken`;
     if (img) {
       img.removeAttribute('src');
       img.style.display = 'none';
@@ -693,7 +762,7 @@
 
     if (!page.editDataUrl && !page.previewDataUrl && elements.pdfState?.pdf) {
       try {
-        const rendered = await FD.PdfImportService.renderPdfPageToCanvas(elements.pdfState.pdf, page.pageNumber, {
+        const rendered = await FD.PdfImportService.renderPdfPageToCanvas(elements.pdfState.pdf, pdfSourcePageNumber(page), {
           scale: FD.PdfImportService.UPLOAD_RENDER_SCALE,
         });
         page.previewDataUrl = rendered.canvas.toDataURL('image/jpeg', 0.82);
@@ -707,23 +776,29 @@
   }
 
   function renderPdfPageCard(elements, page) {
+    const state = elements.pdfState;
+    const itemId = ensurePdfItemId(state, page);
+    const sourcePageNumber = pdfSourcePageNumber(page);
+    const pageLabel = pdfPageLabel(page);
     const card = document.createElement('article');
     card.className = 'upload-pdf-page';
     card.classList.toggle('is-selected', page.selected);
     card.classList.toggle('is-error', page.status === 'error');
-    card.dataset.pageNumber = String(page.pageNumber);
+    card.dataset.pageId = itemId;
+    card.dataset.pageNumber = String(sourcePageNumber);
+    card.dataset.copyIndex = String(pdfCopyIndex(page));
 
     const thumb = document.createElement('div');
     thumb.className = 'upload-pdf-page-thumb';
     blockElementDragging(thumb);
     const number = document.createElement('span');
     number.className = 'upload-pdf-page-number';
-    number.textContent = String(page.pageNumber);
+    number.textContent = pdfPageShortLabel(page).replace(/^P/, '');
     thumb.appendChild(number);
     if (page.thumbnailDataUrl) {
       const img = document.createElement('img');
       img.src = page.thumbnailDataUrl;
-      img.alt = `PDF pagina ${page.pageNumber}`;
+      img.alt = `PDF ${pageLabel}`;
       blockElementDragging(img);
       thumb.appendChild(img);
     } else {
@@ -748,7 +823,7 @@
       updatePdfHeader(elements);
     });
     const titleText = document.createElement('span');
-    titleText.textContent = `Pagina ${page.pageNumber}`;
+    titleText.textContent = pageLabel;
     title.appendChild(checkbox);
     title.appendChild(titleText);
 
@@ -763,14 +838,27 @@
     editButton.textContent = 'Bewerken';
     editButton.addEventListener('click', event => {
       event.stopPropagation();
-      elements.openPdfEditor(page.pageNumber);
+      elements.openPdfEditor(itemId);
     });
 
     body.appendChild(title);
     const actions = document.createElement('div');
     actions.className = 'upload-pdf-page-actions';
+    const buttons = document.createElement('div');
+    buttons.className = 'upload-pdf-page-buttons';
+    const duplicateButton = document.createElement('button');
+    duplicateButton.type = 'button';
+    duplicateButton.className = 'upload-pdf-page-duplicate';
+    duplicateButton.textContent = 'Dupliceren';
+    duplicateButton.disabled = ['rendering', 'uploading', 'error'].includes(page.status);
+    duplicateButton.addEventListener('click', event => {
+      event.stopPropagation();
+      duplicatePdfPage(elements, page);
+    });
+    buttons.appendChild(duplicateButton);
+    buttons.appendChild(editButton);
     actions.appendChild(status);
-    actions.appendChild(editButton);
+    actions.appendChild(buttons);
     body.appendChild(actions);
     card.appendChild(thumb);
     card.appendChild(body);
@@ -780,9 +868,31 @@
   }
 
   function updatePdfPageCard(elements, page) {
-    const oldCard = elements.pdfPages?.querySelector(`.upload-pdf-page[data-page-number="${page.pageNumber}"]`);
+    const oldCard = elements.pdfPages?.querySelector(`.upload-pdf-page[data-page-id="${ensurePdfItemId(elements.pdfState, page)}"]`);
     const newCard = renderPdfPageCard(elements, page);
     if (oldCard) oldCard.replaceWith(newCard);
+  }
+
+  function duplicatePdfPage(elements, page) {
+    const state = elements.pdfState;
+    if (!state || !page || ['rendering', 'uploading', 'error'].includes(page.status)) return;
+    const sourcePageNumber = pdfSourcePageNumber(page);
+    const copyIndex = nextPdfCopyIndex(state, sourcePageNumber);
+    const duplicate = createPdfPageItem(state, {
+      sourcePageNumber,
+      copyIndex,
+      fileName: state.file?.name || '',
+    });
+    duplicate.thumbnailDataUrl = page.thumbnailDataUrl || '';
+    duplicate.previewDataUrl = page.previewDataUrl || '';
+    duplicate.status = duplicate.thumbnailDataUrl ? 'ready' : 'rendering';
+    duplicate.selected = true;
+
+    const lastSourceIndex = state.pages.reduce((lastIndex, item, index) => (
+      pdfSourcePageNumber(item) === sourcePageNumber ? index : lastIndex
+    ), -1);
+    state.pages.splice(lastSourceIndex + 1, 0, duplicate);
+    renderPdfPages(elements);
   }
 
   function renderPdfPages(elements) {
@@ -801,22 +911,23 @@
     container.innerHTML = '';
 
     selectedPdfPages(state).forEach(page => {
+      const pageLabel = pdfPageLabel(page);
       const row = document.createElement('div');
       row.className = 'upload-pdf-name-row';
 
       const thumb = document.createElement('button');
       thumb.type = 'button';
       thumb.className = 'upload-pdf-name-thumb';
-      thumb.title = `Pagina ${page.pageNumber} vergroot bekijken`;
+      thumb.title = `${pageLabel} vergroot bekijken`;
       thumb.addEventListener('click', () => showPdfPagePreview(elements, page));
       blockElementDragging(thumb);
       const number = document.createElement('span');
-      number.textContent = `P${page.pageNumber}`;
+      number.textContent = pdfPageShortLabel(page);
       thumb.appendChild(number);
       if (page.thumbnailDataUrl) {
         const img = document.createElement('img');
         img.src = page.thumbnailDataUrl;
-        img.alt = `PDF pagina ${page.pageNumber}`;
+        img.alt = `PDF ${pageLabel}`;
         blockElementDragging(img);
         thumb.appendChild(img);
       }
@@ -842,7 +953,7 @@
       const descriptionField = document.createElement('label');
       descriptionField.className = 'upload-pdf-name-field';
       const descriptionLabel = document.createElement('span');
-      descriptionLabel.textContent = `Beschrijving pagina ${page.pageNumber}`;
+      descriptionLabel.textContent = `Beschrijving ${pageLabel.toLowerCase()}`;
       const descriptionInput = document.createElement('input');
       descriptionInput.type = 'text';
       descriptionInput.className = 'upload-input';
@@ -897,7 +1008,7 @@
     for (const page of pages) {
       const cleanBuildingName = String(page.buildingName || '').trim();
       const cleanFloorLabel = String(page.floorLabel || page.floorplanName || '').trim();
-      if (!cleanFloorLabel) return { ok: false, error: `Vul een beschrijving in voor pagina ${page.pageNumber}.` };
+      if (!cleanFloorLabel) return { ok: false, error: `Vul een beschrijving in voor ${pdfPageLabel(page).toLowerCase()}.` };
       const cleanName = cleanBuildingName ? `${cleanBuildingName} - ${cleanFloorLabel}` : cleanFloorLabel;
       const key = cleanName.toLowerCase();
       if (seen.has(key)) return { ok: false, error: `Dubbele plattegrondnaam: "${cleanName}".` };
@@ -1052,20 +1163,14 @@
 
         elements.pdfState.file = file;
         elements.pdfState.pdf = pdf;
-        elements.pdfState.pages = Array.from({ length: pdf.numPages }, (_, index) => ({
-          pageNumber: index + 1,
-          selected: true,
-          thumbnailDataUrl: '',
-          editDataUrl: '',
-          outputWidth: 0,
-          outputHeight: 0,
-          floorplanName: pdfService.suggestedFloorplanName(file.name, index + 1),
-          floorLabel: pdfService.suggestedFloorplanName(file.name, index + 1),
-          buildingName: '',
-          edited: false,
-          status: 'rendering',
-          error: '',
-        }));
+        elements.pdfState.nextItemId = 1;
+        elements.pdfState.pages = Array.from({ length: pdf.numPages }, (_, index) => (
+          createPdfPageItem(elements.pdfState, {
+            sourcePageNumber: index + 1,
+            copyIndex: 1,
+            fileName: file.name,
+          })
+        ));
 
         hide(elements.pdfProcessing);
         show(elements.pdfOverview, 'flex');
@@ -1075,7 +1180,7 @@
           const page = elements.pdfState.pages[index];
           if (runGeneration !== generation) return;
           try {
-            const thumb = await pdfService.renderPdfPageToCanvas(pdf, page.pageNumber, {
+            const thumb = await pdfService.renderPdfPageToCanvas(pdf, pdfSourcePageNumber(page), {
               scale: pdfService.THUMB_RENDER_SCALE,
             });
             page.thumbnailDataUrl = thumb.canvas.toDataURL('image/jpeg', 0.7);
@@ -1107,11 +1212,11 @@
       }
 
       const pdfService = FD.PdfImportService;
-      const result = await pdfService.renderPdfPageToCanvas(elements.pdfState.pdf, page.pageNumber, {
+      const result = await pdfService.renderPdfPageToCanvas(elements.pdfState.pdf, pdfSourcePageNumber(page), {
         scale: pdfService.UPLOAD_RENDER_SCALE,
       });
       const uploadImage = pdfService.uploadJPEGResult(result.canvas, {
-        errorMessage: `Pagina ${page.pageNumber} is te groot. Crop de pagina kleiner of probeer een lagere kwaliteit PDF.`,
+        errorMessage: `${pdfPageLabel(page)} is te groot. Crop de pagina kleiner of probeer een lagere kwaliteit PDF.`,
       });
       page.outputWidth = uploadImage.width;
       page.outputHeight = uploadImage.height;
@@ -1199,15 +1304,16 @@
       });
     }
 
-    async function openPdfEditor(pageNumber) {
+    async function openPdfEditor(itemId) {
       if (typeof Cropper === 'undefined') {
         showToast('Crop-tool kon niet worden geladen', 'error');
         return;
       }
 
       const state = elements.pdfState;
-      const page = state.pages.find(item => item.pageNumber === pageNumber);
+      const page = state.pages.find(item => item.itemId === itemId || String(item.pageNumber) === String(itemId));
       if (!page || !state.pdf) return;
+      const pageLabel = pdfPageLabel(page);
 
       const runId = ++state.activeEditorRun;
       state.activePage = page;
@@ -1218,9 +1324,9 @@
       hide(elements.pdfOverview);
       hide(elements.pdfForm);
       show(elements.pdfEditor, 'flex');
-      elements.pdfTitle.textContent = `Pagina ${page.pageNumber} bewerken`;
+      elements.pdfTitle.textContent = `${pageLabel} bewerken`;
       elements.pdfSummary.textContent = 'Crop of roteer de pagina en sla daarna op.';
-      elements.pdfEditorTitle.textContent = `Pagina ${page.pageNumber}`;
+      elements.pdfEditorTitle.textContent = pageLabel;
       elements.pdfEditorSaveButton.disabled = true;
       elements.pdfEditorSaveButton.textContent = 'Laden...';
       setPdfEditorLoading(elements, true);
@@ -1228,11 +1334,11 @@
       try {
         let dataUrl = page.editDataUrl;
         if (!dataUrl) {
-          const rendered = await FD.PdfImportService.renderPdfPageToCanvas(state.pdf, page.pageNumber, {
+          const rendered = await FD.PdfImportService.renderPdfPageToCanvas(state.pdf, pdfSourcePageNumber(page), {
             scale: FD.PdfImportService.UPLOAD_RENDER_SCALE,
           });
           dataUrl = FD.PdfImportService.canvasToEditorPreviewJPEG(rendered.canvas, {
-            errorMessage: `Pagina ${page.pageNumber} is te groot voor de bewerk-preview.`,
+            errorMessage: `${pageLabel} is te groot voor de bewerk-preview.`,
           });
         }
         if (runId !== state.activeEditorRun) return;
@@ -1322,7 +1428,7 @@
           imageSmoothingQuality: 'high',
         });
         const uploadImage = FD.PdfImportService.uploadJPEGResult(outputCanvas, {
-          errorMessage: `Pagina ${page.pageNumber} is te groot. Maak de uitsnede kleiner.`,
+          errorMessage: `${pdfPageLabel(page)} is te groot. Maak de uitsnede kleiner.`,
         });
         page.editDataUrl = uploadImage.dataUrl;
         page.outputWidth = uploadImage.width;
@@ -1332,7 +1438,7 @@
         page.edited = true;
         page.status = 'ready';
         page.error = '';
-        showToast(`Pagina ${page.pageNumber} bewerkt`, 'success');
+        showToast(`${pdfPageLabel(page)} bewerkt`, 'success');
         showPdfOverview({ discardEditorChanges: false });
       } catch (err) {
         elements.pdfEditorSaveButton.disabled = false;
@@ -1462,8 +1568,8 @@
           renderPdfNameRows(elements);
         }
       } catch (err) {
-        const failedIndex = form.pages.findIndex(page => page.status === 'uploading');
-        const failed = failedIndex >= 0 ? form.pages[failedIndex] : null;
+          const failedIndex = form.pages.findIndex(page => page.status === 'uploading');
+          const failed = failedIndex >= 0 ? form.pages[failedIndex] : null;
         if (failed) {
           failed.status = 'error';
           failed.error = err.message || 'Upload mislukt';
@@ -1471,7 +1577,7 @@
         setPdfUploadProgress(elements, {
           visible: true,
           value: Math.max(0, (Math.max(0, failedIndex) * 4) / totalUnits * 100),
-          text: failed ? `Upload gestopt bij pagina ${failed.pageNumber}` : 'Upload gestopt',
+          text: failed ? `Upload gestopt bij ${pdfPageLabel(failed).toLowerCase()}` : 'Upload gestopt',
         });
         elements.pdfErrorEl.textContent = `Upload gestopt: ${err.message || 'onbekende fout'}. Eerder gelukte pagina's blijven staan.`;
         renderPdfNameRows(elements);
