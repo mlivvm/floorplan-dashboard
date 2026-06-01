@@ -1,4 +1,4 @@
-@import url('./admin-dashboard-tokens.css?v=1.9.9');
+@import url('./admin-dashboard-tokens.css?v=1.9.10');
 
     * {
       margin: 0;
@@ -1754,7 +1754,7 @@
       min-width: 0;
       height: 50px;
       min-height: 50px;
-      padding: 5px 34px 5px 12px;
+      padding: 4px 34px 4px 12px;
       overflow: hidden;
       border: 1px solid rgba(255,255,255,0.78);
       border-radius: 10px;
@@ -1813,7 +1813,7 @@
       text-overflow: ellipsis;
       white-space: nowrap;
       font-size: 14px;
-      line-height: 1.08;
+      line-height: 1.2;
       font-weight: 800;
       color: #111827;
     }
@@ -1827,7 +1827,7 @@
       text-overflow: ellipsis;
       white-space: nowrap;
       font-size: 10.5px;
-      line-height: 1.05;
+      line-height: 1.12;
       font-weight: 750;
       color: #5f6b76;
     }
