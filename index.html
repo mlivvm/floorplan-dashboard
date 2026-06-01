@@ -13,7 +13,7 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js" integrity="sha384-/1qUCSGwTur9vjf/z9lmu/eCUYbpOTgSjmpbMQZ1/CtX2v/WcAIKqRv+U1DUCG6e" crossorigin="anonymous"></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.6.2/cropper.min.css" integrity="sha384-6LFfkTKLRlzFtgx8xsWyBdKGpcMMQTkv+dB7rAbugeJAu1Ym2q1Aji1cjHBG12Xh" crossorigin="anonymous">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.6.2/cropper.min.js" integrity="sha384-jrOgQzBlDeUNdmQn3rUt/PZD+pdcRBdWd/HWRqRo+n2OR2QtGyjSaJC0GiCeH+ir" crossorigin="anonymous"></script>
-  <link rel="stylesheet" href="app.css?v=1.9.7">
+  <link rel="stylesheet" href="app.css?v=1.9.8">
 </head>
 <body>
 
@@ -25,14 +25,22 @@
 
   <!-- Login screen -->
   <div class="login-screen" id="login-screen" style="display:none;">
-    <div style="position:absolute; bottom:12px; left:16px; font-size:12px; color:#aaa;">v1.9.7</div>
+    <div style="position:absolute; bottom:12px; left:16px; font-size:12px; color:#aaa;">v1.9.8</div>
     <div class="environment-badge environment-badge-login" id="login-environment-badge" hidden>STAGING</div>
     <div class="login-box">
       <img class="login-logo" src="icon-192.png" alt="">
       <h1>KEYROL Dashboard</h1>
       <p>Deuren, plattegronden en inspectiestatus</p>
       <input type="text" id="login-username" placeholder="Gebruiker" autocomplete="username" autocapitalize="none" spellcheck="false">
-      <input type="password" id="login-password" placeholder="Wachtwoord" autocomplete="off">
+      <div class="login-password-field">
+        <input type="password" id="login-password" placeholder="Wachtwoord" autocomplete="off">
+        <button type="button" class="login-password-toggle" id="login-password-toggle" aria-label="Wachtwoord tonen" aria-pressed="false" title="Wachtwoord tonen">
+          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z"></path>
+            <circle cx="12" cy="12" r="3"></circle>
+          </svg>
+        </button>
+      </div>
       <label for="login-remember" style="display:inline-flex; align-items:center; gap:8px; margin-bottom:16px; font-size:14px; color:#666; cursor:pointer;">
         <input type="checkbox" id="login-remember" style="width:18px; height:18px; flex-shrink:0; margin:0;"> <span style="line-height:1;">Ingelogd blijven</span>
       </label>
@@ -43,7 +51,7 @@
 
   <!-- App (hidden until logged in) -->
   <div id="app-container" style="display:none;">
-  <div style="position:fixed; bottom:12px; left:16px; font-size:12px; color:#aaa; z-index:1000; pointer-events:none;">v1.9.7</div>
+  <div style="position:fixed; bottom:12px; left:16px; font-size:12px; color:#aaa; z-index:1000; pointer-events:none;">v1.9.8</div>
 
   <!-- Toast notification -->
   <div id="toast" style="display:none; position:fixed; top:calc(env(safe-area-inset-top) + var(--topbar-h, 52px) + 12px); left:50%; transform:translateX(-50%); padding:14px 28px; border-radius:10px; font-size:16px; font-weight:600; z-index:500; box-shadow:0 4px 16px rgba(0,0,0,0.25); cursor:pointer; max-width:90vw; text-align:center;"></div>
@@ -70,6 +78,7 @@
       <button type="button" class="selector-pill" id="floorplan-picker-btn" disabled>
         <span class="selector-label">Plattegrond</span>
         <span class="selector-value" id="floorplan-picker-value">Kies plattegrond</span>
+        <span class="selector-meta" id="floorplan-picker-meta" hidden></span>
       </button>
     </div>
     <button type="button" class="topbar-metadata-btn" id="btn-topbar-metadata" title="Plattegrondgegevens aanpassen" aria-label="Plattegrondgegevens aanpassen" hidden disabled>&#128295;</button>
@@ -202,7 +211,10 @@
           <aside class="admin-dashboard-sidebar">
             <label class="admin-dashboard-label" for="admin-dashboard-search">Zoeken</label>
             <input id="admin-dashboard-search" class="admin-dashboard-input" type="search" placeholder="Klant, pand of plattegrond" autocomplete="off">
+            <div class="admin-dashboard-label admin-filter-heading">Klanten</div>
             <div class="admin-filter-list" id="admin-customer-filters"></div>
+            <div class="admin-dashboard-label admin-filter-heading" id="admin-location-filter-heading">Locatie</div>
+            <div class="admin-location-filter-control" id="admin-location-filters"></div>
           </aside>
 
           <main class="admin-floorplan-panel">
@@ -282,6 +294,10 @@
       <input id="admin-detail-building" class="admin-dashboard-input" type="text" placeholder="Pand">
       <label class="admin-dashboard-label" for="admin-detail-floor-label">Verdieping of naam</label>
       <input id="admin-detail-floor-label" class="admin-dashboard-input" type="text" placeholder="Verdieping of naam">
+      <label class="admin-dashboard-label" for="admin-detail-location-address">Adres</label>
+      <input id="admin-detail-location-address" class="admin-dashboard-input" type="text" placeholder="Straat, postcode en plaats">
+      <label class="admin-dashboard-label" for="admin-detail-location-note">Notitie</label>
+      <textarea id="admin-detail-location-note" class="admin-dashboard-input admin-dashboard-textarea" rows="3" placeholder="Bijzonderheden voor monteurs"></textarea>
       <div class="admin-detail-error" id="admin-detail-error"></div>
       <button type="button" id="admin-detail-save" class="admin-dashboard-primary">Gegevens opslaan</button>
       <button type="button" id="admin-detail-delete" class="admin-dashboard-danger">Plattegrond verwijderen</button>
@@ -299,6 +315,7 @@
       <button type="button" id="select-sheet-close" class="select-sheet-close" aria-label="Sluiten">&times;</button>
     </div>
     <input type="search" id="select-sheet-search" class="select-sheet-search" placeholder="Zoeken..." autocomplete="off">
+    <div id="select-sheet-location-filters" class="select-sheet-filters" hidden></div>
     <div id="select-sheet-list" class="select-sheet-list"></div>
   </div>
 
@@ -408,9 +425,16 @@
 
   <!-- Info panel — always visible when floorplan is loaded -->
   <div class="info-panel" id="info-panel" style="display:none;">
-    <div class="info-panel-door">
-      <span class="door-name" id="door-name">—</span>
-      <span class="door-status" id="door-status"></span>
+    <div class="info-panel-main">
+      <div class="info-panel-door">
+        <span class="door-name" id="door-name">—</span>
+        <span class="door-status" id="door-status"></span>
+      </div>
+      <div class="location-address-bar" id="location-address-bar" hidden>
+        <span class="location-address-name" id="location-address-name"></span>
+        <span class="location-address-text" id="location-address-text"></span>
+        <span class="location-address-note" id="location-address-note"></span>
+      </div>
     </div>
     <div class="info-panel-count" id="status-count"></div>
     <div class="info-panel-actions">
@@ -584,6 +608,8 @@
     <div style="display:flex; flex-direction:column; gap:12px;">
       <input type="text" id="metadata-building-name" placeholder="Pand" class="upload-input">
       <input type="text" id="metadata-floor-label" placeholder="Verdieping of naam" class="upload-input">
+      <input type="text" id="metadata-location-address" placeholder="Adres" class="upload-input">
+      <textarea id="metadata-location-note" placeholder="Notitie" class="upload-input metadata-location-note" rows="3"></textarea>
       <div id="metadata-fp-error" style="color:#d93025; font-size:14px; font-weight:600; min-height:20px;"></div>
       <div style="display:flex; gap:8px; justify-content:flex-end;">
         <button id="metadata-fp-cancel" type="button" style="font-size:16px; padding:10px 20px; border:none; border-radius:8px; background:#e0e0e0; color:#333; font-weight:600; cursor:pointer;">Annuleren</button>
@@ -654,25 +680,25 @@
 
   </div><!-- /app-container -->
 
-  <script src="env-config.js?v=1.9.7"></script>
-  <script src="data-service.js?v=1.9.7"></script>
-  <script src="diagnostics-service.js?v=1.9.7"></script>
-  <script src="floorplan-cache-service.js?v=1.9.7"></script>
-  <script src="floorplan-view-service.js?v=1.9.7"></script>
-  <script src="auth-service.js?v=1.9.7"></script>
-  <script src="status-service.js?v=1.9.7"></script>
-  <script src="status-sync-service.js?v=1.9.7"></script>
-  <script src="mode-service.js?v=1.9.7"></script>
-  <script src="image-editor-service.js?v=1.9.7"></script>
-  <script src="viewport-service.js?v=1.9.7"></script>
-  <script src="marker-service.js?v=1.9.7"></script>
-  <script src="door-action-service.js?v=1.9.7"></script>
-  <script src="ui-shell-service.js?v=1.9.7"></script>
-  <script src="edit-ui-service.js?v=1.9.7"></script>
-  <script src="pdf-import-service.js?v=1.9.7"></script>
-  <script src="upload-service.js?v=1.9.7"></script>
-  <script src="select-sheet-service.js?v=1.9.7"></script>
-  <script src="side-panel-service.js?v=1.9.7"></script>
-  <script src="app.js?v=1.9.7"></script>
+  <script src="env-config.js?v=1.9.8"></script>
+  <script src="data-service.js?v=1.9.8"></script>
+  <script src="diagnostics-service.js?v=1.9.8"></script>
+  <script src="floorplan-cache-service.js?v=1.9.8"></script>
+  <script src="floorplan-view-service.js?v=1.9.8"></script>
+  <script src="auth-service.js?v=1.9.8"></script>
+  <script src="status-service.js?v=1.9.8"></script>
+  <script src="status-sync-service.js?v=1.9.8"></script>
+  <script src="mode-service.js?v=1.9.8"></script>
+  <script src="image-editor-service.js?v=1.9.8"></script>
+  <script src="viewport-service.js?v=1.9.8"></script>
+  <script src="marker-service.js?v=1.9.8"></script>
+  <script src="door-action-service.js?v=1.9.8"></script>
+  <script src="ui-shell-service.js?v=1.9.8"></script>
+  <script src="edit-ui-service.js?v=1.9.8"></script>
+  <script src="pdf-import-service.js?v=1.9.8"></script>
+  <script src="upload-service.js?v=1.9.8"></script>
+  <script src="select-sheet-service.js?v=1.9.8"></script>
+  <script src="side-panel-service.js?v=1.9.8"></script>
+  <script src="app.js?v=1.9.8"></script>
 </body>
 </html>

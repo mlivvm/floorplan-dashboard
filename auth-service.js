@@ -311,7 +311,23 @@
     function setLoginEnabled(enabled) {
       elements.loginButton.disabled = !enabled;
       elements.passwordInput.disabled = !enabled;
+      if (elements.passwordToggleButton) elements.passwordToggleButton.disabled = !enabled;
       if (elements.usernameInput) elements.usernameInput.disabled = !enabled;
+    }
+
+    function setPasswordVisible(visible) {
+      if (!elements.passwordInput || !elements.passwordToggleButton) return;
+      elements.passwordInput.type = visible ? 'text' : 'password';
+      elements.passwordToggleButton.classList.toggle('is-visible', visible);
+      elements.passwordToggleButton.setAttribute('aria-pressed', visible ? 'true' : 'false');
+      const label = visible ? 'Wachtwoord verbergen' : 'Wachtwoord tonen';
+      elements.passwordToggleButton.setAttribute('aria-label', label);
+      elements.passwordToggleButton.title = label;
+    }
+
+    function togglePasswordVisibility() {
+      setPasswordVisible(elements.passwordInput?.type === 'password');
+      elements.passwordInput?.focus();
     }
 
     function clearLockoutTimer() {
@@ -496,6 +512,7 @@
       initEmail();
       restoreRememberSession();
       elements.loginButton.addEventListener('click', handleLogin);
+      elements.passwordToggleButton?.addEventListener('click', togglePasswordVisibility);
       if (elements.usernameInput) {
         elements.usernameInput.addEventListener('keypress', (e) => {
           if (e.key === 'Enter') handleLogin();

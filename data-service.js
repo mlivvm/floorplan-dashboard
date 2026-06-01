@@ -595,6 +595,8 @@
         fileName: fp.file,
         buildingName,
         floorLabel,
+        locationAddress: options.locationAddress || '',
+        locationNote: options.locationNote || '',
       }, {
         signal: options.signal,
         headers: {
@@ -864,6 +866,8 @@
       nextCustomerName: record.nextCustomerName || record.customerName,
       buildingName: record.buildingName || '',
       floorLabel: record.floorLabel || '',
+      locationAddress: record.locationAddress || '',
+      locationNote: record.locationNote || '',
     }, {
       ...options,
       headers: {

@@ -4,6 +4,10 @@
     numeric: true,
     sensitivity: 'base',
   });
+  const LOCATION_ALL_VALUE = '';
+  const LOCATION_NONE_VALUE = '__fd_no_location__';
+  const LOCATION_NONE_LABEL = 'Zonder locatie';
+  const DIRECT_LOCATION_FILTER_LIMIT = 4;
 
   function getSelectedOptionText(selectEl, fallback) {
     if (!selectEl?.value) return fallback;
@@ -39,6 +43,90 @@
     const { building, floorLabel } = floorplanDisplayParts(floorplan);
     if (building && floorLabel) return `${building} - ${floorLabel}`;
     return floorLabel || building || String(floorplan?.name || '').trim();
+  }
+
+  function floorplanLocationName(floorplan) {
+    return String(floorplan?.building || '').trim();
+  }
+
+  function normalizeLocationName(value) {
+    return String(value || '').trim().toLowerCase();
+  }
+
+  function floorplanLocationFilterValue(floorplan) {
+    return floorplanLocationName(floorplan) || LOCATION_NONE_VALUE;
+  }
+
+  function floorplanLocationFilterLabel(value) {
+    return value === LOCATION_NONE_VALUE ? LOCATION_NONE_LABEL : String(value || '').trim();
+  }
+
+  function compareLocationValues(left, right) {
+    const leftNone = left === LOCATION_NONE_VALUE;
+    const rightNone = right === LOCATION_NONE_VALUE;
+    if (leftNone !== rightNone) return leftNone ? 1 : -1;
+    return LABEL_COLLATOR.compare(
+      floorplanLocationFilterLabel(left),
+      floorplanLocationFilterLabel(right)
+    );
+  }
+
+  function buildLocationFilterOptions(items, options = {}) {
+    const safeItems = Array.isArray(items) ? items : [];
+    const counts = new Map();
+    let hasRealLocation = false;
+    safeItems.forEach(item => {
+      const value = floorplanLocationFilterValue(item);
+      if (value !== LOCATION_NONE_VALUE) hasRealLocation = true;
+      counts.set(value, (counts.get(value) || 0) + 1);
+    });
+    if (!hasRealLocation) return [];
+
+    const locationOptions = Array.from(counts.entries())
+      .sort((left, right) => compareLocationValues(left[0], right[0]))
+      .map(([value, count]) => ({
+        value,
+        label: floorplanLocationFilterLabel(value),
+        count,
+      }));
+
+    return [
+      {
+        value: LOCATION_ALL_VALUE,
+        label: options.allLabel || 'Alle locaties',
+        count: safeItems.length,
+      },
+      ...locationOptions,
+    ];
+  }
+
+  function getCustomerLocationDetails(customer, locationName) {
+    const normalized = normalizeLocationName(locationName);
+    if (!normalized || !Array.isArray(customer?.locations)) return null;
+    const location = customer.locations.find(item => normalizeLocationName(item?.name) === normalized);
+    if (!location) return null;
+    const address = String(location.address || '').trim();
+    const note = String(location.note || '').trim();
+    if (!address && !note) return null;
+    return {
+      name: String(location.name || locationName || '').trim(),
+      address,
+      note,
+    };
+  }
+
+  function getFloorplanLocationDetails(customer, floorplan) {
+    const details = getCustomerLocationDetails(customer, floorplanLocationName(floorplan));
+    if (details) return details;
+
+    const address = String(floorplan?.locationAddress || floorplan?.address || '').trim();
+    const note = String(floorplan?.locationNote || floorplan?.note || '').trim();
+    if (!address && !note) return null;
+    return {
+      name: floorplanLocationName(floorplan) || 'Locatie',
+      address,
+      note,
+    };
   }
 
   function renderSelectOptions(selectEl, placeholder, items, labelForItem) {
@@ -105,10 +193,28 @@
     listEl.appendChild(empty);
   }
 
+  function appendGroupHeader(listEl, text) {
+    const header = document.createElement('div');
+    header.className = 'select-sheet-group-header';
+    header.textContent = text;
+    listEl.appendChild(header);
+  }
+
+  function setOptionalText(el, text) {
+    if (!el) return;
+    const value = String(text || '').trim();
+    el.textContent = value;
+    el.hidden = !value;
+  }
+
   function createController({
     elements,
     getState,
     getItems,
+    getFilters,
+    getFilterValue,
+    getPickerMeta,
+    onFilterChange,
     onSelect,
   }) {
     let activeType = null;
@@ -117,16 +223,98 @@
       return typeof getState === 'function' ? getState() : {};
     }
 
+    function filterValueForType(type) {
+      return typeof getFilterValue === 'function' ? String(getFilterValue(type) || '') : '';
+    }
+
     function updatePickerButtons() {
-      const { customerSelect, floorplanSelect, customerPickerBtn, floorplanPickerBtn, customerPickerValue, floorplanPickerValue } = elements;
+      const {
+        customerSelect,
+        floorplanSelect,
+        customerPickerBtn,
+        floorplanPickerBtn,
+        customerPickerValue,
+        floorplanPickerValue,
+        customerPickerMeta,
+        floorplanPickerMeta,
+      } = elements;
       const { customersLoading = false } = state();
 
       customerPickerValue.textContent = customersLoading
         ? 'Klanten laden...'
         : getSelectedOptionText(customerSelect, 'Kies klant');
       floorplanPickerValue.textContent = getSelectedOptionText(floorplanSelect, 'Kies plattegrond');
+      setOptionalText(customerPickerMeta, typeof getPickerMeta === 'function' ? getPickerMeta('customer') : '');
+      setOptionalText(floorplanPickerMeta, typeof getPickerMeta === 'function' ? getPickerMeta('floorplan') : '');
       customerPickerBtn.disabled = customerSelect.disabled || customersLoading;
       floorplanPickerBtn.disabled = floorplanSelect.disabled || !customerSelect.value;
+    }
+
+    function renderFilters() {
+      const filterEl = elements.filters;
+      if (!filterEl) return;
+      filterEl.innerHTML = '';
+      if (activeType !== 'floorplan' || typeof getFilters !== 'function') {
+        filterEl.hidden = true;
+        filterEl.classList.remove('select-sheet-filters--chips');
+        return;
+      }
+
+      const filters = getFilters(activeType) || [];
+      if (!filters.length) {
+        filterEl.hidden = true;
+        filterEl.classList.remove('select-sheet-filters--chips');
+        return;
+      }
+
+      const currentValue = filterValueForType(activeType);
+      const currentFilter = filters.find(filter => String(filter.value || '') === currentValue) || filters[0];
+      filterEl.hidden = false;
+      filterEl.classList.toggle('select-sheet-filters--chips', filters.length <= DIRECT_LOCATION_FILTER_LIMIT);
+
+      if (filters.length <= DIRECT_LOCATION_FILTER_LIMIT) {
+        filters.forEach(filter => {
+          const value = String(filter.value || '');
+          const button = document.createElement('button');
+          button.type = 'button';
+          button.className = 'select-sheet-filter-chip';
+          button.classList.toggle('active', value === currentValue);
+          const label = document.createElement('span');
+          label.textContent = filter.label;
+          const count = document.createElement('span');
+          count.className = 'select-sheet-filter-count';
+          count.textContent = String(filter.count || 0);
+          button.append(label, count);
+          button.addEventListener('click', () => {
+            if (typeof onFilterChange === 'function') onFilterChange(activeType, value);
+            renderFilters();
+            renderItems();
+          });
+          filterEl.appendChild(button);
+        });
+        return;
+      }
+
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'select-sheet-location-button';
+      const label = document.createElement('span');
+      label.className = 'select-sheet-location-label';
+      label.textContent = 'Locatie';
+      const value = document.createElement('span');
+      value.className = 'select-sheet-location-value';
+      value.textContent = `${currentFilter?.label || 'Alle locaties'} (${currentFilter?.count || 0})`;
+      button.append(label, value);
+      if (currentFilter?.description) {
+        const description = document.createElement('span');
+        description.className = 'select-sheet-location-description';
+        description.textContent = currentFilter.description;
+        button.appendChild(description);
+      }
+      button.addEventListener('click', () => {
+        open('location');
+      });
+      filterEl.appendChild(button);
     }
 
     function renderItems() {
@@ -141,25 +329,44 @@
       }
 
       const query = search.value.trim().toLowerCase();
-      const currentValue = activeType === 'customer' ? customerSelect.value : floorplanSelect.value;
+      const currentValue = activeType === 'customer'
+        ? customerSelect.value
+        : (activeType === 'floorplan' ? floorplanSelect.value : filterValueForType('floorplan'));
       const typeAtRender = activeType;
+      const activeFilter = typeAtRender === 'floorplan' ? filterValueForType(typeAtRender) : '';
       const items = (typeof getItems === 'function' ? getItems(typeAtRender) : [])
-        .filter(item => item.label.toLowerCase().includes(query));
+        .filter(item => {
+          if (activeFilter && item.filterValue !== activeFilter) return false;
+          const searchText = String(item.searchText || `${item.label || ''} ${item.meta || ''}`).toLowerCase();
+          return !query || searchText.includes(query);
+        });
 
       if (!items.length) {
         appendEmpty(list, 'Geen resultaten');
         return;
       }
 
+      let lastGroupLabel = null;
       items.forEach(item => {
+        if (typeAtRender === 'floorplan' && !activeFilter && item.groupLabel && item.groupLabel !== lastGroupLabel) {
+          lastGroupLabel = item.groupLabel;
+          appendGroupHeader(list, item.groupLabel);
+        }
         const btn = document.createElement('button');
         btn.type = 'button';
         btn.className = 'select-sheet-item';
-        if (String(item.index) === currentValue) btn.classList.add('selected');
+        const itemValue = typeAtRender === 'location' ? String(item.value || '') : String(item.index);
+        if (itemValue === currentValue) btn.classList.add('selected');
         if (item.readOnly) btn.classList.add('readonly');
         const label = document.createElement('span');
         label.textContent = item.label;
         btn.appendChild(label);
+        if (item.description) {
+          const description = document.createElement('span');
+          description.className = 'select-sheet-item-description';
+          description.textContent = item.description;
+          btn.appendChild(description);
+        }
         if (item.meta) {
           const meta = document.createElement('span');
           meta.className = 'select-sheet-item-meta';
@@ -168,7 +375,7 @@
         }
         btn.addEventListener('click', () => {
           if (typeof onSelect === 'function') onSelect(typeAtRender, item);
-          close();
+          if (activeType === typeAtRender) close();
         });
         list.appendChild(btn);
       });
@@ -180,18 +387,26 @@
       const { customersLoading = false } = state();
       if (type === 'customer' && (customersLoading || customerPickerBtn.disabled)) return;
       if (type === 'floorplan' && floorplanPickerBtn.disabled) return;
+      if (type === 'location' && !(typeof getFilters === 'function' && (getFilters('floorplan') || []).length)) return;
 
       activeType = type;
-      eyebrow.textContent = type === 'customer' ? 'Klant' : 'Plattegrond';
-      title.textContent = type === 'customer' ? 'Kies klant' : 'Kies plattegrond';
+      eyebrow.textContent = type === 'customer' ? 'Klant' : (type === 'location' ? 'Locatie' : 'Plattegrond');
+      title.textContent = type === 'customer' ? 'Kies klant' : (type === 'location' ? 'Kies locatie' : 'Kies plattegrond');
       search.value = '';
+      search.placeholder = type === 'location' ? 'Zoek locatie...' : 'Zoeken...';
       setSheetDisplay(elements, true);
+      renderFilters();
       renderItems();
       setTimeout(() => search.focus(), 0);
     }
 
     function close() {
       setSheetDisplay(elements, false);
+      if (elements.filters) {
+        elements.filters.hidden = true;
+        elements.filters.innerHTML = '';
+        elements.filters.classList.remove('select-sheet-filters--chips');
+      }
       activeType = null;
     }
 
@@ -204,6 +419,7 @@
       getActiveType: () => activeType,
       isOpen,
       open,
+      renderFilters,
       renderItems,
       updatePickerButtons,
     };
@@ -213,6 +429,10 @@
     elements,
     getState,
     getItems,
+    getFilters,
+    getFilterValue,
+    getPickerMeta,
+    onFilterChange,
     onCustomerChange,
     onFloorplanChange,
   }) {
@@ -221,13 +441,20 @@
       elements,
       getState,
       getItems,
+      getFilters,
+      getFilterValue,
+      getPickerMeta,
+      onFilterChange,
       onSelect: (type, item) => {
         if (type === 'customer') {
           elements.customerSelect.value = String(item.index);
           handleCustomerChange();
-        } else {
+        } else if (type === 'floorplan') {
           elements.floorplanSelect.value = String(item.index);
           handleFloorplanChange();
+        } else if (type === 'location') {
+          if (typeof onFilterChange === 'function') onFilterChange('floorplan', String(item.value || ''));
+          sheetController.open('floorplan');
         }
       },
     });
@@ -271,14 +498,25 @@
       getActiveType: sheetController.getActiveType,
       isOpen: sheetController.isOpen,
       open: sheetController.open,
+      renderFilters: sheetController.renderFilters,
       renderItems: sheetController.renderItems,
       updatePickerButtons: sheetController.updatePickerButtons,
     };
   }
 
   FD.SelectSheetService = {
+    LOCATION_ALL_VALUE,
+    LOCATION_NONE_VALUE,
+    LOCATION_NONE_LABEL,
+    DIRECT_LOCATION_FILTER_LIMIT,
+    buildLocationFilterOptions,
     createController,
     createSelectionController,
+    floorplanLocationFilterLabel,
+    floorplanLocationFilterValue,
+    floorplanLocationName,
+    getCustomerLocationDetails,
+    getFloorplanLocationDetails,
     floorplanDisplayName,
     floorplanDisplayParts,
     getSelectedFloorplan,
