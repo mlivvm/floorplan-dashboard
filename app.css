@@ -1,4 +1,4 @@
-@import url('./admin-dashboard-tokens.css?v=1.9.5');
+@import url('./admin-dashboard-tokens.css?v=1.9.6');
 
     * {
       margin: 0;
@@ -3619,8 +3619,8 @@
       background: #fff;
       overflow: hidden;
       cursor: pointer;
-      height: 288px;
-      min-height: 288px;
+      height: 304px;
+      min-height: 304px;
       display: flex;
       flex-direction: column;
       transition: border-color 0.12s ease, box-shadow 0.12s ease, transform 0.12s ease;
@@ -3678,7 +3678,7 @@
     }
 
     .upload-pdf-page-body {
-      padding: 11px 12px 12px;
+      padding: 11px 12px 18px;
       display: flex;
       flex-direction: column;
       gap: 9px;
@@ -4073,8 +4073,8 @@
       }
 
       .upload-pdf-page {
-        height: 318px;
-        min-height: 318px;
+        height: 326px;
+        min-height: 326px;
       }
 
       .upload-pdf-page-thumb {
