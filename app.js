@@ -3796,7 +3796,12 @@
     let autoPrefix = '';
     let autoPadding = 3;
     const LABELS_STORAGE_KEY = envStorageKey('fd_show_labels');
-    let showLabels = localStorage.getItem(LABELS_STORAGE_KEY) === '1';
+    const LABELS_DEFAULT_MIGRATION_KEY = envStorageKey('fd_show_labels_default_on_v1');
+    if (localStorage.getItem(LABELS_DEFAULT_MIGRATION_KEY) !== '1') {
+      localStorage.setItem(LABELS_STORAGE_KEY, '1');
+      localStorage.setItem(LABELS_DEFAULT_MIGRATION_KEY, '1');
+    }
+    let showLabels = localStorage.getItem(LABELS_STORAGE_KEY) !== '0';
     let editLabelElements = [];
 
     const topbar = document.querySelector('.topbar');
