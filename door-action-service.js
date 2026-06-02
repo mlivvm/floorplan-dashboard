@@ -120,10 +120,12 @@
     }
 
     if (isDone) {
-      button.textContent = 'Terugzetten';
+      button.textContent = 'Terug';
+      button.title = 'Terugzetten naar nog te doen';
       button.className = 'btn btn-undo';
     } else {
       button.textContent = 'Gedaan';
+      button.title = '';
       button.className = 'btn btn-done';
     }
   }
