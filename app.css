@@ -1,4 +1,4 @@
-@import url('./admin-dashboard-tokens.css?v=1.9.15');
+@import url('./admin-dashboard-tokens.css?v=1.9.16');
 
     * {
       margin: 0;
@@ -2174,29 +2174,65 @@
 
     @media (max-width: 760px) {
       .info-panel {
-        align-items: stretch;
-        flex-wrap: wrap;
+        align-items: center;
+        flex-wrap: nowrap;
+        padding: 8px 12px;
+        gap: 8px;
       }
 
-      .info-panel-main {
-        flex-basis: 100%;
+      .info-panel-count {
+        display: none;
       }
 
-      .location-address-bar {
-        flex-wrap: wrap;
-        gap: 4px 8px;
+      .info-panel-actions,
+      .jotform-actions {
+        gap: 6px;
       }
 
-      .location-address-name {
-        max-width: 48%;
+      .info-panel .btn {
+        min-height: 44px;
+        padding: 8px 10px;
       }
 
-      .location-address-note {
-        flex-basis: 100%;
+      .info-panel .btn-jotform {
+        min-width: 96px;
+        max-width: 112px;
+        padding-left: 8px;
+        padding-right: 8px;
+        font-size: 13px;
+      }
+
+      .info-panel .btn-close {
+        padding-left: 10px;
+        padding-right: 10px;
       }
     }
 
         @media (max-width: 560px) {
+          .info-panel {
+            align-items: stretch;
+            flex-wrap: wrap;
+            padding: 10px 16px;
+            gap: 12px;
+          }
+
+          .info-panel-main {
+            flex-basis: 100%;
+          }
+
+          .location-address-bar {
+            flex-wrap: wrap;
+            gap: 4px 8px;
+          }
+
+          .location-address-name {
+            max-width: 48%;
+          }
+
+          .location-address-note {
+            flex-basis: 100%;
+          }
+
           .info-panel-count {
             display: none;
           }
