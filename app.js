@@ -2,7 +2,7 @@
     // CONFIGURATION
     // ============================================================
 
-    const APP_VERSION = '1.9.12';
+    const APP_VERSION = '1.9.13';
     const ENV_CONFIG = window.FD?.Env?.config || window.FD_ENV_CONFIG || {};
     const DEFAULT_JOTFORM_FORM_ID = '250122093908351';
     const DEFAULT_JOTFORM_FORMS = {
@@ -348,6 +348,7 @@
     const topbarMenu = document.getElementById('topbar-menu');
     const btnTopbarMenu = document.getElementById('btn-menu');
     const btnMenuLabels = document.getElementById('btn-menu-labels');
+    const btnMenuMarkerOutline = document.getElementById('btn-menu-marker-outline');
     const btnReportProblem = document.getElementById('btn-report-problem');
     const reportProblemOverlay = document.getElementById('report-problem-overlay');
     const reportProblemPopup = document.getElementById('report-problem-popup');
@@ -4167,9 +4168,16 @@
         filter = 'drop-shadow(0 0 5px rgba(52, 168, 83, 0.40)) drop-shadow(0 1px 2px rgba(15, 23, 42, 0.20))';
       }
 
-      marker.style.fill = color;
-      marker.style.stroke = 'transparent';
-      marker.style.strokeWidth = '20';
+      if (markerOutlineMode) {
+        marker.style.fill = 'transparent';
+        marker.style.stroke = color;
+        marker.style.strokeWidth = '5';
+      } else {
+        marker.style.fill = color;
+        marker.style.stroke = 'transparent';
+        marker.style.strokeWidth = '20';
+      }
+      marker.style.vectorEffect = 'non-scaling-stroke';
 
       if (isSelected) {
         marker.style.opacity = OPACITY.selected;
@@ -4252,11 +4260,13 @@
     let autoPadding = 3;
     const LABELS_STORAGE_KEY = envStorageKey('fd_show_labels');
     const LABELS_DEFAULT_MIGRATION_KEY = envStorageKey('fd_show_labels_default_on_v1');
+    const MARKER_OUTLINE_STORAGE_KEY = envStorageKey('fd_marker_outline');
     if (localStorage.getItem(LABELS_DEFAULT_MIGRATION_KEY) !== '1') {
       localStorage.setItem(LABELS_STORAGE_KEY, '1');
       localStorage.setItem(LABELS_DEFAULT_MIGRATION_KEY, '1');
     }
     let showLabels = localStorage.getItem(LABELS_STORAGE_KEY) !== '0';
+    let markerOutlineMode = localStorage.getItem(MARKER_OUTLINE_STORAGE_KEY) === '1';
     let editLabelElements = [];
 
     const topbar = document.querySelector('.topbar');
@@ -4683,9 +4693,8 @@
     }
 
     function clearResizeHighlight(marker) {
-      marker.style.stroke = 'transparent';
-      marker.style.strokeWidth = '20';
-      marker.style.filter = '';
+      if (!marker) return;
+      applyDoorColor(marker, getDoorStatus(marker.dataset.doorId));
     }
 
     function applyResize() {
@@ -4821,6 +4830,18 @@
 
     function updateLabelsMenuButton() {
       FD.UIShellService.updateLabelsButton(btnMenuLabels, showLabels);
+    }
+
+    function toggleMarkerOutlineMode() {
+      markerOutlineMode = !markerOutlineMode;
+      localStorage.setItem(MARKER_OUTLINE_STORAGE_KEY, markerOutlineMode ? '1' : '0');
+      updateMarkerOutlineMenuButton();
+      refreshAllDoorColors();
+      hideTopbarMenu();
+    }
+
+    function updateMarkerOutlineMenuButton() {
+      FD.UIShellService.updateMarkerOutlineButton(btnMenuMarkerOutline, markerOutlineMode);
     }
 
     function handleEditTapOnEmpty(e) {
@@ -5879,6 +5900,10 @@
       e.stopPropagation();
       toggleLabels();
     });
+    btnMenuMarkerOutline?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      toggleMarkerOutlineMode();
+    });
 
     const authController = FD.AuthService.createAuthController({
       loginConfig: LOGIN_CONFIG,
@@ -5933,6 +5958,7 @@
 
     async function init() {
       updateLabelsMenuButton();
+      updateMarkerOutlineMenuButton();
       await Promise.all([loadCustomers(), loadStatus()]);
       const restored = await restoreJotFormReturnIfNeeded();
       if (!restored && isAdminUser()) {

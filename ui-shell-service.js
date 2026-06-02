@@ -161,6 +161,12 @@
     buttonEl.classList.toggle('active', labelsVisible);
   }
 
+  function updateMarkerOutlineButton(buttonEl, outlineEnabled) {
+    if (!buttonEl) return;
+    buttonEl.textContent = outlineEnabled ? 'Bolletjes vullen' : 'Bolletjes als rand';
+    buttonEl.classList.toggle('active', outlineEnabled);
+  }
+
   function updateUploadActionButtons({ deleteButtonEl, editImageButtonEl, metadataButtonEl, floorplan }) {
     const isUpload = Boolean(floorplan && (floorplan.uploaded || floorplan.repo === 'uploads'));
     setVisible(deleteButtonEl, isUpload);
@@ -181,6 +187,7 @@
     setVisible,
     setSidePanelOpen,
     updateLabelsButton,
+    updateMarkerOutlineButton,
     updateTopbarHeightProperty,
     updateUploadActionButtons,
     updateViewportHeightProperty,
