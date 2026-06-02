@@ -1,4 +1,4 @@
-@import url('./admin-dashboard-tokens.css?v=1.9.13');
+@import url('./admin-dashboard-tokens.css?v=1.9.14');
 
     * {
       margin: 0;
@@ -3432,6 +3432,11 @@
       color: #1769d2 !important;
     }
 
+    #topbar-menu button:disabled {
+      opacity: 0.48 !important;
+      cursor: not-allowed !important;
+    }
+
     @media (hover: hover) {
       #topbar-menu button:hover {
         background: #f2f6fb !important;
@@ -3439,6 +3444,81 @@
 
       #topbar-menu button.active:hover {
         background: #dfeeff !important;
+      }
+    }
+
+    .print-floorplan-root {
+      display: none;
+    }
+
+    @media print {
+      @page {
+        size: A4 landscape;
+        margin: 10mm;
+      }
+
+      html,
+      body {
+        width: auto !important;
+        min-width: 0 !important;
+        height: auto !important;
+        min-height: 0 !important;
+        overflow: visible !important;
+        background: #fff !important;
+      }
+
+      body > *:not(.print-floorplan-root) {
+        display: none !important;
+      }
+
+      .print-floorplan-root {
+        display: block !important;
+        position: static !important;
+        width: 100% !important;
+        min-height: auto !important;
+        padding: 0 !important;
+        margin: 0 !important;
+        background: #fff !important;
+        color: #111827 !important;
+      }
+
+      .print-floorplan-page {
+        width: 100%;
+        min-height: 180mm;
+        display: flex;
+        flex-direction: column;
+        gap: 4mm;
+        page-break-inside: avoid;
+      }
+
+      .print-floorplan-title {
+        flex: 0 0 auto;
+        font-size: 10pt;
+        font-weight: 700;
+        line-height: 1.25;
+        color: #111827;
+      }
+
+      .print-floorplan-canvas {
+        flex: 1 1 auto;
+        width: 100%;
+        min-height: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        overflow: hidden;
+      }
+
+      .print-floorplan-canvas svg {
+        position: static !important;
+        display: block !important;
+        width: 100% !important;
+        height: auto !important;
+        max-width: 100% !important;
+        max-height: 176mm !important;
+        transform: none !important;
+        transform-origin: 50% 50% !important;
+        background: #fff !important;
       }
     }
 
