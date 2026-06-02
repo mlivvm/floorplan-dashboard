@@ -43,6 +43,7 @@
       type,
       label: String(form.label || JOTFORM_FORM_TYPE_LABELS[type] || 'JotForm'),
       formId: String(form.formId || (type === DEFAULT_JOTFORM_FORM_TYPE ? config.formId : '') || '').trim(),
+      disabled: Boolean(form.disabled),
     };
   }
 
@@ -80,7 +81,10 @@
   function renderJotFormButton(button, { doorId, isDone, lookupState = {}, form = {} }) {
     if (!button) return;
     const baseLabel = String(form.label || 'JotForm');
-    if (!doorId) {
+    const unavailable = Boolean(form.disabled);
+    button.dataset.jotformUnavailable = unavailable ? '1' : '0';
+    button.title = unavailable ? `${baseLabel} formulier nog niet beschikbaar` : '';
+    if (!doorId || unavailable) {
       button.textContent = baseLabel;
       button.dataset.jotformAction = 'none';
       button.dataset.jotformPending = '0';
@@ -291,6 +295,10 @@
     async function openJotForm(formType = DEFAULT_JOTFORM_FORM_TYPE) {
       const type = normalizeJotFormFormType(formType);
       const form = getJotFormForm(config, type);
+      if (form.disabled) {
+        if (typeof showToast === 'function') showToast(`${form.label} formulier nog niet beschikbaar`, 'error');
+        return;
+      }
       if (!form.formId) {
         if (typeof showToast === 'function') showToast('JotForm formulier ontbreekt', 'error');
         return;

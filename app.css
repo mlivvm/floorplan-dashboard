@@ -1,4 +1,4 @@
-@import url('./admin-dashboard-tokens.css?v=1.9.11');
+@import url('./admin-dashboard-tokens.css?v=1.9.12');
 
     * {
       margin: 0;
@@ -2141,6 +2141,12 @@
           font-size: 13.5px;
           line-height: 1.12;
           white-space: normal;
+        }
+
+        .info-panel .btn-jotform[data-jotform-unavailable="1"] {
+          background: #e2e8f0;
+          color: #64748b;
+          box-shadow: none;
         }
 
     .info-panel .btn-done {

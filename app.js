@@ -2,12 +2,12 @@
     // CONFIGURATION
     // ============================================================
 
-    const APP_VERSION = '1.9.11';
+    const APP_VERSION = '1.9.12';
     const ENV_CONFIG = window.FD?.Env?.config || window.FD_ENV_CONFIG || {};
     const DEFAULT_JOTFORM_FORM_ID = '250122093908351';
     const DEFAULT_JOTFORM_FORMS = {
-      maintenance: { label: 'Onderhoud', formId: DEFAULT_JOTFORM_FORM_ID },
-      inspection: { label: 'Opname', formId: '243196137549364' },
+      maintenance: { label: 'Onderhoud', formId: DEFAULT_JOTFORM_FORM_ID, disabled: false },
+      inspection: { label: 'Opname', formId: '243196137549364', disabled: true },
     };
     const envStorageKey = (key) => (
       typeof ENV_CONFIG.storageKey === 'function'
@@ -32,6 +32,9 @@
         forms[type] = {
           label: String(override.label || defaults.label),
           formId: String(override.formId || (type === 'maintenance' ? fallbackFormId : '') || defaults.formId || '').trim(),
+          disabled: Object.prototype.hasOwnProperty.call(override, 'disabled')
+            ? Boolean(override.disabled)
+            : Boolean(defaults.disabled),
         };
       });
       return forms;
@@ -978,7 +981,7 @@
 
     function jotFormFormTypes() {
       return Object.entries(CONFIG.jotformForms || {})
-        .filter(([, form]) => form?.formId)
+        .filter(([, form]) => form?.formId && !form.disabled)
         .map(([type]) => normalizeJotFormFormType(type));
     }
 
@@ -1969,10 +1972,13 @@
           Object.values(btnJotforms).forEach(button => {
             if (!button) return;
             const jotformPending = button.dataset.jotformPending === '1';
-            button.classList.toggle('disabled', !allowed || jotformPending);
-            button.title = !allowed
+            const jotformUnavailable = button.dataset.jotformUnavailable === '1';
+            button.classList.toggle('disabled', !allowed || jotformPending || jotformUnavailable);
+            button.title = jotformUnavailable
+              ? 'Opname formulier nog niet beschikbaar'
+              : (!allowed
               ? 'Alleen kijken op deze plattegrond'
-              : (jotformPending ? 'Formulierstatus controleren...' : '');
+              : (jotformPending ? 'Formulierstatus controleren...' : ''));
           });
         }
 
