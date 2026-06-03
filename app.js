@@ -2,7 +2,7 @@
     // CONFIGURATION
     // ============================================================
 
-    const APP_VERSION = '1.9.16';
+    const APP_VERSION = '1.9.19';
     const ENV_CONFIG = window.FD?.Env?.config || window.FD_ENV_CONFIG || {};
     const DEFAULT_JOTFORM_FORM_ID = '250122093908351';
     const DEFAULT_JOTFORM_FORMS = {
@@ -350,6 +350,7 @@
     const btnMenuLabels = document.getElementById('btn-menu-labels');
     const btnMenuMarkerOutline = document.getElementById('btn-menu-marker-outline');
     const btnPrintFloorplan = document.getElementById('btn-print-floorplan');
+    const btnExportExcel = document.getElementById('btn-export-excel');
     const btnReportProblem = document.getElementById('btn-report-problem');
     const reportProblemOverlay = document.getElementById('report-problem-overlay');
     const reportProblemPopup = document.getElementById('report-problem-popup');
@@ -358,7 +359,23 @@
     const reportProblemError = document.getElementById('report-problem-error');
     const reportProblemSubmit = document.getElementById('report-problem-submit');
     const reportProblemCancel = document.getElementById('report-problem-cancel');
-    const topbarMenuController = FD.UIShellService.createTopbarMenu({
+    const exportExcelOverlay = document.getElementById('export-excel-overlay');
+    const exportExcelPopup = document.getElementById('export-excel-popup');
+    const exportExcelContext = document.getElementById('export-excel-context');
+    const exportExcelClose = document.getElementById('export-excel-close');
+    const exportExcelCurrent = document.getElementById('export-excel-current');
+    const exportExcelSelect = document.getElementById('export-excel-select');
+	    const exportExcelSelection = document.getElementById('export-excel-selection');
+	    const exportExcelList = document.getElementById('export-excel-list');
+	    const exportExcelConfirm = document.getElementById('export-excel-confirm');
+	    const exportExcelError = document.getElementById('export-excel-error');
+	    const imageEditorSaveErrorOverlay = document.getElementById('image-editor-save-error-overlay');
+	    const imageEditorSaveErrorPopup = document.getElementById('image-editor-save-error-popup');
+	    const imageEditorSaveErrorMessage = document.getElementById('image-editor-save-error-message');
+	    const imageEditorSaveErrorDetails = document.getElementById('image-editor-save-error-details');
+	    const imageEditorSaveErrorCopy = document.getElementById('image-editor-save-error-copy');
+	    const imageEditorSaveErrorClose = document.getElementById('image-editor-save-error-close');
+	    const topbarMenuController = FD.UIShellService.createTopbarMenu({
       toggleButtonEl: btnTopbarMenu,
       menuEl: topbarMenu,
       documentEl: document,
@@ -388,6 +405,15 @@
       overlayEl: reportProblemOverlay,
       popupEl: reportProblemPopup,
     });
+	    const exportExcelDialog = FD.UIShellService.createPopupPair({
+	      overlayEl: exportExcelOverlay,
+	      popupEl: exportExcelPopup,
+	    });
+	    const imageEditorSaveErrorDialog = FD.UIShellService.createPopupPair({
+	      overlayEl: imageEditorSaveErrorOverlay,
+	      popupEl: imageEditorSaveErrorPopup,
+	    });
+    let exportExcelBaseRecord = null;
 
     function hideTopbarMenu() {
       topbarMenuController.hide();
@@ -788,9 +814,10 @@
     const diagnostics = FD.DiagnosticsService.create(CONFIG, {
       getContext: getDiagnosticsContext,
       logger: console,
-    });
+	    });
 
-    let reportProblemSubmitting = false;
+	    let reportProblemSubmitting = false;
+	    let imageEditorSaveErrorDetailsText = '';
 
     function reportProblemMessage() {
       return String(reportProblemText?.value || '').trim();
@@ -2041,6 +2068,12 @@
         const canPrint = canUseFloorplanActions && appMode.isInteractiveView();
         btnPrintFloorplan.disabled = !canPrint;
         btnPrintFloorplan.title = canPrint ? '' : 'Kies eerst een plattegrond';
+      }
+      if (btnExportExcel) {
+        const canExport = isAdminUser() && canUseFloorplanActions && appMode.isInteractiveView();
+        btnExportExcel.style.display = isAdminUser() ? 'block' : 'none';
+        btnExportExcel.disabled = !canExport;
+        btnExportExcel.title = canExport ? '' : 'Kies eerst een plattegrond';
       }
       const editButton = document.getElementById('btn-edit');
       if (editButton) {
@@ -4115,6 +4148,7 @@
       resetFloorplanUI();
       statusCount.textContent = '';
       hideTopbarMenu();
+      hideExportExcelDialog();
       updatePickerButtons();
       updateDeleteButton();
       updateRoleActionButtons();
@@ -4878,6 +4912,158 @@
 
     function updateMarkerOutlineMenuButton() {
       FD.UIShellService.updateMarkerOutlineButton(btnMenuMarkerOutline, markerOutlineMode);
+    }
+
+    function getExportBaseRecord() {
+      if (adminDashboardState.visible) {
+        const adminRecord = getSelectedAdminFloorplan();
+        if (adminRecord) return adminRecord;
+      }
+      return getSelectedTopbarFloorplanRecord();
+    }
+
+    function setExportExcelBusy(busy) {
+      [exportExcelCurrent, exportExcelSelect, exportExcelConfirm].forEach(button => {
+        if (button) button.disabled = busy;
+      });
+    }
+
+    function setExportExcelError(message) {
+      if (exportExcelError) exportExcelError.textContent = message || '';
+    }
+
+    function hideExportExcelDialog() {
+      exportExcelBaseRecord = null;
+      if (exportExcelSelection) exportExcelSelection.hidden = true;
+      setExportExcelError('');
+      exportExcelDialog.hide();
+    }
+
+    async function ensureAdminOverviewForExport() {
+      if (adminDashboardState.data) return adminDashboardState.data;
+      const data = await FD.DataService.fetchAdminOverview(CONFIG, {
+        diagnostics: {
+          purpose: 'admin_export_excel',
+        },
+      });
+      adminDashboardState.data = data;
+      adminDashboardState.lastUpdatedAt = new Date().toISOString();
+      return data;
+    }
+
+    function findExportFloorplanRecord(record, data = getAdminData()) {
+      if (!record) return null;
+      const key = adminFloorplanKey(record);
+      return (data.floorplans || []).find(item => adminFloorplanKey(item) === key) || null;
+    }
+
+    function exportFloorplansForExcel(floorplans) {
+      const selectedFloorplans = (Array.isArray(floorplans) ? floorplans : []).filter(Boolean);
+      if (!selectedFloorplans.length) {
+        setExportExcelError('Selecteer minimaal een plattegrond.');
+        return;
+      }
+      const result = FD.ExportService.downloadDoorcodeWorkbook({
+        floorplans: selectedFloorplans,
+        doors: getAdminData().doors || [],
+        documentEl: document,
+      });
+      hideExportExcelDialog();
+      showToast(`Excel export gemaakt: ${result.filename}`, 'success');
+    }
+
+    function renderExportFloorplanChoices() {
+      if (!exportExcelList) return;
+      exportExcelList.innerHTML = '';
+      const data = getAdminData();
+      const base = findExportFloorplanRecord(exportExcelBaseRecord, data);
+      if (!base) {
+        setExportExcelError('Deze plattegrond staat niet in de exportdata.');
+        return;
+      }
+      const sameCustomer = (data.floorplans || [])
+        .filter(record => record.customer === base.customer)
+        .sort((left, right) => ADMIN_COLLATOR.compare(
+          left.displayName || left.name || '',
+          right.displayName || right.name || ''
+        ));
+      if (!sameCustomer.length) {
+        setExportExcelError('Geen plattegronden gevonden voor deze klant.');
+        return;
+      }
+
+      sameCustomer.forEach(record => {
+        const label = document.createElement('label');
+        label.className = 'export-excel-option';
+        const input = document.createElement('input');
+        input.type = 'checkbox';
+        input.value = adminFloorplanKey(record);
+        input.checked = adminFloorplanKey(record) === adminFloorplanKey(base);
+        const text = document.createElement('div');
+        const name = document.createElement('strong');
+        name.textContent = record.displayName || record.name || 'Plattegrond';
+        const meta = document.createElement('span');
+        meta.textContent = `${record.doorsTotal || 0} deurcode${Number(record.doorsTotal || 0) === 1 ? '' : 's'}`;
+        text.append(name, meta);
+        label.append(input, text);
+        exportExcelList.appendChild(label);
+      });
+    }
+
+    async function openExportExcelDialog() {
+      hideTopbarMenu();
+      if (!isAdminUser()) return;
+      if (!appMode.isInteractiveView()) {
+        showToast('Sluit eerst het huidige scherm', 'error');
+        return;
+      }
+      const base = getExportBaseRecord();
+      if (!base) {
+        showToast('Kies eerst een plattegrond', 'error');
+        return;
+      }
+      exportExcelBaseRecord = base;
+      if (exportExcelContext) {
+        exportExcelContext.textContent = `${base.customer} · ${base.displayName || base.name || 'Plattegrond'}`;
+      }
+      if (exportExcelSelection) exportExcelSelection.hidden = true;
+      setExportExcelError('Exportdata laden...');
+      setExportExcelBusy(true);
+      exportExcelDialog.show();
+      try {
+        await ensureAdminOverviewForExport();
+        setExportExcelError('');
+      } catch (err) {
+        setExportExcelError('Exportdata laden mislukt.');
+        console.warn('Excel exportdata laden mislukt:', err);
+      } finally {
+        setExportExcelBusy(false);
+      }
+    }
+
+    function exportCurrentFloorplan() {
+      const record = findExportFloorplanRecord(exportExcelBaseRecord);
+      if (!record) {
+        setExportExcelError('Deze plattegrond staat niet in de exportdata.');
+        return;
+      }
+      exportFloorplansForExcel([record]);
+    }
+
+    function showExportFloorplanSelection() {
+      if (exportExcelSelection) exportExcelSelection.hidden = false;
+      setExportExcelError('');
+      renderExportFloorplanChoices();
+    }
+
+    function exportSelectedFloorplans() {
+      const selectedKeys = Array.from(exportExcelList?.querySelectorAll('input[type="checkbox"]:checked') || [])
+        .map(input => input.value);
+      const selectedSet = new Set(selectedKeys);
+      const base = findExportFloorplanRecord(exportExcelBaseRecord);
+      const selected = (getAdminData().floorplans || [])
+        .filter(record => record.customer === base?.customer && selectedSet.has(adminFloorplanKey(record)));
+      exportFloorplansForExcel(selected);
     }
 
     function printFloorplanTitle() {
@@ -6083,6 +6269,15 @@
       e.stopPropagation();
       toggleMarkerOutlineMode();
     });
+    btnExportExcel?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      openExportExcelDialog();
+    });
+    exportExcelClose?.addEventListener('click', hideExportExcelDialog);
+    exportExcelOverlay?.addEventListener('click', hideExportExcelDialog);
+    exportExcelCurrent?.addEventListener('click', exportCurrentFloorplan);
+    exportExcelSelect?.addEventListener('click', showExportFloorplanSelection);
+    exportExcelConfirm?.addEventListener('click', exportSelectedFloorplans);
 
     const authController = FD.AuthService.createAuthController({
       loginConfig: LOGIN_CONFIG,
@@ -6479,6 +6674,7 @@
     function closeImageEditor() {
       if (appMode.isAny([AppModes.IMAGE_EDITOR, AppModes.IMAGE_EDITOR_SAVING])) appMode.enter(AppModes.VIEW);
       else exitImageEditorModeUI();
+      updateRoleActionButtons();
     }
 
     function setEditorTool(tool) {
@@ -6976,15 +7172,116 @@
       document.getElementById('crop-outside-popup').style.display = 'block';
     }
 
-    function hideCropOutsideConfirm() {
-      const overlay = document.getElementById('crop-outside-overlay');
-      const popup = document.getElementById('crop-outside-popup');
-      if (overlay) overlay.style.display = 'none';
-      if (popup) popup.style.display = 'none';
-      pendingCropSave = null;
-    }
+	    function hideCropOutsideConfirm() {
+	      const overlay = document.getElementById('crop-outside-overlay');
+	      const popup = document.getElementById('crop-outside-popup');
+	      if (overlay) overlay.style.display = 'none';
+	      if (popup) popup.style.display = 'none';
+	      pendingCropSave = null;
+	    }
 
-    async function saveEditorChanges({ confirmedOutsideDoors = false } = {}) {
+	    function formatEditorSaveSize(length) {
+	      const value = Number(length || 0);
+	      if (!Number.isFinite(value) || value <= 0) return 'onbekend';
+	      return `${value.toLocaleString('nl-NL')} tekens`;
+	    }
+
+	    function imageEditorSaveUserMessage(err) {
+	      const code = String(err?.code || '').toLowerCase();
+	      const status = Number(err?.status || 0);
+	      if (code === 'image_editor_too_large' || code === 'invalid_svg' || code === 'invalid_request_body' || status === 413 || status === 400) {
+	        return 'Deze plattegrond is te groot om op te slaan. Probeer een iets kleinere uitsnede of meld dit bij Mark.';
+	      }
+	      return 'Deze plattegrond kon niet worden opgeslagen. Probeer het opnieuw of meld dit bij Mark.';
+	    }
+
+	    function buildImageEditorSaveErrorDetails(err, {
+	      fp,
+	      plan,
+	      imageResult,
+	      svgText,
+	    } = {}) {
+	      const lines = [
+	        `Klant: ${currentCustomer || '-'}`,
+	        `Plattegrond: ${currentFloorplan || '-'}`,
+	        `Bestand: ${fp?.file || '-'}`,
+	        `Repo: ${fp?.repo || 'uploads'}`,
+	        `Geschatte JPEG-grootte: ${formatEditorSaveSize(err?.estimatedLength || imageResult?.dataUrl?.length)}`,
+	        `SVG-grootte: ${formatEditorSaveSize(svgText?.length)}`,
+	        `Limiet JPEG: ${formatEditorSaveSize(err?.maxLength || FD.ImageEditorService?.MAX_IMAGE_EDITOR_DATA_URL_LENGTH)}`,
+	        `Uitsnede: ${Math.round(plan?.cropW || 0)} x ${Math.round(plan?.cropH || 0)}`,
+	        `Output: ${imageResult?.width || err?.width || '-'} x ${imageResult?.height || err?.height || '-'}`,
+	        `Schaal: ${imageResult?.scale || err?.scale || '-'}`,
+	        `Kwaliteit: ${imageResult?.quality || err?.quality || '-'}`,
+	        `Poginglimiet: ${formatEditorSaveSize(imageResult?.maxLength || err?.maxLength)}`,
+	        `Pogingen: ${imageResult?.attempt || err?.attempt || '-'}`,
+	        `Foutcode: ${err?.code || err?.message || 'unknown'}`,
+	        `HTTP-status: ${err?.status || '-'}`,
+	        `Appversie: ${APP_VERSION}`,
+	      ];
+	      return lines.join('\n');
+	    }
+
+	    function showImageEditorSaveError(err, context = {}) {
+	      imageEditorSaveErrorDetailsText = buildImageEditorSaveErrorDetails(err, context);
+	      if (imageEditorSaveErrorMessage) {
+	        imageEditorSaveErrorMessage.textContent = imageEditorSaveUserMessage(err);
+	      }
+	      if (imageEditorSaveErrorDetails) {
+	        imageEditorSaveErrorDetails.textContent = imageEditorSaveErrorDetailsText;
+	      }
+	      imageEditorSaveErrorDialog.show();
+	    }
+
+	    function hideImageEditorSaveError() {
+	      imageEditorSaveErrorDialog.hide();
+	    }
+
+	    async function copyImageEditorSaveErrorDetails() {
+	      if (!imageEditorSaveErrorDetailsText) return;
+	      try {
+	        if (navigator.clipboard?.writeText) {
+	          await navigator.clipboard.writeText(imageEditorSaveErrorDetailsText);
+	        } else {
+	          const textarea = document.createElement('textarea');
+	          textarea.value = imageEditorSaveErrorDetailsText;
+	          textarea.setAttribute('readonly', 'readonly');
+	          textarea.style.position = 'fixed';
+	          textarea.style.left = '-9999px';
+	          document.body.appendChild(textarea);
+	          textarea.select();
+	          document.execCommand('copy');
+	          textarea.remove();
+	        }
+	        showToast('Details gekopieerd', 'success');
+	      } catch {
+	        showToast('Kopiëren lukt niet', 'error');
+	      }
+	    }
+
+	    function isRetryableEditorSaveSizeError(err) {
+	      const code = String(err?.code || '').toLowerCase();
+	      const status = Number(err?.status || 0);
+	      return code === 'invalid_request_body' ||
+	        code === 'invalid_svg' ||
+	        code === 'image_editor_too_large' ||
+	        status === 413 ||
+	        status === 400;
+	    }
+
+	    function buildEditorSaveSVG({ imageDataUrl, rotatedPlan, plan }) {
+	      return rotatedPlan ? buildRotatedEditorSVGText({
+	        imageDataUrl,
+	        plan: rotatedPlan,
+	      }) : FD.ImageEditorService.buildCroppedSVGText({
+	        svgEl: editorCropContext.svgEl,
+	        imageDataUrl,
+	        plan,
+	        markerService: FD.MarkerService,
+	      });
+	    }
+
+	    async function saveEditorChanges({ confirmedOutsideDoors = false } = {}) {
       if (editorSaving) return;
       const fp = getCurrentFloorplanObj();
       if (!fp) { showToast('Geen plattegrond geselecteerd', 'error'); return; }
@@ -7006,34 +7303,59 @@
         subtitle: 'Bewerkte plattegrond wordt opgeslagen...',
       });
 
-      try {
-        const outputCanvas = editorCropper.getCroppedCanvas({
-          width: Math.max(1, Math.round(plan.cropW)),
-          height: Math.max(1, Math.round(plan.cropH)),
-          fillColor: '#fff',
-          imageSmoothingEnabled: true,
-          imageSmoothingQuality: 'high',
-        });
-        const newDataUrl = FD.ImageEditorService.canvasToLimitedJPEG(outputCanvas);
-        const svgText = rotatedPlan ? buildRotatedEditorSVGText({
-          imageDataUrl: newDataUrl,
-          plan: rotatedPlan,
-        }) : FD.ImageEditorService.buildCroppedSVGText({
-          svgEl: editorCropContext.svgEl,
-          imageDataUrl: newDataUrl,
-          plan,
-          markerService: FD.MarkerService,
-        });
-        const fileUrl = CONFIG.svgUploadsUrl + encodeURIComponent(fp.file);
-        const updateResult = await FD.DataService.saveFloorplanSVG(fileUrl, svgText, {
-          config: CONFIG,
-          customerName: currentCustomer,
-          floorplanName: currentFloorplan,
-          message: 'Afbeelding bewerkt: ' + currentCustomer + ' - ' + currentFloorplan,
-          fetchErrorMessage: 'Kon bestand niet ophalen ({status})',
-          saveErrorMessage: 'Opslaan mislukt ({status})',
-        });
-        await updateCachedSVGAfterSave(fileUrl, updateResult, svgText);
+	      let imageResult = null;
+	      let svgTextForSave = '';
+	      try {
+	        const outputCanvas = editorCropper.getCroppedCanvas({
+	          width: Math.max(1, Math.round(plan.cropW)),
+	          height: Math.max(1, Math.round(plan.cropH)),
+	          fillColor: '#fff',
+	          imageSmoothingEnabled: true,
+	          imageSmoothingQuality: 'high',
+	        });
+	        const fileUrl = CONFIG.svgUploadsUrl + encodeURIComponent(fp.file);
+	        const saveTargets = [
+	          FD.ImageEditorService.MAX_IMAGE_EDITOR_DATA_URL_LENGTH || 1560000,
+	          1120000,
+	          1040000,
+	          900000,
+	        ];
+	        let updateResult = null;
+	        let lastSaveError = null;
+	        for (let attempt = 0; attempt < saveTargets.length; attempt += 1) {
+	          const maxLength = saveTargets[attempt];
+	          imageResult = {
+	            ...FD.ImageEditorService.canvasToLimitedJPEGResult(outputCanvas, { maxLength }),
+	            maxLength,
+	            attempt: attempt + 1,
+	          };
+	          svgTextForSave = buildEditorSaveSVG({
+	            imageDataUrl: imageResult.dataUrl,
+	            rotatedPlan,
+	            plan,
+	          });
+	          try {
+	            updateResult = await FD.DataService.saveFloorplanSVG(fileUrl, svgTextForSave, {
+	              config: CONFIG,
+	              customerName: currentCustomer,
+	              floorplanName: currentFloorplan,
+	              message: 'Afbeelding bewerkt: ' + currentCustomer + ' - ' + currentFloorplan,
+	              fetchErrorMessage: 'Kon bestand niet ophalen ({status})',
+	              saveErrorMessage: 'Opslaan mislukt ({status})',
+	            });
+	            lastSaveError = null;
+	            break;
+	          } catch (err) {
+	            lastSaveError = err;
+	            if (attempt >= saveTargets.length - 1 || !isRetryableEditorSaveSizeError(err)) throw err;
+	            busyOverlay.update({
+	              title: 'Afbeelding verkleinen',
+	              subtitle: 'Bestand is te groot voor opslaan; kleinere versie wordt geprobeerd...',
+	            });
+	          }
+	        }
+	        if (!updateResult) throw lastSaveError || new Error('Opslaan mislukt');
+	        await updateCachedSVGAfterSave(fileUrl, updateResult, svgTextForSave);
 
         btnSave.textContent = 'Bijwerken...';
         busyOverlay.update({
@@ -7047,16 +7369,20 @@
         closeImageEditor();
         showToast('Afbeelding opgeslagen', 'success');
 
-      } catch (err) {
-        const duplicateMessage = duplicateDoorCodeMessage(err);
-        showToast(duplicateMessage
-          ? 'Opslaan mislukt: ' + duplicateMessage
-          : 'Fout: ' + err.message, 'error');
-        editorSaving = false;
-        if (appMode.is(AppModes.IMAGE_EDITOR_SAVING)) appMode.enter(AppModes.IMAGE_EDITOR);
-        btnSave.disabled = false;
-        btnSave.textContent = '\uD83D\uDCBE Opslaan';
-      } finally {
+	      } catch (err) {
+	        const duplicateMessage = duplicateDoorCodeMessage(err);
+	        editorSaving = false;
+	        if (appMode.is(AppModes.IMAGE_EDITOR_SAVING)) appMode.enter(AppModes.IMAGE_EDITOR);
+	        btnSave.disabled = false;
+	        btnSave.textContent = '\uD83D\uDCBE Opslaan';
+	        busyOverlay.hide();
+	        showImageEditorSaveError(duplicateMessage ? new Error(duplicateMessage) : err, {
+	          fp,
+	          plan,
+	          imageResult,
+	          svgText: svgTextForSave,
+	        });
+	      } finally {
         if (!editorSaving || !appMode.is(AppModes.IMAGE_EDITOR_SAVING)) {
           busyOverlay.hide();
         }
@@ -7095,13 +7421,16 @@
     editorCancelOverlay.addEventListener('click', hideEditorCancelConfirm);
     document.getElementById('crop-outside-cancel').addEventListener('click', hideCropOutsideConfirm);
     document.getElementById('crop-outside-overlay').addEventListener('click', hideCropOutsideConfirm);
-    document.getElementById('crop-outside-confirm').addEventListener('click', () => {
-      const next = pendingCropSave;
-      hideCropOutsideConfirm();
-      if (next) next();
-    });
+	    document.getElementById('crop-outside-confirm').addEventListener('click', () => {
+	      const next = pendingCropSave;
+	      hideCropOutsideConfirm();
+	      if (next) next();
+	    });
+	    imageEditorSaveErrorClose?.addEventListener('click', hideImageEditorSaveError);
+	    imageEditorSaveErrorOverlay?.addEventListener('click', hideImageEditorSaveError);
+	    imageEditorSaveErrorCopy?.addEventListener('click', copyImageEditorSaveErrorDetails);
 
-    document.getElementById('img-editor-undo').addEventListener('click', editorUndo);
+	    document.getElementById('img-editor-undo').addEventListener('click', editorUndo);
     document.getElementById('img-editor-tool-pan').addEventListener('click', () => setEditorTool('pan'));
     document.getElementById('img-editor-tool-crop').addEventListener('click', () => showToast('Sleep de hoeken om de uitsnede aan te passen', 'success'));
     document.getElementById('img-editor-tool-erase').addEventListener('click', () => setEditorTool('erase'));

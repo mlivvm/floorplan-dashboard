@@ -13,7 +13,7 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js" integrity="sha384-/1qUCSGwTur9vjf/z9lmu/eCUYbpOTgSjmpbMQZ1/CtX2v/WcAIKqRv+U1DUCG6e" crossorigin="anonymous"></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.6.2/cropper.min.css" integrity="sha384-6LFfkTKLRlzFtgx8xsWyBdKGpcMMQTkv+dB7rAbugeJAu1Ym2q1Aji1cjHBG12Xh" crossorigin="anonymous">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.6.2/cropper.min.js" integrity="sha384-jrOgQzBlDeUNdmQn3rUt/PZD+pdcRBdWd/HWRqRo+n2OR2QtGyjSaJC0GiCeH+ir" crossorigin="anonymous"></script>
-  <link rel="stylesheet" href="app.css?v=1.9.16">
+  <link rel="stylesheet" href="app.css?v=1.9.19">
 </head>
 <body>
 
@@ -25,7 +25,7 @@
 
   <!-- Login screen -->
   <div class="login-screen" id="login-screen" style="display:none;">
-    <div style="position:absolute; bottom:12px; left:16px; font-size:12px; color:#aaa;">v1.9.16</div>
+    <div style="position:absolute; bottom:12px; left:16px; font-size:12px; color:#aaa;">v1.9.19</div>
     <div class="environment-badge environment-badge-login" id="login-environment-badge" hidden>STAGING</div>
     <div class="login-box">
       <img class="login-logo" src="icon-192.png" alt="">
@@ -51,7 +51,7 @@
 
   <!-- App (hidden until logged in) -->
   <div id="app-container" style="display:none;">
-  <div style="position:fixed; bottom:12px; left:16px; font-size:12px; color:#aaa; z-index:1000; pointer-events:none;">v1.9.16</div>
+  <div style="position:fixed; bottom:12px; left:16px; font-size:12px; color:#aaa; z-index:1000; pointer-events:none;">v1.9.19</div>
 
   <!-- Toast notification -->
   <div id="toast" style="display:none; position:fixed; top:calc(env(safe-area-inset-top) + var(--topbar-h, 52px) + 12px); left:50%; transform:translateX(-50%); padding:14px 28px; border-radius:10px; font-size:16px; font-weight:600; z-index:500; box-shadow:0 4px 16px rgba(0,0,0,0.25); cursor:pointer; max-width:90vw; text-align:center;"></div>
@@ -104,6 +104,7 @@
         <button id="btn-menu-labels" style="display:block; width:100%; padding:14px 20px; border:none; background:white; font-size:16px; font-weight:600; color:#333; text-align:left; cursor:pointer;">Labels tonen</button>
         <button id="btn-menu-marker-outline" style="display:block; width:100%; padding:14px 20px; border:none; background:white; font-size:16px; font-weight:600; color:#333; text-align:left; cursor:pointer;">Bolletjes als rand</button>
         <button id="btn-print-floorplan" style="display:block; width:100%; padding:14px 20px; border:none; background:white; font-size:16px; font-weight:600; color:#333; text-align:left; cursor:pointer;">Print plattegrond</button>
+        <button id="btn-export-excel" style="display:none; width:100%; padding:14px 20px; border:none; background:white; font-size:16px; font-weight:600; color:#333; text-align:left; cursor:pointer;">Export Excel</button>
         <button id="btn-edit-fp-metadata" style="display:none; width:100%; padding:14px 20px; border:none; background:white; font-size:16px; font-weight:600; color:#1a73e8; text-align:left; cursor:pointer;">Gegevens bewerken</button>
         <button id="btn-edit-image" style="display:none; width:100%; padding:14px 20px; border:none; background:white; font-size:16px; font-weight:600; color:#1a73e8; text-align:left; cursor:pointer;">Plattegrond bewerken</button>
         <button id="btn-delete-fp" style="display:none; width:100%; padding:14px 20px; border:none; background:white; font-size:16px; font-weight:600; color:#d93025; text-align:left; cursor:pointer;">Plattegrond verwijderen</button>
@@ -393,6 +394,29 @@
     </div>
   </div>
 
+  <!-- Excel export -->
+  <div id="export-excel-overlay" class="export-excel-overlay" style="display:none;"></div>
+  <div id="export-excel-popup" class="export-excel-popup" style="display:none;" role="dialog" aria-modal="true" aria-labelledby="export-excel-title">
+    <div class="export-excel-header">
+      <div>
+        <div class="export-excel-kicker">Excel export</div>
+        <h3 id="export-excel-title">Deurcodes exporteren</h3>
+        <p id="export-excel-context">Kies eerst een plattegrond.</p>
+      </div>
+      <button id="export-excel-close" type="button" class="export-excel-close" aria-label="Export sluiten">&times;</button>
+    </div>
+    <div class="export-excel-actions">
+      <button id="export-excel-current" type="button" class="export-excel-primary">Huidige plattegrond</button>
+      <button id="export-excel-select" type="button" class="export-excel-secondary">Plattegronden selecteren</button>
+    </div>
+    <div id="export-excel-selection" class="export-excel-selection" hidden>
+      <div class="export-excel-selection-title">Plattegronden van deze klant</div>
+      <div id="export-excel-list" class="export-excel-list"></div>
+      <button id="export-excel-confirm" type="button" class="export-excel-primary">Geselecteerde exporteren</button>
+    </div>
+    <div id="export-excel-error" class="export-excel-error"></div>
+  </div>
+
   <!-- Cancel edit confirmation -->
   <div id="cancel-edit-overlay" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.4); z-index:299;"></div>
   <div id="cancel-edit-popup" style="display:none; position:fixed; top:50%; left:50%; transform:translate(-50%,-50%); background:white; padding:24px; border-radius:12px; box-shadow:0 8px 32px rgba(0,0,0,0.3); z-index:300; text-align:center; min-width:260px;">
@@ -665,17 +689,27 @@
     </div>
   </div>
   <div id="crop-outside-overlay" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.5); z-index:522;"></div>
-  <div id="crop-outside-popup" style="display:none; position:fixed; top:50%; left:50%; transform:translate(-50%,-50%); background:white; padding:24px; border-radius:12px; box-shadow:0 8px 32px rgba(0,0,0,0.3); z-index:523; text-align:left; width:min(420px, calc(100vw - 32px));">
-    <h3 style="font-size:18px; color:#333; margin-bottom:12px;">Deuren buiten uitsnede</h3>
-    <p style="font-size:15px; color:#555; line-height:1.5; margin-bottom:12px;">Deze deurcodes vallen buiten de nieuwe uitsnede en worden verwijderd als je doorgaat:</p>
-    <div id="crop-outside-codes" style="max-height:180px; overflow:auto; padding:10px 12px; background:#f5f5f5; border-radius:8px; font-size:15px; font-weight:700; color:#333; margin-bottom:18px;"></div>
-    <div style="display:flex; gap:8px; justify-content:flex-end;">
-      <button id="crop-outside-cancel" style="font-size:16px; padding:10px 22px; border:none; border-radius:8px; background:#e0e0e0; color:#333; font-weight:600; cursor:pointer;">Annuleren</button>
-      <button id="crop-outside-confirm" style="font-size:16px; padding:10px 22px; border:none; border-radius:8px; background:#d93025; color:white; font-weight:600; cursor:pointer;">Doorgaan</button>
-    </div>
-  </div>
+	  <div id="crop-outside-popup" style="display:none; position:fixed; top:50%; left:50%; transform:translate(-50%,-50%); background:white; padding:24px; border-radius:12px; box-shadow:0 8px 32px rgba(0,0,0,0.3); z-index:523; text-align:left; width:min(420px, calc(100vw - 32px));">
+	    <h3 style="font-size:18px; color:#333; margin-bottom:12px;">Deuren buiten uitsnede</h3>
+	    <p style="font-size:15px; color:#555; line-height:1.5; margin-bottom:12px;">Deze deurcodes vallen buiten de nieuwe uitsnede en worden verwijderd als je doorgaat:</p>
+	    <div id="crop-outside-codes" style="max-height:180px; overflow:auto; padding:10px 12px; background:#f5f5f5; border-radius:8px; font-size:15px; font-weight:700; color:#333; margin-bottom:18px;"></div>
+	    <div style="display:flex; gap:8px; justify-content:flex-end;">
+	      <button id="crop-outside-cancel" style="font-size:16px; padding:10px 22px; border:none; border-radius:8px; background:#e0e0e0; color:#333; font-weight:600; cursor:pointer;">Annuleren</button>
+	      <button id="crop-outside-confirm" style="font-size:16px; padding:10px 22px; border:none; border-radius:8px; background:#d93025; color:white; font-weight:600; cursor:pointer;">Doorgaan</button>
+	    </div>
+	  </div>
+	  <div id="image-editor-save-error-overlay" class="image-editor-save-error-overlay" style="display:none;"></div>
+	  <div id="image-editor-save-error-popup" class="image-editor-save-error-popup" style="display:none;" role="dialog" aria-modal="true" aria-labelledby="image-editor-save-error-title">
+	    <h3 id="image-editor-save-error-title">Opslaan lukt niet</h3>
+	    <p id="image-editor-save-error-message">Deze plattegrond is te groot om op te slaan. Probeer een iets kleinere uitsnede of meld dit bij Mark.</p>
+	    <pre id="image-editor-save-error-details"></pre>
+	    <div class="image-editor-save-error-actions">
+	      <button id="image-editor-save-error-copy" type="button" class="image-editor-save-error-secondary">Details kopiëren</button>
+	      <button id="image-editor-save-error-close" type="button" class="image-editor-save-error-primary">Sluiten</button>
+	    </div>
+	  </div>
 
-  <!-- Fullscreen image viewer (for upload preview zoom) -->
+	  <!-- Fullscreen image viewer (for upload preview zoom) -->
   <div id="img-fullscreen-overlay" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.95); z-index:500; overflow:auto; touch-action:auto; -webkit-overflow-scrolling:touch;">
     <div style="display:flex; justify-content:center; align-items:flex-start; min-height:100%; padding:60px 16px 24px;">
       <img id="img-fullscreen-img" style="max-width:100%; height:auto; border-radius:6px; touch-action:auto;">
@@ -685,25 +719,26 @@
 
   </div><!-- /app-container -->
 
-  <script src="env-config.js?v=1.9.16"></script>
-  <script src="data-service.js?v=1.9.16"></script>
-  <script src="diagnostics-service.js?v=1.9.16"></script>
-  <script src="floorplan-cache-service.js?v=1.9.16"></script>
-  <script src="floorplan-view-service.js?v=1.9.16"></script>
-  <script src="auth-service.js?v=1.9.16"></script>
-  <script src="status-service.js?v=1.9.16"></script>
-  <script src="status-sync-service.js?v=1.9.16"></script>
-  <script src="mode-service.js?v=1.9.16"></script>
-  <script src="image-editor-service.js?v=1.9.16"></script>
-  <script src="viewport-service.js?v=1.9.16"></script>
-  <script src="marker-service.js?v=1.9.16"></script>
-  <script src="door-action-service.js?v=1.9.16"></script>
-  <script src="ui-shell-service.js?v=1.9.16"></script>
-  <script src="edit-ui-service.js?v=1.9.16"></script>
-  <script src="pdf-import-service.js?v=1.9.16"></script>
-  <script src="upload-service.js?v=1.9.16"></script>
-  <script src="select-sheet-service.js?v=1.9.16"></script>
-  <script src="side-panel-service.js?v=1.9.16"></script>
-  <script src="app.js?v=1.9.16"></script>
+  <script src="env-config.js?v=1.9.19"></script>
+  <script src="data-service.js?v=1.9.19"></script>
+  <script src="diagnostics-service.js?v=1.9.19"></script>
+  <script src="floorplan-cache-service.js?v=1.9.19"></script>
+  <script src="floorplan-view-service.js?v=1.9.19"></script>
+  <script src="auth-service.js?v=1.9.19"></script>
+  <script src="status-service.js?v=1.9.19"></script>
+  <script src="status-sync-service.js?v=1.9.19"></script>
+  <script src="mode-service.js?v=1.9.19"></script>
+  <script src="image-editor-service.js?v=1.9.19"></script>
+  <script src="viewport-service.js?v=1.9.19"></script>
+  <script src="marker-service.js?v=1.9.19"></script>
+  <script src="door-action-service.js?v=1.9.19"></script>
+  <script src="ui-shell-service.js?v=1.9.19"></script>
+  <script src="export-service.js?v=1.9.19"></script>
+  <script src="edit-ui-service.js?v=1.9.19"></script>
+  <script src="pdf-import-service.js?v=1.9.19"></script>
+  <script src="upload-service.js?v=1.9.19"></script>
+  <script src="select-sheet-service.js?v=1.9.19"></script>
+  <script src="side-panel-service.js?v=1.9.19"></script>
+  <script src="app.js?v=1.9.19"></script>
 </body>
 </html>

@@ -1,4 +1,4 @@
-@import url('./admin-dashboard-tokens.css?v=1.9.16');
+@import url('./admin-dashboard-tokens.css?v=1.9.19');
 
     * {
       margin: 0;
@@ -2682,7 +2682,243 @@
       cursor: not-allowed;
     }
 
-    .busy-overlay {
+    .export-excel-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.42);
+      z-index: 299;
+    }
+
+    .export-excel-popup {
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      width: min(460px, calc(100vw - 32px));
+      max-height: calc(100vh - 48px);
+      overflow-y: auto;
+      background: #fff;
+      color: #1f2933;
+      padding: 22px;
+      border-radius: 10px;
+      box-shadow: 0 10px 36px rgba(0,0,0,0.3);
+      z-index: 300;
+    }
+
+    .export-excel-header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+
+    .export-excel-kicker {
+      margin-bottom: 3px;
+      font-size: 12px;
+      font-weight: 850;
+      color: #5f6b76;
+      text-transform: uppercase;
+      letter-spacing: 0;
+    }
+
+    .export-excel-popup h3 {
+      margin: 0 0 6px;
+      font-size: 19px;
+      color: #1f2933;
+    }
+
+    .export-excel-popup p {
+      margin: 0;
+      color: #526070;
+      font-size: 14px;
+      line-height: 1.4;
+    }
+
+    .export-excel-close {
+      width: 44px;
+      min-width: 44px;
+      min-height: 44px;
+      border: none;
+      border-radius: 8px;
+      background: #eef2f7;
+      color: #1f2933;
+      font-size: 24px;
+      line-height: 1;
+      cursor: pointer;
+    }
+
+    .export-excel-actions {
+      display: grid;
+      gap: 10px;
+    }
+
+    .export-excel-primary,
+    .export-excel-secondary {
+      min-height: 48px;
+      padding: 12px 16px;
+      border: none;
+      border-radius: 8px;
+      font-size: 16px;
+      font-weight: 800;
+      cursor: pointer;
+      text-align: left;
+    }
+
+    .export-excel-primary {
+      background: #1a73e8;
+      color: #fff;
+    }
+
+    .export-excel-secondary {
+      background: #e6e8eb;
+      color: #1f2933;
+    }
+
+    .export-excel-selection {
+      margin-top: 16px;
+      padding-top: 14px;
+      border-top: 1px solid #e5ebf3;
+    }
+
+    .export-excel-selection-title {
+      margin-bottom: 10px;
+      color: #39424e;
+      font-size: 14px;
+      font-weight: 800;
+    }
+
+    .export-excel-list {
+      display: grid;
+      gap: 8px;
+      margin-bottom: 12px;
+      max-height: min(320px, 42vh);
+      overflow-y: auto;
+    }
+
+    .export-excel-option {
+      display: grid;
+      grid-template-columns: 28px 1fr;
+      gap: 10px;
+      align-items: center;
+      min-height: 48px;
+      padding: 10px 12px;
+      border: 1px solid #d8e0ea;
+      border-radius: 8px;
+      cursor: pointer;
+      background: #fff;
+    }
+
+    .export-excel-option input {
+      width: 22px;
+      height: 22px;
+      margin: 0;
+    }
+
+    .export-excel-option strong {
+      display: block;
+      color: #1f2933;
+      font-size: 15px;
+      line-height: 1.3;
+    }
+
+    .export-excel-option span {
+      display: block;
+      margin-top: 2px;
+      color: #667685;
+      font-size: 13px;
+      line-height: 1.3;
+    }
+
+	    .export-excel-error {
+	      min-height: 18px;
+	      margin-top: 12px;
+	      color: #d93025;
+	      font-size: 13px;
+	      font-weight: 700;
+	    }
+
+	    .image-editor-save-error-overlay {
+	      position: fixed;
+	      inset: 0;
+	      background: rgba(0,0,0,0.5);
+	      z-index: 524;
+	    }
+
+	    .image-editor-save-error-popup {
+	      position: fixed;
+	      top: 50%;
+	      left: 50%;
+	      transform: translate(-50%, -50%);
+	      width: min(440px, calc(100vw - 32px));
+	      max-height: calc(100vh - 48px);
+	      overflow-y: auto;
+	      background: #fff;
+	      color: #1f2933;
+	      padding: 22px;
+	      border-radius: 12px;
+	      box-shadow: 0 10px 36px rgba(0,0,0,0.3);
+	      z-index: 525;
+	    }
+
+	    .image-editor-save-error-popup h3 {
+	      margin: 0 0 10px;
+	      color: #111827;
+	      font-size: 19px;
+	      letter-spacing: 0;
+	    }
+
+	    .image-editor-save-error-popup p {
+	      margin: 0 0 14px;
+	      color: #526070;
+	      font-size: 15px;
+	      line-height: 1.45;
+	    }
+
+	    .image-editor-save-error-popup pre {
+	      max-height: 180px;
+	      overflow: auto;
+	      margin: 0 0 16px;
+	      padding: 12px;
+	      border: 1px solid #d8e0ea;
+	      border-radius: 8px;
+	      background: #f8fafc;
+	      color: #1f2933;
+	      font-size: 12px;
+	      line-height: 1.45;
+	      white-space: pre-wrap;
+	      word-break: break-word;
+	    }
+
+	    .image-editor-save-error-actions {
+	      display: flex;
+	      gap: 10px;
+	      justify-content: flex-end;
+	      flex-wrap: wrap;
+	    }
+
+	    .image-editor-save-error-actions button {
+	      min-height: 46px;
+	      border: none;
+	      border-radius: 8px;
+	      padding: 11px 18px;
+	      font-size: 16px;
+	      font-weight: 750;
+	      cursor: pointer;
+	      touch-action: manipulation;
+	    }
+
+	    .image-editor-save-error-primary {
+	      background: #1a73e8;
+	      color: #fff;
+	    }
+
+	    .image-editor-save-error-secondary {
+	      background: #e6e8eb;
+	      color: #1f2933;
+	    }
+
+	    .busy-overlay {
       position: fixed;
       top: calc(env(safe-area-inset-top) + var(--topbar-h, 52px));
       left: 0;
@@ -3566,9 +3802,11 @@
     #upload-overlay,
     #editor-cancel-overlay,
     #crop-outside-overlay,
-    .edit-overlay,
-    .report-problem-overlay,
-    .admin-sessions-overlay,
+	    .edit-overlay,
+	    .report-problem-overlay,
+	    .export-excel-overlay,
+	    .image-editor-save-error-overlay,
+	    .admin-sessions-overlay,
     .admin-metadata-dialog-overlay,
     .select-sheet-overlay {
       background: rgba(15, 23, 42, 0.48) !important;
@@ -3583,9 +3821,11 @@
     #upload-popup,
     #editor-cancel-popup,
     #crop-outside-popup,
-    .edit-popup,
-    .report-problem-popup,
-    .admin-sessions-popup,
+	    .edit-popup,
+	    .report-problem-popup,
+	    .export-excel-popup,
+	    .image-editor-save-error-popup,
+	    .admin-sessions-popup,
     .admin-metadata-dialog,
     .select-sheet {
       border: 1px solid #d8e0ea !important;
@@ -3607,9 +3847,11 @@
 
     #app-update-popup,
     #metadata-fp-popup,
-    #crop-outside-popup,
-    .report-problem-popup,
-    .edit-popup {
+	    #crop-outside-popup,
+	    .report-problem-popup,
+	    .export-excel-popup,
+	    .image-editor-save-error-popup,
+	    .edit-popup {
       width: min(420px, calc(100vw - 32px)) !important;
       min-width: 0 !important;
       padding: 22px !important;
@@ -3628,8 +3870,10 @@
     #app-update-popup h3,
     #metadata-fp-popup h3,
     #crop-outside-popup h3,
-    .edit-popup h3,
-    .report-problem-popup h3 {
+	    .edit-popup h3,
+	    .report-problem-popup h3,
+	    .export-excel-popup h3,
+	    .image-editor-save-error-popup h3 {
       color: #111827 !important;
       letter-spacing: 0;
     }
@@ -3648,9 +3892,10 @@
     #delete-fp-popup > div,
     #editor-cancel-popup > div,
     #metadata-fp-popup div[style*="justify-content:flex-end"],
-    #crop-outside-popup div[style*="justify-content:flex-end"],
-    .edit-popup .popup-buttons,
-    .report-problem-actions {
+	    #crop-outside-popup div[style*="justify-content:flex-end"],
+	    .edit-popup .popup-buttons,
+	    .report-problem-actions,
+	    .image-editor-save-error-actions {
       gap: 10px !important;
       flex-wrap: wrap;
     }
@@ -3661,10 +3906,11 @@
     #delete-fp-popup button,
     #metadata-fp-popup button,
     #editor-cancel-popup button,
-    #crop-outside-popup button,
-    .edit-popup button,
-    .report-problem-actions button,
-    .upload-btn {
+	    #crop-outside-popup button,
+	    .edit-popup button,
+	    .report-problem-actions button,
+	    .image-editor-save-error-actions button,
+	    .upload-btn {
       min-height: 46px !important;
       border-radius: 8px !important;
       font-weight: 750 !important;
@@ -3679,10 +3925,11 @@
     #delete-fp-popup button:active,
     #metadata-fp-popup button:active,
     #editor-cancel-popup button:active,
-    #crop-outside-popup button:active,
-    .edit-popup button:active,
-    .report-problem-actions button:active,
-    .upload-btn:active {
+	    #crop-outside-popup button:active,
+	    .edit-popup button:active,
+	    .report-problem-actions button:active,
+	    .image-editor-save-error-actions button:active,
+	    .upload-btn:active {
       transform: translateY(1px);
     }
 
@@ -3696,10 +3943,11 @@
     }
 
     #app-update-confirm,
-    #metadata-fp-save,
-    #btn-scan-qr,
-    .report-problem-primary,
-    .upload-btn-blue {
+	    #metadata-fp-save,
+	    #btn-scan-qr,
+	    .report-problem-primary,
+	    .image-editor-save-error-primary,
+	    .upload-btn-blue {
       background: #1769d2 !important;
       color: #fff !important;
     }
@@ -3709,10 +3957,11 @@
     #cancel-edit-back,
     #delete-fp-cancel,
     #metadata-fp-cancel,
-    #editor-cancel-back,
-    #crop-outside-cancel,
-    .report-problem-secondary,
-    .upload-btn-grey {
+	    #editor-cancel-back,
+	    #crop-outside-cancel,
+	    .report-problem-secondary,
+	    .image-editor-save-error-secondary,
+	    .upload-btn-grey {
       border: 1px solid #cbd5e1 !important;
       background: #f8fafc !important;
       color: #1f2937 !important;

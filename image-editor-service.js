@@ -1,5 +1,6 @@
 (function (global) {
   const FD = global.FD = global.FD || {};
+  const MAX_IMAGE_EDITOR_DATA_URL_LENGTH = 1560000;
 
   function markerDoorCode(marker) {
     return marker.dataset?.doorId || marker.getAttribute('id') || 'Onbekend';
@@ -43,23 +44,94 @@
     return { cropData, cropX, cropY, cropW, cropH, outsideDoorCodes };
   }
 
-  function canvasToLimitedJPEG(canvas, {
-    maxLength = 1040000,
+  function imageEditorSizeError(message, details = {}) {
+    const err = new Error(message);
+    err.code = 'image_editor_too_large';
+    Object.assign(err, details);
+    return err;
+  }
+
+  function encodeCanvasJPEGWithinLength(canvas, {
+    maxLength,
     startQuality = 0.86,
     minQuality = 0.38,
     qualityStep = 0.08,
-  } = {}) {
-    let quality = startQuality;
-    let dataUrl;
-    do {
-      dataUrl = canvas.toDataURL('image/jpeg', quality);
-      quality -= qualityStep;
-    } while (dataUrl.length > maxLength && quality > minQuality);
-
-    if (dataUrl.length > maxLength) {
-      throw new Error('Uitsnede is te groot. Maak de uitsnede kleiner.');
+  }) {
+    const qualities = [];
+    for (let quality = startQuality; quality > minQuality; quality -= qualityStep) {
+      qualities.push(Math.round(quality * 100) / 100);
     }
-    return dataUrl;
+    if (qualities[qualities.length - 1] !== minQuality) qualities.push(minQuality);
+
+    let lastResult = null;
+    for (const quality of qualities) {
+      const dataUrl = canvas.toDataURL('image/jpeg', quality);
+      lastResult = { dataUrl, quality };
+      if (dataUrl.length <= maxLength) return lastResult;
+    }
+    return lastResult;
+  }
+
+  function resizeCanvas(canvas, scale, documentRef = document) {
+    const width = Math.max(1, Math.round(canvas.width * scale));
+    const height = Math.max(1, Math.round(canvas.height * scale));
+    const output = documentRef.createElement('canvas');
+    output.width = width;
+    output.height = height;
+    output.getContext('2d').drawImage(canvas, 0, 0, width, height);
+    return output;
+  }
+
+  function canvasToLimitedJPEGResult(canvas, {
+    maxLength = MAX_IMAGE_EDITOR_DATA_URL_LENGTH,
+    startQuality = 0.86,
+    minQuality = 0.38,
+    qualityStep = 0.08,
+    resizeStep = 0.9,
+    minScale = 0.65,
+    documentRef = document,
+    errorMessage = 'Uitsnede is te groot. Maak de uitsnede kleiner.',
+  } = {}) {
+    const scales = [1];
+    let nextScale = resizeStep;
+    while (nextScale > minScale) {
+      scales.push(Math.round(nextScale * 1000) / 1000);
+      nextScale *= resizeStep;
+    }
+    if (scales[scales.length - 1] !== minScale) scales.push(minScale);
+
+    let lastResult = null;
+    for (const scale of scales) {
+      const sourceCanvas = scale === 1 ? canvas : resizeCanvas(canvas, scale, documentRef);
+      const result = encodeCanvasJPEGWithinLength(sourceCanvas, {
+        maxLength,
+        startQuality,
+        minQuality,
+        qualityStep,
+      });
+      lastResult = {
+        dataUrl: result.dataUrl,
+        width: sourceCanvas.width,
+        height: sourceCanvas.height,
+        scale,
+        quality: result.quality,
+        resized: scale < 1,
+      };
+      if (result.dataUrl.length <= maxLength) return lastResult;
+    }
+
+    throw imageEditorSizeError(errorMessage, {
+      maxLength,
+      estimatedLength: lastResult?.dataUrl?.length || 0,
+      width: lastResult?.width || canvas.width,
+      height: lastResult?.height || canvas.height,
+      scale: lastResult?.scale || 1,
+      quality: lastResult?.quality || minQuality,
+    });
+  }
+
+  function canvasToLimitedJPEG(canvas, options = {}) {
+    return canvasToLimitedJPEGResult(canvas, options).dataUrl;
   }
 
   function buildCroppedSVGText({
@@ -106,10 +178,12 @@
   }
 
   FD.ImageEditorService = {
+    MAX_IMAGE_EDITOR_DATA_URL_LENGTH,
     markerDoorCode,
     markerFitsInsideCrop,
     buildCropSavePlan,
     canvasToLimitedJPEG,
+    canvasToLimitedJPEGResult,
     buildCroppedSVGText,
   };
 })(window);

@@ -4,7 +4,7 @@
   const MAX_PDF_PAGES = 30;
   const THUMB_RENDER_SCALE = 0.3;
   const UPLOAD_RENDER_SCALE = 2.5;
-  const MAX_UPLOAD_DATA_URL_LENGTH = 1040000;
+  const MAX_UPLOAD_DATA_URL_LENGTH = 1560000;
   const EDITOR_PREVIEW_MAX_DATA_URL_LENGTH = 12 * 1024 * 1024;
 
   function pdfError(message, code) {

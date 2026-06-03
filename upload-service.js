@@ -4,7 +4,7 @@
   const NEW_CUSTOMER_VALUE = '__new__';
   const MAX_IMAGE_UPLOAD_BYTES = 20 * 1024 * 1024;
   const MAX_PDF_UPLOAD_BYTES = 50 * 1024 * 1024;
-  const MAX_UPLOAD_DATA_URL_LENGTH = 1040000;
+  const MAX_UPLOAD_DATA_URL_LENGTH = 1560000;
   const MAX_PDF_DUPLICATES_PER_PAGE = 10;
 
   function hide(el) {
