@@ -1,20 +1,27 @@
 :root,
 [data-theme="light"] {
   --fd-admin-font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  --fd-admin-bg: #f6f8fb;
+  --fd-app-bg: #eef3f8;
+  --fd-topbar-bg: #155fc6;
+  --fd-topbar-bg-hover: #0f55b7;
+  --fd-topbar-bg-strong: #0f4fa9;
+  --fd-topbar-border: rgba(255, 255, 255, 0.16);
+  --fd-topbar-control: rgba(255, 255, 255, 0.10);
+  --fd-topbar-control-hover: rgba(255, 255, 255, 0.17);
+  --fd-admin-bg: #f4f7fb;
   --fd-admin-surface: #ffffff;
   --fd-admin-surface-muted: #f8fafc;
-  --fd-admin-surface-strong: #eef4ff;
-  --fd-admin-border: #d8e0ea;
-  --fd-admin-border-strong: #b8c4d4;
+  --fd-admin-surface-strong: #eef6ff;
+  --fd-admin-border: #d7e0ea;
+  --fd-admin-border-strong: #b9c7d8;
   --fd-admin-text: #111827;
-  --fd-admin-text-muted: #526070;
+  --fd-admin-text-muted: #4e5d6f;
   --fd-admin-text-subtle: #697789;
   --fd-admin-primary: #1769d2;
   --fd-admin-primary-hover: #1258b4;
   --fd-admin-primary-soft: #eaf2ff;
   --fd-admin-on-primary: #ffffff;
-  --fd-admin-control-muted: #e9edf3;
+  --fd-admin-control-muted: #eef2f7;
   --fd-admin-accent: #0f766e;
   --fd-admin-success: #188038;
   --fd-admin-warning: #b06000;
@@ -36,11 +43,18 @@
   --fd-admin-radius: 8px;
   --fd-admin-radius-lg: 12px;
   --fd-admin-shadow-sm: 0 1px 2px rgba(17, 24, 39, 0.05);
-  --fd-admin-shadow-md: 0 8px 18px rgba(17, 24, 39, 0.08);
-  --fd-admin-shadow-lg: 0 18px 42px rgba(17, 24, 39, 0.16);
+  --fd-admin-shadow-md: 0 8px 20px rgba(17, 24, 39, 0.08);
+  --fd-admin-shadow-lg: 0 24px 70px rgba(15, 23, 42, 0.22);
 }
 
 [data-theme="dark"] {
+  --fd-app-bg: #101418;
+  --fd-topbar-bg: #0f2746;
+  --fd-topbar-bg-hover: #15355c;
+  --fd-topbar-bg-strong: #1a416e;
+  --fd-topbar-border: rgba(255, 255, 255, 0.10);
+  --fd-topbar-control: rgba(255, 255, 255, 0.08);
+  --fd-topbar-control-hover: rgba(255, 255, 255, 0.14);
   --fd-admin-bg: #101418;
   --fd-admin-surface: #171c22;
   --fd-admin-surface-muted: #1f2630;

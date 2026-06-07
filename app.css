@@ -1,4 +1,4 @@
-@import url('./admin-dashboard-tokens.css?v=1.9.19');
+@import url('./admin-dashboard-tokens.css?v=1.9.21');
 
     * {
       margin: 0;
@@ -15,7 +15,7 @@
 
     body {
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      background: #eef3f8;
+      background: var(--fd-app-bg, #eef3f8);
       overflow: hidden;
       height: 100vh;
       height: 100dvh;
@@ -36,9 +36,9 @@
     .topbar {
       display: flex;
       align-items: center;
-      gap: 8px;
+      gap: 10px;
       padding: 10px 14px;
-      background: #155fc6;
+      background: var(--fd-topbar-bg, #155fc6);
       color: white;
       z-index: 300;
       position: fixed;
@@ -46,8 +46,8 @@
       left: 0;
       right: 0;
       flex-wrap: wrap;
-      border-bottom: 1px solid rgba(255,255,255,0.18);
-      box-shadow: 0 10px 28px rgba(17, 24, 39, 0.18);
+      border-bottom: 1px solid var(--fd-topbar-border, rgba(255,255,255,0.18));
+      box-shadow: 0 8px 24px rgba(15, 23, 42, 0.16);
     }
 
     .topbar h1 {
@@ -118,17 +118,20 @@
     }
 
     .topbar .btn-reset {
+      -webkit-appearance: none;
+      appearance: none;
       font-size: 13px;
       min-height: 40px;
       padding: 8px 12px;
-      border: 1px solid rgba(255,255,255,0.72);
+      border: 1px solid rgba(255,255,255,0.58);
       border-radius: 8px;
-      background: rgba(255,255,255,0.12);
+      background: var(--fd-topbar-control, rgba(255,255,255,0.12));
       color: white;
       cursor: pointer;
       font-weight: 800;
       white-space: nowrap;
-      box-shadow: inset 0 0 0 1px rgba(255,255,255,0.08);
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,0.06);
+      transition: background 120ms ease, border-color 120ms ease, box-shadow 120ms ease;
     }
 
     .topbar .btn-reset:disabled {
@@ -142,11 +145,23 @@
       border-color: white;
     }
 
-    .topbar .app-dashboard-btn.active {
-      background: #0f4fa9;
-      color: white;
-      border-color: rgba(255,255,255,0.95);
-      box-shadow: inset 0 0 0 1px rgba(255,255,255,0.16), 0 1px 4px rgba(0,0,0,0.16);
+    .topbar .app-dashboard-btn.active,
+    #btn-dashboard[aria-pressed="true"] {
+      background: #0f4fa9 !important;
+      background-color: #0f4fa9 !important;
+      color: #0f4fa9 !important;
+      border-color: rgba(255,255,255,0.95) !important;
+      opacity: 1 !important;
+      box-shadow: inset 0 0 0 999px #0f4fa9, inset 0 0 0 1px rgba(255,255,255,0.20), 0 1px 5px rgba(0,0,0,0.14);
+    }
+
+    .topbar .app-dashboard-btn.active:hover,
+    .topbar .app-dashboard-btn.active:focus-visible,
+    #btn-dashboard[aria-pressed="true"]:hover,
+    #btn-dashboard[aria-pressed="true"]:focus-visible {
+      background: #0f4fa9 !important;
+      background-color: #0f4fa9 !important;
+      color: #0f4fa9 !important;
     }
 
     .topbar-metadata-btn {
@@ -158,12 +173,12 @@
       min-height: 44px;
       border: 1px solid rgba(255,255,255,0.88);
       border-radius: 8px;
-      background: #0f5fc2;
+      background: var(--fd-topbar-control, rgba(255,255,255,0.12));
       color: #ffffff;
       font-size: 18px;
       font-weight: 800;
       cursor: pointer;
-      box-shadow: inset 0 0 0 1px rgba(255,255,255,0.14), 0 2px 7px rgba(0,0,0,0.22);
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,0.10);
       transition: background 120ms ease, border-color 120ms ease, box-shadow 120ms ease, transform 120ms ease;
     }
 
@@ -173,9 +188,9 @@
 
     .topbar-metadata-btn:not(:disabled):hover,
     .topbar-metadata-btn:not(:disabled):focus-visible {
-      background: #0b55b4;
+      background: var(--fd-topbar-control-hover, rgba(255,255,255,0.17));
       border-color: #ffffff;
-      box-shadow: inset 0 0 0 1px rgba(255,255,255,0.22), 0 3px 10px rgba(0,0,0,0.26);
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,0.18), 0 2px 8px rgba(0,0,0,0.18);
       transform: translateY(-1px);
       outline: none;
     }
@@ -1208,7 +1223,7 @@
     .admin-dashboard-header h2 {
       color: var(--fd-admin-text);
       font-size: 24px;
-      font-weight: 800;
+      font-weight: 850;
       letter-spacing: 0;
     }
 
@@ -1352,7 +1367,7 @@
     .admin-dashboard-tab.active {
       background: var(--fd-admin-primary);
       color: var(--fd-admin-on-primary);
-      box-shadow: var(--fd-admin-shadow-sm);
+      box-shadow: 0 5px 14px rgba(23, 105, 210, 0.18);
     }
 
     .admin-kpi-grid {
@@ -1377,10 +1392,13 @@
       padding: 14px 15px;
       position: relative;
       overflow: hidden;
+      transition: background 140ms ease, border-color 140ms ease, box-shadow 140ms ease, transform 140ms ease;
     }
 
     .admin-kpi:hover {
       background: var(--fd-admin-surface-strong);
+      box-shadow: var(--fd-admin-shadow-md);
+      transform: translateY(-1px);
     }
 
     .admin-kpi.active {
@@ -1400,7 +1418,7 @@
       top: 0;
       left: 0;
       right: 0;
-      height: 3px;
+      height: 4px;
       background: var(--fd-admin-info);
     }
 
@@ -1469,7 +1487,7 @@
     .admin-overview-list,
     .admin-activity-list {
       padding: var(--fd-admin-space-2);
-      background: linear-gradient(180deg, var(--fd-admin-surface) 0%, var(--fd-admin-surface-muted) 100%);
+      background: var(--fd-admin-surface-muted);
     }
 
     .admin-overview-item,
@@ -1497,6 +1515,7 @@
     .admin-filter-button.active,
     .admin-floorplan-row.active {
       background: var(--fd-admin-primary-soft);
+      box-shadow: var(--fd-admin-shadow-sm);
     }
 
     .admin-dashboard-input {
@@ -1756,13 +1775,13 @@
       min-height: 50px;
       padding: 4px 34px 4px 12px;
       overflow: hidden;
-      border: 1px solid rgba(255,255,255,0.78);
+      border: 1px solid rgba(255,255,255,0.70);
       border-radius: 10px;
       background: rgba(255,255,255,0.98);
       color: #172033;
       text-align: left;
       cursor: pointer;
-      box-shadow: 0 8px 18px rgba(15, 23, 42, 0.16);
+      box-shadow: 0 6px 16px rgba(15, 23, 42, 0.14);
       transition: transform 120ms ease, box-shadow 120ms ease, border-color 120ms ease;
     }
 
@@ -1782,7 +1801,7 @@
     .selector-pill:not(:disabled):hover,
     .selector-pill:not(:disabled):focus-visible {
       border-color: #ffffff;
-      box-shadow: 0 10px 22px rgba(15, 23, 42, 0.22);
+      box-shadow: 0 8px 20px rgba(15, 23, 42, 0.18);
       transform: translateY(-1px);
       outline: 3px solid rgba(255,255,255,0.34);
       outline-offset: 2px;
@@ -2685,7 +2704,7 @@
     .export-excel-overlay {
       position: fixed;
       inset: 0;
-      background: rgba(0,0,0,0.42);
+      background: rgba(15,23,42,0.48);
       z-index: 299;
     }
 
@@ -2694,14 +2713,15 @@
       top: 50%;
       left: 50%;
       transform: translate(-50%, -50%);
-      width: min(460px, calc(100vw - 32px));
+      width: min(480px, calc(100vw - 32px));
       max-height: calc(100vh - 48px);
       overflow-y: auto;
-      background: #fff;
-      color: #1f2933;
-      padding: 22px;
-      border-radius: 10px;
-      box-shadow: 0 10px 36px rgba(0,0,0,0.3);
+      background: var(--fd-admin-surface, #fff);
+      color: var(--fd-admin-text, #1f2933);
+      padding: 24px;
+      border: 1px solid var(--fd-admin-border, #d8e0ea);
+      border-radius: 12px;
+      box-shadow: var(--fd-admin-shadow-lg, 0 24px 70px rgba(15,23,42,0.24));
       z-index: 300;
     }
 
@@ -2710,27 +2730,28 @@
       align-items: flex-start;
       justify-content: space-between;
       gap: 12px;
-      margin-bottom: 16px;
+      margin-bottom: 18px;
     }
 
     .export-excel-kicker {
       margin-bottom: 3px;
       font-size: 12px;
       font-weight: 850;
-      color: #5f6b76;
+      color: var(--fd-admin-text-muted, #5f6b76);
       text-transform: uppercase;
       letter-spacing: 0;
     }
 
     .export-excel-popup h3 {
       margin: 0 0 6px;
-      font-size: 19px;
-      color: #1f2933;
+      font-size: 20px;
+      font-weight: 850;
+      color: var(--fd-admin-text, #1f2933);
     }
 
     .export-excel-popup p {
       margin: 0;
-      color: #526070;
+      color: var(--fd-admin-text-muted, #526070);
       font-size: 14px;
       line-height: 1.4;
     }
@@ -2741,8 +2762,8 @@
       min-height: 44px;
       border: none;
       border-radius: 8px;
-      background: #eef2f7;
-      color: #1f2933;
+      background: var(--fd-admin-control-muted, #eef2f7);
+      color: var(--fd-admin-text, #1f2933);
       font-size: 24px;
       line-height: 1;
       cursor: pointer;
@@ -2750,14 +2771,14 @@
 
     .export-excel-actions {
       display: grid;
-      gap: 10px;
+      gap: 12px;
     }
 
     .export-excel-primary,
     .export-excel-secondary {
       min-height: 48px;
       padding: 12px 16px;
-      border: none;
+      border: 1px solid transparent;
       border-radius: 8px;
       font-size: 16px;
       font-weight: 800;
@@ -2766,24 +2787,25 @@
     }
 
     .export-excel-primary {
-      background: #1a73e8;
+      background: var(--fd-admin-primary, #1a73e8);
       color: #fff;
     }
 
     .export-excel-secondary {
-      background: #e6e8eb;
-      color: #1f2933;
+      border-color: var(--fd-admin-border, #d8e0ea);
+      background: var(--fd-admin-control-muted, #e6e8eb);
+      color: var(--fd-admin-text, #1f2933);
     }
 
     .export-excel-selection {
       margin-top: 16px;
       padding-top: 14px;
-      border-top: 1px solid #e5ebf3;
+      border-top: 1px solid var(--fd-admin-border, #e5ebf3);
     }
 
     .export-excel-selection-title {
       margin-bottom: 10px;
-      color: #39424e;
+      color: var(--fd-admin-text, #39424e);
       font-size: 14px;
       font-weight: 800;
     }
@@ -2803,10 +2825,10 @@
       align-items: center;
       min-height: 48px;
       padding: 10px 12px;
-      border: 1px solid #d8e0ea;
+      border: 1px solid var(--fd-admin-border, #d8e0ea);
       border-radius: 8px;
       cursor: pointer;
-      background: #fff;
+      background: var(--fd-admin-surface, #fff);
     }
 
     .export-excel-option input {
@@ -2817,7 +2839,7 @@
 
     .export-excel-option strong {
       display: block;
-      color: #1f2933;
+      color: var(--fd-admin-text, #1f2933);
       font-size: 15px;
       line-height: 1.3;
     }
@@ -2825,7 +2847,7 @@
     .export-excel-option span {
       display: block;
       margin-top: 2px;
-      color: #667685;
+      color: var(--fd-admin-text-muted, #667685);
       font-size: 13px;
       line-height: 1.3;
     }
@@ -2841,7 +2863,7 @@
 	    .image-editor-save-error-overlay {
 	      position: fixed;
 	      inset: 0;
-	      background: rgba(0,0,0,0.5);
+	      background: rgba(15,23,42,0.52);
 	      z-index: 524;
 	    }
 
@@ -2853,24 +2875,26 @@
 	      width: min(440px, calc(100vw - 32px));
 	      max-height: calc(100vh - 48px);
 	      overflow-y: auto;
-	      background: #fff;
-	      color: #1f2933;
-	      padding: 22px;
+	      background: var(--fd-admin-surface, #fff);
+	      color: var(--fd-admin-text, #1f2933);
+	      padding: 24px;
+	      border: 1px solid var(--fd-admin-border, #d8e0ea);
 	      border-radius: 12px;
-	      box-shadow: 0 10px 36px rgba(0,0,0,0.3);
+	      box-shadow: var(--fd-admin-shadow-lg, 0 24px 70px rgba(15,23,42,0.24));
 	      z-index: 525;
 	    }
 
 	    .image-editor-save-error-popup h3 {
 	      margin: 0 0 10px;
-	      color: #111827;
-	      font-size: 19px;
+	      color: var(--fd-admin-text, #111827);
+	      font-size: 20px;
+	      font-weight: 850;
 	      letter-spacing: 0;
 	    }
 
 	    .image-editor-save-error-popup p {
 	      margin: 0 0 14px;
-	      color: #526070;
+	      color: var(--fd-admin-text-muted, #526070);
 	      font-size: 15px;
 	      line-height: 1.45;
 	    }
@@ -2880,10 +2904,10 @@
 	      overflow: auto;
 	      margin: 0 0 16px;
 	      padding: 12px;
-	      border: 1px solid #d8e0ea;
+	      border: 1px solid var(--fd-admin-border, #d8e0ea);
 	      border-radius: 8px;
-	      background: #f8fafc;
-	      color: #1f2933;
+	      background: var(--fd-admin-surface-muted, #f8fafc);
+	      color: var(--fd-admin-text, #1f2933);
 	      font-size: 12px;
 	      line-height: 1.45;
 	      white-space: pre-wrap;
@@ -2909,13 +2933,14 @@
 	    }
 
 	    .image-editor-save-error-primary {
-	      background: #1a73e8;
+	      background: var(--fd-admin-primary, #1a73e8);
 	      color: #fff;
 	    }
 
 	    .image-editor-save-error-secondary {
-	      background: #e6e8eb;
-	      color: #1f2933;
+	      border: 1px solid var(--fd-admin-border, #d8e0ea);
+	      background: var(--fd-admin-control-muted, #e6e8eb);
+	      color: var(--fd-admin-text, #1f2933);
 	    }
 
 	    .busy-overlay {
@@ -3658,7 +3683,7 @@
     }
 
     /* Menu and modal polish */
-    #topbar-menu {
+	    #topbar-menu {
       position: fixed !important;
       top: calc(env(safe-area-inset-top) + var(--topbar-h, 52px) + 6px) !important;
       right: max(12px, env(safe-area-inset-right)) !important;
@@ -3666,10 +3691,10 @@
       max-width: calc(100vw - 24px) !important;
       margin-top: 8px !important;
       padding: 6px !important;
-      border: 1px solid #d8e0ea !important;
-      border-radius: 10px !important;
-      background: #fff !important;
-      box-shadow: 0 18px 42px rgba(17, 24, 39, 0.18) !important;
+	      border: 1px solid var(--fd-admin-border, #d8e0ea) !important;
+	      border-radius: 12px !important;
+	      background: var(--fd-admin-surface, #fff) !important;
+	      box-shadow: var(--fd-admin-shadow-lg, 0 24px 70px rgba(15, 23, 42, 0.22)) !important;
       z-index: 1200 !important;
     }
 
@@ -3677,7 +3702,7 @@
       min-height: 46px !important;
       padding: 11px 13px !important;
       border-radius: 8px !important;
-      color: #1f2937 !important;
+	      color: var(--fd-admin-text, #1f2937) !important;
       font-size: 15px !important;
       font-weight: 750 !important;
       transition: background 120ms ease, color 120ms ease, transform 120ms ease !important;
@@ -3686,7 +3711,7 @@
 
     #topbar-menu > div {
       margin: 5px 3px !important;
-      border-top-color: #e5eaf1 !important;
+	      border-top-color: var(--fd-admin-border, #e5eaf1) !important;
     }
 
     #topbar-menu #btn-delete-fp,
@@ -3695,13 +3720,13 @@
     }
 
     #topbar-menu button:active {
-      background: #eaf2ff !important;
+	      background: var(--fd-admin-primary-soft, #eaf2ff) !important;
       transform: translateY(1px);
     }
 
     #topbar-menu button.active {
-      background: #eaf2ff !important;
-      color: #1769d2 !important;
+	      background: var(--fd-admin-primary-soft, #eaf2ff) !important;
+	      color: var(--fd-admin-primary, #1769d2) !important;
     }
 
     #topbar-menu button:disabled {
@@ -3711,11 +3736,11 @@
 
     @media (hover: hover) {
       #topbar-menu button:hover {
-        background: #f2f6fb !important;
+	        background: var(--fd-admin-surface-muted, #f2f6fb) !important;
       }
 
       #topbar-menu button.active:hover {
-        background: #dfeeff !important;
+	        background: var(--fd-admin-primary-soft, #dfeeff) !important;
       }
     }
 

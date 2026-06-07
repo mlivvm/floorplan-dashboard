@@ -138,6 +138,19 @@
     return getWorkerSession(config).token;
   }
 
+  function requireWorkerSessionToken(config) {
+    const token = getWorkerSessionToken(config);
+    if (!token) throw workerError(401, 'worker_session_required');
+    return token;
+  }
+
+  function withWorkerAuthHeaders(config, options = {}) {
+    return {
+      ...(options?.headers || {}),
+      Authorization: `Bearer ${requireWorkerSessionToken(config)}`,
+    };
+  }
+
   function setWorkerSession(config, sessionData, options = {}) {
     const keys = getWorkerSessionKeys(config);
     const persistent = options.persistent !== false;
@@ -395,6 +408,7 @@
       const response = await fetch(url, {
         cache: 'no-store',
         signal: options?.signal,
+        headers: withWorkerAuthHeaders(config, options),
       });
       if (!response.ok) {
         throw workerError(response.status, 'worker_floorplan_failed');
@@ -422,7 +436,10 @@
     const data = await fetchWorkerJSON(
       config,
       `/api/floorplan-manifest?repo=${encodeURIComponent(repoKey)}`,
-      options,
+      {
+        ...options,
+        headers: withWorkerAuthHeaders(config, options),
+      },
     );
     const files = data.files && typeof data.files === 'object' ? data.files : {};
     return new Map(Object.entries(files).filter(([, sha]) => typeof sha === 'string' && sha));
@@ -430,7 +447,9 @@
 
   async function loadCustomers(config) {
     if (isWorkerReadProxyEnabled(config)) {
-      const data = await fetchWorkerJSON(config, '/api/customers');
+      const data = await fetchWorkerJSON(config, '/api/customers', {
+        headers: withWorkerAuthHeaders(config),
+      });
       return Array.isArray(data.customers) ? data.customers : [];
     }
 
@@ -439,7 +458,9 @@
 
   async function loadStatus(config) {
     if (isWorkerStatusReadEnabled(config)) {
-      const data = await fetchWorkerJSON(config, '/api/status');
+      const data = await fetchWorkerJSON(config, '/api/status', {
+        headers: withWorkerAuthHeaders(config),
+      });
       return data.status && typeof data.status === 'object' ? data.status : {};
     }
 
