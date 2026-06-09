@@ -2,7 +2,7 @@
     // CONFIGURATION
     // ============================================================
 
-    const APP_VERSION = '1.9.24';
+    const APP_VERSION = '1.9.25';
     const ENV_CONFIG = window.FD?.Env?.config || window.FD_ENV_CONFIG || {};
     const DEFAULT_JOTFORM_FORM_ID = '250122093908351';
     const DEFAULT_JOTFORM_FORMS = {
@@ -1741,11 +1741,14 @@
     function updateAccountIndicator() {
       if (!accountIndicator || !accountLabel) return;
       const role = String(currentUser?.role || '').toLowerCase();
-      const label = ['admin', 'monteur', 'viewer'].includes(role) ? role : '';
+      const displayName = String(currentUser?.displayName || currentUser?.display_name || currentUser?.username || '').trim();
+      const label = displayName || (['admin', 'monteur', 'viewer'].includes(role) ? role : '');
       accountLabel.textContent = label;
       accountIndicator.hidden = !label;
-      accountIndicator.title = label ? `Ingelogd als ${label}` : 'Ingelogd account';
-      accountIndicator.dataset.role = label;
+      accountIndicator.title = label
+        ? `Ingelogd als ${label}${role ? ` (${role})` : ''}`
+        : 'Ingelogd account';
+      accountIndicator.dataset.role = role;
     }
 
     function refreshCurrentUser() {
