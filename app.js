@@ -2,7 +2,7 @@
     // CONFIGURATION
     // ============================================================
 
-    const APP_VERSION = '1.9.22';
+    const APP_VERSION = '1.9.24';
     const ENV_CONFIG = window.FD?.Env?.config || window.FD_ENV_CONFIG || {};
     const DEFAULT_JOTFORM_FORM_ID = '250122093908351';
     const DEFAULT_JOTFORM_FORMS = {
@@ -1834,6 +1834,14 @@
       return currentUser?.role === 'admin';
     }
 
+    function canUseExcelExport() {
+      return currentUser?.role === 'admin' || currentUser?.role === 'viewer';
+    }
+
+    function isTestCustomerName(customerName) {
+      return String(customerName || '') === CONFIG.workerStatusWriteTestCustomer;
+    }
+
     function canWriteFloorplanByName(customer, floorplan) {
       return FD.DataService.canWriteFloorplan(CONFIG, customer, floorplan);
     }
@@ -2070,10 +2078,16 @@
         btnPrintFloorplan.title = canPrint ? '' : 'Kies eerst een plattegrond';
       }
       if (btnExportExcel) {
-        const canExport = isAdminUser() && canUseFloorplanActions && appMode.isInteractiveView();
-        btnExportExcel.style.display = isAdminUser() ? 'block' : 'none';
+        const selected = getSelectedFloorplan();
+        const selectedCustomerName = selected.customer?.customer || currentCustomer;
+        const exportAllowed = canUseExcelExport();
+        const exportBlockedForTest = isTestCustomerName(selectedCustomerName);
+        const canExport = exportAllowed && canUseFloorplanActions && appMode.isInteractiveView() && !exportBlockedForTest;
+        btnExportExcel.style.display = exportAllowed ? 'block' : 'none';
         btnExportExcel.disabled = !canExport;
-        btnExportExcel.title = canExport ? '' : 'Kies eerst een plattegrond';
+        btnExportExcel.title = canExport
+          ? ''
+          : (exportBlockedForTest ? 'Excel export is niet beschikbaar voor de testklant' : 'Kies eerst een plattegrond');
       }
       const editButton = document.getElementById('btn-edit');
       if (editButton) {
@@ -4954,7 +4968,21 @@
     function findExportFloorplanRecord(record, data = getAdminData()) {
       if (!record) return null;
       const key = adminFloorplanKey(record);
-      return (data.floorplans || []).find(item => adminFloorplanKey(item) === key) || null;
+      const floorplans = data.floorplans || [];
+      return floorplans.find(item => adminFloorplanKey(item) === key) ||
+        floorplans.find(item => (
+          item?.customer === record.customer &&
+          (item?.repo === 'uploads' ? 'uploads' : 'gallery') === (record.repo === 'uploads' ? 'uploads' : 'gallery') &&
+          item?.file === record.file
+        )) ||
+        floorplans.find(item => (
+          item?.customer === record.customer &&
+          (
+            (item?.displayName || item?.name || '') === (record.displayName || record.name || '') ||
+            (item?.name || item?.floorplan || '') === (record.name || record.floorplan || '')
+          )
+        )) ||
+        null;
     }
 
     function exportFloorplansForExcel(floorplans) {
@@ -5012,7 +5040,7 @@
 
     async function openExportExcelDialog() {
       hideTopbarMenu();
-      if (!isAdminUser()) return;
+      if (!canUseExcelExport()) return;
       if (!appMode.isInteractiveView()) {
         showToast('Sluit eerst het huidige scherm', 'error');
         return;
@@ -5020,6 +5048,10 @@
       const base = getExportBaseRecord();
       if (!base) {
         showToast('Kies eerst een plattegrond', 'error');
+        return;
+      }
+      if (isTestCustomerName(base.customer)) {
+        showToast('Excel export is niet beschikbaar voor de testklant', 'error');
         return;
       }
       exportExcelBaseRecord = base;
