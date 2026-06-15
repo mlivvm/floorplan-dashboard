@@ -2,7 +2,7 @@
     // CONFIGURATION
     // ============================================================
 
-    const APP_VERSION = '1.9.26';
+    const APP_VERSION = '1.9.27';
     const ENV_CONFIG = window.FD?.Env?.config || window.FD_ENV_CONFIG || {};
     const DEFAULT_JOTFORM_FORM_ID = '250122093908351';
     const DEFAULT_JOTFORM_FORMS = {
@@ -169,6 +169,7 @@
       pending: null,
       error: null,
     };
+    let topbarFloorplanGroupFilter = '';
     let topbarFloorplanLocationFilter = '';
     let adminDashboardState = {
       visible: false,
@@ -2331,33 +2332,9 @@
       );
     }
 
-    function buildFloorplanPrimaryFilterOptions(items, customer = null) {
-      const groups = FD.SelectSheetService.buildGroupFilterOptions(items);
-      if (groups.length) return groups.map(option => ({ ...option, kind: 'group' }));
-      return buildLocationFilterOptions(items, customer).map(option => ({ ...option, kind: 'location' }));
-    }
-
-    function floorplanPrimaryFilterKind(items, customer = null) {
-      return buildFloorplanPrimaryFilterOptions(items, customer)[0]?.kind || 'location';
-    }
-
-    function floorplanPrimaryFilterValue(floorplan, kind) {
-      return kind === 'group' ? floorplanGroupValue(floorplan) : floorplanLocationValue(floorplan);
-    }
-
-    function floorplanPrimaryFilterLabelForValue(value, kind) {
-      return kind === 'group' ? floorplanGroupLabelForValue(value) : floorplanLocationLabelForValue(value);
-    }
-
-    function compareFloorplanPrimaryFilterValues(left, right, kind) {
-      return kind === 'group'
-        ? compareFloorplanGroupValues(left, right)
-        : compareFloorplanLocationValues(left, right);
-    }
-
     function compareFloorplanSheetItems(left, right) {
-      const locationCompare = compareFloorplanPrimaryFilterValues(left.filterValue, right.filterValue, left.filterKind || 'location');
-      if (locationCompare) return locationCompare;
+      const groupCompare = compareFloorplanGroupValues(left.groupValue, right.groupValue);
+      if (groupCompare) return groupCompare;
       const buildingCompare = compareFloorplanLocationValues(left.locationValue, right.locationValue);
       if (buildingCompare) return buildingCompare;
       const labelCompare = LOCATION_COLLATOR.compare(left.label, right.label);
@@ -2384,19 +2361,63 @@
       return allowed.has(normalized) ? normalized : '';
     }
 
-    function locationOptionDescription(customer, value) {
+    function locationOptionDescription(customer, value, groupValue = '') {
       if (!customer || !value || value === FD.SelectSheetService.LOCATION_NONE_VALUE) return '';
-      return formatLocationMeta(FD.SelectSheetService.getCustomerLocationDetails(customer, value));
+      const groupName = groupValue && groupValue !== FD.SelectSheetService.GROUP_NONE_VALUE
+        ? floorplanGroupLabelForValue(groupValue)
+        : '';
+      return formatLocationMeta(FD.SelectSheetService.getCustomerLocationDetails(customer, value, groupName));
     }
 
-    function buildLocationFilterOptions(items, customer = null) {
+    function buildLocationFilterOptions(items, customer = null, groupValue = '') {
       const options = FD.SelectSheetService.buildLocationFilterOptions(items);
       if (options.length <= 1) return [];
       if (!customer) return options;
       return options.map(option => ({
         ...option,
-        description: locationOptionDescription(customer, option.value),
+        description: locationOptionDescription(customer, option.value, groupValue),
       }));
+    }
+
+    function topbarFloorplansForSelectedCustomer() {
+      const ci = FD.SelectSheetService.selectedIndex(customerSelect);
+      if (ci === null || !customers[ci]) return { customer: null, floorplans: [] };
+      return {
+        customer: customers[ci],
+        floorplans: customers[ci].floorplans || [],
+      };
+    }
+
+    function floorplansScopedByTopbarGroup(floorplans) {
+      if (!topbarFloorplanGroupFilter) return floorplans || [];
+      return (floorplans || []).filter(floorplan => floorplanGroupValue(floorplan) === topbarFloorplanGroupFilter);
+    }
+
+    function buildTopbarGroupFilterOptions(floorplans) {
+      return FD.SelectSheetService.buildGroupFilterOptions(floorplans);
+    }
+
+    function buildTopbarLocationFilterOptions(floorplans, customer, groupValue = '') {
+      const scopedFloorplans = floorplansScopedByTopbarGroup(floorplans);
+      const options = buildLocationFilterOptions(scopedFloorplans, customer, groupValue);
+      const specificGroupSelected = Boolean(groupValue);
+      if (specificGroupSelected && options.length <= 2) return [];
+      return options;
+    }
+
+    function syncTopbarFloorplanFilters(customer, floorplans) {
+      const groupOptions = buildTopbarGroupFilterOptions(floorplans);
+      topbarFloorplanGroupFilter = normalizeLocationFilterValue(topbarFloorplanGroupFilter, groupOptions);
+      const locationOptions = buildTopbarLocationFilterOptions(
+        floorplans,
+        customer,
+        topbarFloorplanGroupFilter
+      );
+      topbarFloorplanLocationFilter = normalizeLocationFilterValue(
+        topbarFloorplanLocationFilter,
+        locationOptions
+      );
+      return { groupOptions, locationOptions };
     }
 
     function getSelectSheetItems(type) {
@@ -2407,40 +2428,34 @@
       }
       const ci = FD.SelectSheetService.selectedIndex(customerSelect);
       if (ci === null || !customers[ci]) return [];
-      topbarFloorplanLocationFilter = normalizeLocationFilterValue(
-        topbarFloorplanLocationFilter,
-        buildFloorplanPrimaryFilterOptions(customers[ci].floorplans || [], customers[ci])
-      );
-      if (type === 'location') {
-        return buildFloorplanPrimaryFilterOptions(customers[ci].floorplans || [], customers[ci])
-          .map((option, index) => ({
-            index,
-            value: option.value,
-            label: option.label,
-            meta: `${option.count} plattegrond${option.count === 1 ? '' : 'en'}`,
-            description: option.description || '',
-            searchText: [option.label, option.description].filter(Boolean).join(' '),
-          }));
-      }
+      const { groupOptions } = syncTopbarFloorplanFilters(customers[ci], customers[ci].floorplans || []);
+      if (type === 'location') return [];
+      const groupFilterActive = Boolean(groupOptions.length && !topbarFloorplanGroupFilter);
+      const locationFilterActive = Boolean(!topbarFloorplanLocationFilter);
       return FD.SelectSheetService
         .sortedWithOriginalIndex(customers[ci].floorplans, floorplan => FD.SelectSheetService.floorplanDisplayName(floorplan))
         .map(({ item: fp, index, label }) => {
           const customer = customers[ci];
           const readOnly = isViewerReadOnlyFloorplan(customer.customer, fp.name);
-          const filterKind = floorplanPrimaryFilterKind(customers[ci].floorplans || [], customer);
-          const filterValue = floorplanPrimaryFilterValue(fp, filterKind);
+          const groupValue = floorplanGroupValue(fp);
           const locationValue = floorplanLocationValue(fp);
           const description = floorplanAddressMeta(customer, fp);
           const meta = floorplanPermissionMeta(customer, fp);
+          const groupLabel = groupFilterActive
+            ? floorplanGroupLabelForValue(groupValue)
+            : (locationFilterActive ? floorplanLocationLabelForValue(locationValue) : '');
           return {
             index,
             label,
             meta,
             description,
-            filterValue,
-            filterKind,
+            filterValues: {
+              group: groupValue,
+              location: locationValue,
+            },
+            groupValue,
             locationValue,
-            groupLabel: floorplanPrimaryFilterLabelForValue(filterValue, filterKind),
+            groupLabel,
             searchText: floorplanSheetSearchText(fp, label, [description, meta].filter(Boolean).join(' ')),
             readOnly,
           };
@@ -2452,22 +2467,42 @@
       if (type !== 'floorplan') return [];
       const ci = FD.SelectSheetService.selectedIndex(customerSelect);
       if (ci === null || !customers[ci]) return [];
-      const options = buildFloorplanPrimaryFilterOptions(customers[ci].floorplans || [], customers[ci]);
-      topbarFloorplanLocationFilter = normalizeLocationFilterValue(topbarFloorplanLocationFilter, options);
-      return options;
+      const { locationOptions } = syncTopbarFloorplanFilters(customers[ci], customers[ci].floorplans || []);
+      return locationOptions;
+    }
+
+    function getSelectSheetFilterGroups(type) {
+      if (type !== 'floorplan') return [];
+      const { customer, floorplans } = topbarFloorplansForSelectedCustomer();
+      if (!customer) return [];
+      const { groupOptions, locationOptions } = syncTopbarFloorplanFilters(customer, floorplans);
+      if (!groupOptions.length) return [];
+      const groups = [];
+      groups.push({
+        key: 'group',
+        label: 'Groep',
+        value: topbarFloorplanGroupFilter,
+        options: groupOptions,
+      });
+      if (locationOptions.length) {
+        groups.push({
+          key: 'location',
+          label: 'Pand',
+          value: topbarFloorplanLocationFilter,
+          options: locationOptions,
+        });
+      }
+      return groups;
     }
 
     function getSelectSheetFilterLabel(type) {
-      if (type !== 'floorplan') return 'Locatie';
-      const ci = FD.SelectSheetService.selectedIndex(customerSelect);
-      if (ci === null || !customers[ci]) return 'Locatie';
-      return floorplanPrimaryFilterKind(customers[ci].floorplans || [], customers[ci]) === 'group'
-        ? 'Groep'
-        : 'Locatie';
+      return type === 'group' ? 'Groep' : (type === 'floorplan' ? 'Pand' : 'Pand');
     }
 
     function getSelectSheetFilterValue(type) {
-      return type === 'floorplan' ? topbarFloorplanLocationFilter : '';
+      if (type === 'group') return topbarFloorplanGroupFilter;
+      if (type === 'location' || type === 'floorplan') return topbarFloorplanLocationFilter;
+      return '';
     }
 
     function getSelectSheetPickerMeta(type) {
@@ -2477,7 +2512,12 @@
     }
 
     function handleSelectSheetFilterChange(type, value) {
-      if (type === 'floorplan') topbarFloorplanLocationFilter = String(value || '');
+      if (type === 'group') {
+        topbarFloorplanGroupFilter = String(value || '');
+        topbarFloorplanLocationFilter = '';
+        return;
+      }
+      if (type === 'location' || type === 'floorplan') topbarFloorplanLocationFilter = String(value || '');
     }
 
     const ADMIN_COLLATOR = new Intl.Collator('nl', { numeric: true, sensitivity: 'base' });
@@ -4270,11 +4310,13 @@
       getState: () => ({ customersLoading }),
       getItems: getSelectSheetItems,
       getFilters: getSelectSheetFilters,
+      getFilterGroups: getSelectSheetFilterGroups,
       getFilterLabel: getSelectSheetFilterLabel,
       getFilterValue: getSelectSheetFilterValue,
       getPickerMeta: getSelectSheetPickerMeta,
       onFilterChange: handleSelectSheetFilterChange,
       onCustomerChange: ({ value }) => {
+        topbarFloorplanGroupFilter = '';
         topbarFloorplanLocationFilter = '';
         if (isEditModeActive()) exitEditMode();
         if (adminDashboardState.visible) {

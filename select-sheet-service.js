@@ -284,6 +284,7 @@
     getState,
     getItems,
     getFilters,
+    getFilterGroups,
     getFilterLabel,
     getFilterValue,
     getPickerMeta,
@@ -291,6 +292,7 @@
     onSelect,
   }) {
     let activeType = null;
+    let activeFilterKey = '';
 
     function state() {
       return typeof getState === 'function' ? getState() : {};
@@ -298,6 +300,37 @@
 
     function filterValueForType(type) {
       return typeof getFilterValue === 'function' ? String(getFilterValue(type) || '') : '';
+    }
+
+    function filterGroupsForType(type) {
+      if (typeof getFilterGroups !== 'function') return [];
+      return (getFilterGroups(type) || [])
+        .map(group => {
+          const key = String(group?.key || group?.type || '').trim();
+          const options = Array.isArray(group?.options) ? group.options : [];
+          if (!key || !options.length) return null;
+          const value = group.value !== undefined
+            ? String(group.value || '')
+            : filterValueForType(key);
+          const current = options.find(option => String(option.value || '') === value) || options[0];
+          return {
+            key,
+            label: String(group.label || '').trim() || 'Filter',
+            value,
+            current,
+            options,
+          };
+        })
+        .filter(Boolean);
+    }
+
+    function hasFilterGroups(type) {
+      return filterGroupsForType(type).length > 0;
+    }
+
+    function activeFilterGroup() {
+      const groups = filterGroupsForType('floorplan');
+      return groups.find(group => group.key === activeFilterKey) || groups[0] || null;
     }
 
     function updatePickerButtons() {
@@ -327,9 +360,48 @@
       const filterEl = elements.filters;
       if (!filterEl) return;
       filterEl.innerHTML = '';
-      if (activeType !== 'floorplan' || typeof getFilters !== 'function') {
+      if (activeType !== 'floorplan') {
         filterEl.hidden = true;
         filterEl.classList.remove('select-sheet-filters--chips');
+        filterEl.classList.remove('select-sheet-filters--buttons');
+        return;
+      }
+
+      const filterGroups = filterGroupsForType(activeType);
+      if (filterGroups.length) {
+        filterEl.hidden = false;
+        filterEl.classList.remove('select-sheet-filters--chips');
+        filterEl.classList.add('select-sheet-filters--buttons');
+        filterGroups.forEach(group => {
+          const button = document.createElement('button');
+          button.type = 'button';
+          button.className = 'select-sheet-location-button';
+          const label = document.createElement('span');
+          label.className = 'select-sheet-location-label';
+          label.textContent = group.label;
+          const value = document.createElement('span');
+          value.className = 'select-sheet-location-value';
+          value.textContent = `${group.current?.label || 'Alles'} (${group.current?.count || 0})`;
+          button.append(label, value);
+          if (group.current?.description) {
+            const description = document.createElement('span');
+            description.className = 'select-sheet-location-description';
+            description.textContent = group.current.description;
+            button.appendChild(description);
+          }
+          button.addEventListener('click', () => {
+            activeFilterKey = group.key;
+            open('location');
+          });
+          filterEl.appendChild(button);
+        });
+        return;
+      }
+
+      if (typeof getFilters !== 'function') {
+        filterEl.hidden = true;
+        filterEl.classList.remove('select-sheet-filters--chips');
+        filterEl.classList.remove('select-sheet-filters--buttons');
         return;
       }
 
@@ -337,6 +409,7 @@
       if (!filters.length) {
         filterEl.hidden = true;
         filterEl.classList.remove('select-sheet-filters--chips');
+        filterEl.classList.remove('select-sheet-filters--buttons');
         return;
       }
 
@@ -345,6 +418,7 @@
       const filterLabel = typeof getFilterLabel === 'function' ? getFilterLabel(activeType) : 'Locatie';
       filterEl.hidden = false;
       filterEl.classList.toggle('select-sheet-filters--chips', filters.length <= DIRECT_LOCATION_FILTER_LIMIT);
+      filterEl.classList.remove('select-sheet-filters--buttons');
 
       if (filters.length <= DIRECT_LOCATION_FILTER_LIMIT) {
         filters.forEach(filter => {
@@ -405,11 +479,32 @@
       const query = search.value.trim().toLowerCase();
       const currentValue = activeType === 'customer'
         ? customerSelect.value
-        : (activeType === 'floorplan' ? floorplanSelect.value : filterValueForType('floorplan'));
+        : (activeType === 'floorplan'
+          ? floorplanSelect.value
+          : (activeFilterGroup()?.value ?? filterValueForType('floorplan')));
       const typeAtRender = activeType;
-      const activeFilter = typeAtRender === 'floorplan' ? filterValueForType(typeAtRender) : '';
-      const items = (typeof getItems === 'function' ? getItems(typeAtRender) : [])
+      const filterGroups = typeAtRender === 'floorplan' ? filterGroupsForType(typeAtRender) : [];
+      const activeFilter = typeAtRender === 'floorplan' && !filterGroups.length ? filterValueForType(typeAtRender) : '';
+      const baseItems = typeAtRender === 'location' && hasFilterGroups('floorplan')
+        ? (activeFilterGroup()?.options || []).map((option, index) => ({
+            index,
+            value: option.value,
+            label: option.label,
+            meta: `${option.count || 0} plattegrond${option.count === 1 ? '' : 'en'}`,
+            description: option.description || '',
+            searchText: [option.label, option.description].filter(Boolean).join(' '),
+            filterKey: activeFilterGroup()?.key || '',
+          }))
+        : (typeof getItems === 'function' ? getItems(typeAtRender) : []);
+      const items = baseItems
         .filter(item => {
+          if (typeAtRender === 'floorplan' && filterGroups.length) {
+            const filterValues = item.filterValues || {};
+            const matchesAll = filterGroups.every(group =>
+              !group.value || String(filterValues[group.key] || '') === group.value
+            );
+            if (!matchesAll) return false;
+          }
           if (activeFilter && item.filterValue !== activeFilter) return false;
           const searchText = String(item.searchText || `${item.label || ''} ${item.meta || ''}`).toLowerCase();
           return !query || searchText.includes(query);
@@ -461,10 +556,13 @@
       const { customersLoading = false } = state();
       if (type === 'customer' && (customersLoading || customerPickerBtn.disabled)) return;
       if (type === 'floorplan' && floorplanPickerBtn.disabled) return;
-      if (type === 'location' && !(typeof getFilters === 'function' && (getFilters('floorplan') || []).length)) return;
+      if (type === 'location' && !hasFilterGroups('floorplan') &&
+        !(typeof getFilters === 'function' && (getFilters('floorplan') || []).length)) return;
 
       activeType = type;
-      const filterLabel = typeof getFilterLabel === 'function' ? getFilterLabel('floorplan') : 'Locatie';
+      const activeGroup = type === 'location' ? activeFilterGroup() : null;
+      const filterLabel = activeGroup?.label ||
+        (typeof getFilterLabel === 'function' ? getFilterLabel('floorplan') : 'Locatie');
       const normalizedFilterLabel = String(filterLabel || 'locatie').toLowerCase();
       eyebrow.textContent = type === 'customer' ? 'Klant' : (type === 'location' ? filterLabel : 'Plattegrond');
       title.textContent = type === 'customer' ? 'Kies klant' : (type === 'location' ? `Kies ${normalizedFilterLabel}` : 'Kies plattegrond');
@@ -482,8 +580,10 @@
         elements.filters.hidden = true;
         elements.filters.innerHTML = '';
         elements.filters.classList.remove('select-sheet-filters--chips');
+        elements.filters.classList.remove('select-sheet-filters--buttons');
       }
       activeType = null;
+      activeFilterKey = '';
     }
 
     function isOpen(type) {
@@ -506,6 +606,7 @@
     getState,
     getItems,
     getFilters,
+    getFilterGroups,
     getFilterLabel,
     getFilterValue,
     getPickerMeta,
@@ -531,7 +632,8 @@
           elements.floorplanSelect.value = String(item.index);
           handleFloorplanChange();
         } else if (type === 'location') {
-          if (typeof onFilterChange === 'function') onFilterChange('floorplan', String(item.value || ''));
+          const filterType = String(item.filterKey || 'floorplan');
+          if (typeof onFilterChange === 'function') onFilterChange(filterType, String(item.value || ''));
           sheetController.open('floorplan');
         }
       },

@@ -1,4 +1,4 @@
-@import url('./admin-dashboard-tokens.css?v=1.9.26');
+@import url('./admin-dashboard-tokens.css?v=1.9.27');
 
     * {
       margin: 0;
@@ -4863,6 +4863,12 @@
     .select-sheet-filters--chips {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(128px, 1fr));
+      gap: 8px;
+    }
+
+    .select-sheet-filters--buttons {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
       gap: 8px;
     }
 
