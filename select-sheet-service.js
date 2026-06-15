@@ -477,23 +477,28 @@
       }
 
       const query = search.value.trim().toLowerCase();
+      const locationFilterGroup = activeType === 'location' ? activeFilterGroup() : null;
+      const legacyLocationFilters = activeType === 'location' && !locationFilterGroup && typeof getFilters === 'function'
+        ? (getFilters('floorplan') || [])
+        : [];
+      const locationFilterOptions = locationFilterGroup?.options || legacyLocationFilters;
       const currentValue = activeType === 'customer'
         ? customerSelect.value
         : (activeType === 'floorplan'
           ? floorplanSelect.value
-          : (activeFilterGroup()?.value ?? filterValueForType('floorplan')));
+          : (locationFilterGroup?.value ?? filterValueForType('floorplan')));
       const typeAtRender = activeType;
       const filterGroups = typeAtRender === 'floorplan' ? filterGroupsForType(typeAtRender) : [];
       const activeFilter = typeAtRender === 'floorplan' && !filterGroups.length ? filterValueForType(typeAtRender) : '';
-      const baseItems = typeAtRender === 'location' && hasFilterGroups('floorplan')
-        ? (activeFilterGroup()?.options || []).map((option, index) => ({
+      const baseItems = typeAtRender === 'location' && locationFilterOptions.length
+        ? locationFilterOptions.map((option, index) => ({
             index,
             value: option.value,
             label: option.label,
             meta: `${option.count || 0} plattegrond${option.count === 1 ? '' : 'en'}`,
             description: option.description || '',
             searchText: [option.label, option.description].filter(Boolean).join(' '),
-            filterKey: activeFilterGroup()?.key || '',
+            filterKey: locationFilterGroup?.key || '',
           }))
         : (typeof getItems === 'function' ? getItems(typeAtRender) : []);
       const items = baseItems
