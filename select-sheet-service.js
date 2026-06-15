@@ -625,6 +625,7 @@
       getState,
       getItems,
       getFilters,
+      getFilterGroups,
       getFilterLabel,
       getFilterValue,
       getPickerMeta,
