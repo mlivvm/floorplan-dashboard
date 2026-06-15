@@ -1,4 +1,4 @@
-@import url('./admin-dashboard-tokens.css?v=1.9.25');
+@import url('./admin-dashboard-tokens.css?v=1.9.26');
 
     * {
       margin: 0;
@@ -784,6 +784,11 @@
       padding-bottom: 6px;
     }
 
+    .admin-floorplan-panel {
+      display: flex;
+      flex-direction: column;
+    }
+
     .admin-location-select {
       width: 100%;
       min-height: 46px;
@@ -926,6 +931,28 @@
       align-items: center;
     }
 
+    .admin-panel-title > div:first-child {
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .admin-bulk-actions {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+      gap: 7px;
+    }
+
+    .admin-bulk-actions .admin-dashboard-primary,
+    .admin-bulk-actions .admin-dashboard-secondary {
+      min-height: 36px;
+      padding: 7px 10px;
+      font-size: 12px;
+      white-space: nowrap;
+    }
+
     .admin-panel-title span {
       color: #66717f;
       font-size: 13px;
@@ -933,7 +960,8 @@
     }
 
     .admin-floorplan-list {
-      height: calc(100% - 48px);
+      flex: 1;
+      min-height: 0;
     }
 
     .admin-floorplan-row {
@@ -942,6 +970,23 @@
       display: grid;
       grid-template-columns: 1fr auto;
       gap: 8px;
+      align-items: center;
+    }
+
+    .admin-floorplan-row.has-bulk-checkbox {
+      grid-template-columns: auto minmax(0, 1fr) auto;
+    }
+
+    .admin-floorplan-row.is-bulk-selected {
+      background: #eef4ff;
+    }
+
+    .admin-bulk-checkbox {
+      width: 22px;
+      height: 22px;
+      margin: 0 4px 0 0;
+      accent-color: #1a73e8;
+      pointer-events: none;
     }
 
     .admin-floorplan-name {
@@ -955,6 +1000,14 @@
       font-size: 13px;
       font-weight: 700;
       color: #66717f;
+      overflow-wrap: anywhere;
+    }
+
+    .admin-floorplan-group-meta {
+      margin-top: 3px;
+      font-size: 12px;
+      font-weight: 750;
+      color: #4f5b67;
       overflow-wrap: anywhere;
     }
 

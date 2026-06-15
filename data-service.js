@@ -582,6 +582,7 @@
       const data = await postWorkerJSON(config, '/api/uploaded-floorplan', {
         customerName,
         floorplanName,
+        locationGroup: options.locationGroup || '',
         buildingName,
         floorLabel,
         fileName,
@@ -614,6 +615,7 @@
         customerName,
         floorplanName: fp.name,
         fileName: fp.file,
+        locationGroup: options.locationGroup || '',
         buildingName,
         floorLabel,
         locationAddress: options.locationAddress || '',
@@ -887,6 +889,7 @@
       repo: record.repo || 'gallery',
       fileName: record.fileName,
       nextCustomerName: record.nextCustomerName || record.customerName,
+      locationGroup: record.locationGroup || '',
       buildingName: record.buildingName || '',
       floorLabel: record.floorLabel || '',
       locationAddress: record.locationAddress || '',
@@ -902,6 +905,31 @@
       customers: Array.isArray(data.customers) ? data.customers : [],
       status: data.status && typeof data.status === 'object' ? data.status : null,
       record: data.record || null,
+    };
+  }
+
+  async function updateFloorplanGroupsBulk(config, bulk, options = {}) {
+    const token = getWorkerSessionToken(config);
+    if (!token) throw workerError(401, 'worker_session_required');
+    const data = await patchWorkerJSON(config, '/api/floorplan-records/group', {
+      customerName: bulk.customerName,
+      locationGroup: bulk.locationGroup || '',
+      records: Array.isArray(bulk.records) ? bulk.records.map(record => ({
+        floorplanName: record.floorplanName || record.name || record.floorplan || '',
+        repo: record.repo || 'gallery',
+        fileName: record.fileName || record.file || '',
+      })) : [],
+    }, {
+      ...options,
+      headers: {
+        ...(options?.headers || {}),
+        Authorization: `Bearer ${token}`,
+      },
+    });
+    return {
+      customers: Array.isArray(data.customers) ? data.customers : [],
+      updated: Number(data.updated || 0),
+      locationGroup: String(data.locationGroup || ''),
     };
   }
 
@@ -939,6 +967,7 @@
     fetchActiveUsers,
     fetchDoorCodeIndex,
     updateFloorplanRecord,
+    updateFloorplanGroupsBulk,
     supportsJotFormSubmissionBatch,
     getWorkerSessionUser,
     isViewerReadOnlyFloorplan,

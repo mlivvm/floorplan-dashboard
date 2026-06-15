@@ -7,6 +7,8 @@
   const LOCATION_ALL_VALUE = '';
   const LOCATION_NONE_VALUE = '__fd_no_location__';
   const LOCATION_NONE_LABEL = 'Zonder locatie';
+  const GROUP_NONE_VALUE = '__fd_no_group__';
+  const GROUP_NONE_LABEL = 'Zonder groep';
   const DIRECT_LOCATION_FILTER_LIMIT = 4;
 
   function getSelectedOptionText(selectEl, fallback) {
@@ -36,7 +38,8 @@
   function floorplanDisplayParts(floorplan) {
     const building = String(floorplan?.building || '').trim();
     const floorLabel = String(floorplan?.floorLabel || '').trim();
-    return { building, floorLabel };
+    const locationGroup = floorplanGroupName(floorplan);
+    return { building, floorLabel, locationGroup };
   }
 
   function floorplanDisplayName(floorplan) {
@@ -49,8 +52,24 @@
     return String(floorplan?.building || '').trim();
   }
 
+  function floorplanGroupName(floorplan) {
+    return String(floorplan?.locationGroup || floorplan?.group || '').trim();
+  }
+
   function normalizeLocationName(value) {
     return String(value || '').trim().toLowerCase();
+  }
+
+  function normalizeGroupName(value) {
+    return String(value || '').trim().toLowerCase();
+  }
+
+  function floorplanGroupFilterValue(floorplan) {
+    return floorplanGroupName(floorplan) || GROUP_NONE_VALUE;
+  }
+
+  function floorplanGroupFilterLabel(value) {
+    return value === GROUP_NONE_VALUE ? GROUP_NONE_LABEL : String(value || '').trim();
   }
 
   function floorplanLocationFilterValue(floorplan) {
@@ -100,23 +119,75 @@
     ];
   }
 
-  function getCustomerLocationDetails(customer, locationName) {
+  function buildGroupFilterOptions(items, options = {}) {
+    const safeItems = Array.isArray(items) ? items : [];
+    const counts = new Map();
+    let hasRealGroup = false;
+    safeItems.forEach(item => {
+      const value = floorplanGroupFilterValue(item);
+      if (value !== GROUP_NONE_VALUE) hasRealGroup = true;
+      counts.set(value, (counts.get(value) || 0) + 1);
+    });
+    if (!hasRealGroup) return [];
+
+    const groupOptions = Array.from(counts.entries())
+      .sort((left, right) => {
+        const leftNone = left[0] === GROUP_NONE_VALUE;
+        const rightNone = right[0] === GROUP_NONE_VALUE;
+        if (leftNone !== rightNone) return leftNone ? 1 : -1;
+        return LABEL_COLLATOR.compare(
+          floorplanGroupFilterLabel(left[0]),
+          floorplanGroupFilterLabel(right[0])
+        );
+      })
+      .map(([value, count]) => ({
+        value,
+        label: floorplanGroupFilterLabel(value),
+        count,
+      }));
+
+    return [
+      {
+        value: LOCATION_ALL_VALUE,
+        label: options.allLabel || 'Alle groepen',
+        count: safeItems.length,
+      },
+      ...groupOptions,
+    ];
+  }
+
+  function getCustomerLocationDetails(customer, locationName, locationGroup = '') {
     const normalized = normalizeLocationName(locationName);
+    const normalizedGroup = normalizeGroupName(locationGroup);
     if (!normalized || !Array.isArray(customer?.locations)) return null;
-    const location = customer.locations.find(item => normalizeLocationName(item?.name) === normalized);
+    const exactLocation = normalizedGroup
+      ? customer.locations.find(item =>
+          normalizeLocationName(item?.name) === normalized &&
+          normalizeGroupName(item?.locationGroup || item?.group) === normalizedGroup
+        )
+      : null;
+    const location = exactLocation || customer.locations.find(item =>
+      normalizeLocationName(item?.name) === normalized &&
+      !normalizeGroupName(item?.locationGroup || item?.group)
+    ) || customer.locations.find(item => normalizeLocationName(item?.name) === normalized);
     if (!location) return null;
     const address = String(location.address || '').trim();
     const note = String(location.note || '').trim();
     if (!address && !note) return null;
     return {
       name: String(location.name || locationName || '').trim(),
+      locationGroup: String(location.locationGroup || location.group || locationGroup || '').trim(),
       address,
       note,
     };
   }
 
   function getFloorplanLocationDetails(customer, floorplan) {
-    const details = getCustomerLocationDetails(customer, floorplanLocationName(floorplan));
+    const details = getCustomerLocationDetails(
+      customer,
+      floorplanLocationName(floorplan),
+      floorplanGroupName(floorplan)
+    );
     if (details) return details;
 
     const address = String(floorplan?.locationAddress || floorplan?.address || '').trim();
@@ -124,6 +195,7 @@
     if (!address && !note) return null;
     return {
       name: floorplanLocationName(floorplan) || 'Locatie',
+      locationGroup: floorplanGroupName(floorplan),
       address,
       note,
     };
@@ -212,6 +284,7 @@
     getState,
     getItems,
     getFilters,
+    getFilterLabel,
     getFilterValue,
     getPickerMeta,
     onFilterChange,
@@ -269,6 +342,7 @@
 
       const currentValue = filterValueForType(activeType);
       const currentFilter = filters.find(filter => String(filter.value || '') === currentValue) || filters[0];
+      const filterLabel = typeof getFilterLabel === 'function' ? getFilterLabel(activeType) : 'Locatie';
       filterEl.hidden = false;
       filterEl.classList.toggle('select-sheet-filters--chips', filters.length <= DIRECT_LOCATION_FILTER_LIMIT);
 
@@ -300,10 +374,10 @@
       button.className = 'select-sheet-location-button';
       const label = document.createElement('span');
       label.className = 'select-sheet-location-label';
-      label.textContent = 'Locatie';
+      label.textContent = filterLabel || 'Locatie';
       const value = document.createElement('span');
       value.className = 'select-sheet-location-value';
-      value.textContent = `${currentFilter?.label || 'Alle locaties'} (${currentFilter?.count || 0})`;
+      value.textContent = `${currentFilter?.label || 'Alles'} (${currentFilter?.count || 0})`;
       button.append(label, value);
       if (currentFilter?.description) {
         const description = document.createElement('span');
@@ -390,10 +464,12 @@
       if (type === 'location' && !(typeof getFilters === 'function' && (getFilters('floorplan') || []).length)) return;
 
       activeType = type;
-      eyebrow.textContent = type === 'customer' ? 'Klant' : (type === 'location' ? 'Locatie' : 'Plattegrond');
-      title.textContent = type === 'customer' ? 'Kies klant' : (type === 'location' ? 'Kies locatie' : 'Kies plattegrond');
+      const filterLabel = typeof getFilterLabel === 'function' ? getFilterLabel('floorplan') : 'Locatie';
+      const normalizedFilterLabel = String(filterLabel || 'locatie').toLowerCase();
+      eyebrow.textContent = type === 'customer' ? 'Klant' : (type === 'location' ? filterLabel : 'Plattegrond');
+      title.textContent = type === 'customer' ? 'Kies klant' : (type === 'location' ? `Kies ${normalizedFilterLabel}` : 'Kies plattegrond');
       search.value = '';
-      search.placeholder = type === 'location' ? 'Zoek locatie...' : 'Zoeken...';
+      search.placeholder = type === 'location' ? `Zoek ${normalizedFilterLabel}...` : 'Zoeken...';
       setSheetDisplay(elements, true);
       renderFilters();
       renderItems();
@@ -430,6 +506,7 @@
     getState,
     getItems,
     getFilters,
+    getFilterLabel,
     getFilterValue,
     getPickerMeta,
     onFilterChange,
@@ -442,6 +519,7 @@
       getState,
       getItems,
       getFilters,
+      getFilterLabel,
       getFilterValue,
       getPickerMeta,
       onFilterChange,
@@ -508,13 +586,19 @@
     LOCATION_ALL_VALUE,
     LOCATION_NONE_VALUE,
     LOCATION_NONE_LABEL,
+    GROUP_NONE_VALUE,
+    GROUP_NONE_LABEL,
     DIRECT_LOCATION_FILTER_LIMIT,
+    buildGroupFilterOptions,
     buildLocationFilterOptions,
     createController,
     createSelectionController,
     floorplanLocationFilterLabel,
     floorplanLocationFilterValue,
     floorplanLocationName,
+    floorplanGroupFilterLabel,
+    floorplanGroupFilterValue,
+    floorplanGroupName,
     getCustomerLocationDetails,
     getFloorplanLocationDetails,
     floorplanDisplayName,

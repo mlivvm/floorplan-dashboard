@@ -13,7 +13,7 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js" integrity="sha384-/1qUCSGwTur9vjf/z9lmu/eCUYbpOTgSjmpbMQZ1/CtX2v/WcAIKqRv+U1DUCG6e" crossorigin="anonymous"></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.6.2/cropper.min.css" integrity="sha384-6LFfkTKLRlzFtgx8xsWyBdKGpcMMQTkv+dB7rAbugeJAu1Ym2q1Aji1cjHBG12Xh" crossorigin="anonymous">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.6.2/cropper.min.js" integrity="sha384-jrOgQzBlDeUNdmQn3rUt/PZD+pdcRBdWd/HWRqRo+n2OR2QtGyjSaJC0GiCeH+ir" crossorigin="anonymous"></script>
-  <link rel="stylesheet" href="app.css?v=1.9.25">
+  <link rel="stylesheet" href="app.css?v=1.9.26">
 </head>
 <body>
 
@@ -25,7 +25,7 @@
 
   <!-- Login screen -->
   <div class="login-screen" id="login-screen" style="display:none;">
-    <div style="position:absolute; bottom:12px; left:16px; font-size:12px; color:#aaa;">v1.9.25</div>
+    <div style="position:absolute; bottom:12px; left:16px; font-size:12px; color:#aaa;">v1.9.26</div>
     <div class="environment-badge environment-badge-login" id="login-environment-badge" hidden>STAGING</div>
     <div class="login-box">
       <img class="login-logo" src="icon-192.png" alt="">
@@ -51,7 +51,7 @@
 
   <!-- App (hidden until logged in) -->
   <div id="app-container" style="display:none;">
-  <div style="position:fixed; bottom:12px; left:16px; font-size:12px; color:#aaa; z-index:1000; pointer-events:none;">v1.9.25</div>
+  <div style="position:fixed; bottom:12px; left:16px; font-size:12px; color:#aaa; z-index:1000; pointer-events:none;">v1.9.26</div>
 
   <!-- Toast notification -->
   <div id="toast" style="display:none; position:fixed; top:calc(env(safe-area-inset-top) + var(--topbar-h, 52px) + 12px); left:50%; transform:translateX(-50%); padding:14px 28px; border-radius:10px; font-size:16px; font-weight:600; z-index:500; box-shadow:0 4px 16px rgba(0,0,0,0.25); cursor:pointer; max-width:90vw; text-align:center;"></div>
@@ -216,14 +216,25 @@
             <input id="admin-dashboard-search" class="admin-dashboard-input" type="search" placeholder="Klant, pand of plattegrond" autocomplete="off">
             <div class="admin-dashboard-label admin-filter-heading">Klanten</div>
             <div class="admin-filter-list" id="admin-customer-filters"></div>
+            <div class="admin-dashboard-label admin-filter-heading" id="admin-group-filter-heading">Groep</div>
+            <div class="admin-location-filter-control" id="admin-group-filters"></div>
             <div class="admin-dashboard-label admin-filter-heading" id="admin-location-filter-heading">Locatie</div>
             <div class="admin-location-filter-control" id="admin-location-filters"></div>
           </aside>
 
           <main class="admin-floorplan-panel">
             <div class="admin-panel-title">
-              <strong>Plattegronden</strong>
-              <span id="admin-floorplan-count">0 gevonden</span>
+              <div>
+                <strong>Plattegronden</strong>
+                <span id="admin-floorplan-count">0 gevonden</span>
+              </div>
+              <div class="admin-bulk-actions">
+                <button type="button" id="admin-bulk-toggle" class="admin-dashboard-secondary">Bulk selecteren</button>
+                <button type="button" id="admin-bulk-select-visible" class="admin-dashboard-secondary" hidden>Selecteer zichtbaar</button>
+                <button type="button" id="admin-bulk-clear" class="admin-dashboard-secondary" hidden>Wis selectie</button>
+                <button type="button" id="admin-bulk-group" class="admin-dashboard-primary" hidden>Groep wijzigen</button>
+                <button type="button" id="admin-bulk-cancel" class="admin-dashboard-secondary" hidden>Stop bulk</button>
+              </div>
             </div>
             <div class="admin-floorplan-list" id="admin-floorplan-list"></div>
           </main>
@@ -293,6 +304,8 @@
     <div class="admin-edit-form">
       <label class="admin-dashboard-label" for="admin-detail-customer">Klant</label>
       <select id="admin-detail-customer" class="admin-dashboard-input"></select>
+      <label class="admin-dashboard-label" for="admin-detail-location-group">Groep</label>
+      <input id="admin-detail-location-group" class="admin-dashboard-input" type="text" placeholder="Bijv. Koningsjacht">
       <label class="admin-dashboard-label" for="admin-detail-building">Pand</label>
       <input id="admin-detail-building" class="admin-dashboard-input" type="text" placeholder="Pand">
       <label class="admin-dashboard-label" for="admin-detail-floor-label">Verdieping of naam</label>
@@ -304,6 +317,24 @@
       <div class="admin-detail-error" id="admin-detail-error"></div>
       <button type="button" id="admin-detail-save" class="admin-dashboard-primary">Gegevens opslaan</button>
       <button type="button" id="admin-detail-delete" class="admin-dashboard-danger">Plattegrond verwijderen</button>
+    </div>
+  </div>
+
+  <div class="admin-metadata-dialog-overlay" id="admin-bulk-group-dialog-overlay" hidden></div>
+  <div class="admin-metadata-dialog" id="admin-bulk-group-dialog" hidden role="dialog" aria-modal="true" aria-labelledby="admin-bulk-group-dialog-title">
+    <div class="admin-metadata-dialog-header">
+      <div>
+        <h3 id="admin-bulk-group-dialog-title">Groep wijzigen</h3>
+        <p id="admin-bulk-group-dialog-context"></p>
+      </div>
+      <button type="button" id="admin-bulk-group-close" class="admin-metadata-close" aria-label="Sluiten">&times;</button>
+    </div>
+    <div class="admin-edit-form">
+      <label class="admin-dashboard-label" for="admin-bulk-group-input">Nieuwe groep</label>
+      <input id="admin-bulk-group-input" class="admin-dashboard-input" type="text" placeholder="Leeg laten voor geen groep">
+      <div class="admin-detail-error" id="admin-bulk-group-error"></div>
+      <button type="button" id="admin-bulk-group-save" class="admin-dashboard-primary">Groep opslaan</button>
+      <button type="button" id="admin-bulk-group-cancel" class="admin-dashboard-secondary">Annuleren</button>
     </div>
   </div>
 
@@ -575,13 +606,14 @@
       </div>
 
       <div id="upload-pdf-form" class="upload-pdf-form" style="display:none;">
-        <div class="upload-pdf-form-top">
-          <select id="upload-pdf-customer-select" class="upload-input"></select>
-          <div id="upload-pdf-new-customer-wrapper" style="display:none;">
-            <input type="text" id="upload-pdf-new-customer" placeholder="Naam nieuwe klant" class="upload-input" style="width:100%;">
-            <button type="button" id="btn-upload-pdf-back-to-select" class="upload-pdf-link">Kies bestaande klant</button>
+          <div class="upload-pdf-form-top">
+            <select id="upload-pdf-customer-select" class="upload-input"></select>
+            <div id="upload-pdf-new-customer-wrapper" style="display:none;">
+              <input type="text" id="upload-pdf-new-customer" placeholder="Naam nieuwe klant" class="upload-input" style="width:100%;">
+              <button type="button" id="btn-upload-pdf-back-to-select" class="upload-pdf-link">Kies bestaande klant</button>
+            </div>
+            <input type="text" id="upload-pdf-location-group" placeholder="Groep (optioneel)" class="upload-input">
           </div>
-        </div>
         <div id="upload-pdf-names-list" class="upload-pdf-names-list"></div>
         <div id="upload-pdf-progress" class="upload-pdf-progress" style="display:none;">
           <div class="upload-pdf-progress-track">
@@ -605,6 +637,7 @@
           <input type="text" id="upload-new-customer" placeholder="Naam nieuwe klant" class="upload-input" style="width:100%;">
           <button type="button" id="btn-back-to-select" style="background:none; border:none; color:#1a73e8; font-size:13px; padding:4px 2px; cursor:pointer; text-decoration:underline; display:inline-block; margin-top:4px;">← Kies bestaande klant</button>
         </div>
+        <input type="text" id="upload-location-group" placeholder="Groep (optioneel)" class="upload-input">
         <input type="text" id="upload-building-name" placeholder="Pand" class="upload-input">
         <input type="text" id="upload-floorplan-name" placeholder="Verdieping of naam" class="upload-input">
         <p style="font-size:13px; color:#888; margin:-4px 0 0 0;">Wordt getoond als Pand - Verdieping of naam</p>
@@ -635,6 +668,7 @@
       <div id="metadata-fp-context"></div>
     </div>
     <div style="display:flex; flex-direction:column; gap:12px;">
+      <input type="text" id="metadata-location-group" placeholder="Groep (optioneel)" class="upload-input">
       <input type="text" id="metadata-building-name" placeholder="Pand" class="upload-input">
       <input type="text" id="metadata-floor-label" placeholder="Verdieping of naam" class="upload-input">
       <input type="text" id="metadata-location-address" placeholder="Adres" class="upload-input">
@@ -719,26 +753,26 @@
 
   </div><!-- /app-container -->
 
-  <script src="env-config.js?v=1.9.25"></script>
-  <script src="data-service.js?v=1.9.25"></script>
-  <script src="diagnostics-service.js?v=1.9.25"></script>
-  <script src="floorplan-cache-service.js?v=1.9.25"></script>
-  <script src="floorplan-view-service.js?v=1.9.25"></script>
-  <script src="auth-service.js?v=1.9.25"></script>
-  <script src="status-service.js?v=1.9.25"></script>
-  <script src="status-sync-service.js?v=1.9.25"></script>
-  <script src="mode-service.js?v=1.9.25"></script>
-  <script src="image-editor-service.js?v=1.9.25"></script>
-  <script src="viewport-service.js?v=1.9.25"></script>
-  <script src="marker-service.js?v=1.9.25"></script>
-  <script src="door-action-service.js?v=1.9.25"></script>
-  <script src="ui-shell-service.js?v=1.9.25"></script>
-  <script src="export-service.js?v=1.9.25"></script>
-  <script src="edit-ui-service.js?v=1.9.25"></script>
-  <script src="pdf-import-service.js?v=1.9.25"></script>
-  <script src="upload-service.js?v=1.9.25"></script>
-  <script src="select-sheet-service.js?v=1.9.25"></script>
-  <script src="side-panel-service.js?v=1.9.25"></script>
-  <script src="app.js?v=1.9.25"></script>
+  <script src="env-config.js?v=1.9.26"></script>
+  <script src="data-service.js?v=1.9.26"></script>
+  <script src="diagnostics-service.js?v=1.9.26"></script>
+  <script src="floorplan-cache-service.js?v=1.9.26"></script>
+  <script src="floorplan-view-service.js?v=1.9.26"></script>
+  <script src="auth-service.js?v=1.9.26"></script>
+  <script src="status-service.js?v=1.9.26"></script>
+  <script src="status-sync-service.js?v=1.9.26"></script>
+  <script src="mode-service.js?v=1.9.26"></script>
+  <script src="image-editor-service.js?v=1.9.26"></script>
+  <script src="viewport-service.js?v=1.9.26"></script>
+  <script src="marker-service.js?v=1.9.26"></script>
+  <script src="door-action-service.js?v=1.9.26"></script>
+  <script src="ui-shell-service.js?v=1.9.26"></script>
+  <script src="export-service.js?v=1.9.26"></script>
+  <script src="edit-ui-service.js?v=1.9.26"></script>
+  <script src="pdf-import-service.js?v=1.9.26"></script>
+  <script src="upload-service.js?v=1.9.26"></script>
+  <script src="select-sheet-service.js?v=1.9.26"></script>
+  <script src="side-panel-service.js?v=1.9.26"></script>
+  <script src="app.js?v=1.9.26"></script>
 </body>
 </html>

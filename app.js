@@ -2,7 +2,7 @@
     // CONFIGURATION
     // ============================================================
 
-    const APP_VERSION = '1.9.25';
+    const APP_VERSION = '1.9.26';
     const ENV_CONFIG = window.FD?.Env?.config || window.FD_ENV_CONFIG || {};
     const DEFAULT_JOTFORM_FORM_ID = '250122093908351';
     const DEFAULT_JOTFORM_FORMS = {
@@ -176,6 +176,7 @@
       data: null,
       selectedKey: '',
       selectedCustomer: '',
+      selectedGroup: '',
       selectedLocation: '',
       searchQuery: '',
       doorQuery: '',
@@ -193,6 +194,8 @@
       previewKey: '',
       previewRequestId: 0,
       metadataRecord: null,
+      bulkMode: false,
+      bulkSelectedKeys: new Set(),
       lastUpdatedAt: '',
       loadError: '',
     };
@@ -291,8 +294,15 @@
     const adminActivityList = document.getElementById('admin-activity-list');
     const adminDashboardSearch = document.getElementById('admin-dashboard-search');
     const adminCustomerFilters = document.getElementById('admin-customer-filters');
+    const adminGroupFilterHeading = document.getElementById('admin-group-filter-heading');
+    const adminGroupFilters = document.getElementById('admin-group-filters');
     const adminLocationFilterHeading = document.getElementById('admin-location-filter-heading');
     const adminLocationFilters = document.getElementById('admin-location-filters');
+    const adminBulkToggle = document.getElementById('admin-bulk-toggle');
+    const adminBulkSelectVisible = document.getElementById('admin-bulk-select-visible');
+    const adminBulkClear = document.getElementById('admin-bulk-clear');
+    const adminBulkGroup = document.getElementById('admin-bulk-group');
+    const adminBulkCancel = document.getElementById('admin-bulk-cancel');
     const adminDoorSearch = document.getElementById('admin-door-search');
     const adminDoorGroup = document.getElementById('admin-door-group');
     const adminDoorCustomerFilter = document.getElementById('admin-door-customer-filter');
@@ -312,6 +322,7 @@
     const adminDetailOpen = document.getElementById('admin-detail-open');
     const adminDetailStats = document.getElementById('admin-detail-stats');
     const adminDetailCustomer = document.getElementById('admin-detail-customer');
+    const adminDetailLocationGroup = document.getElementById('admin-detail-location-group');
     const adminDetailBuilding = document.getElementById('admin-detail-building');
     const adminDetailFloorLabel = document.getElementById('admin-detail-floor-label');
     const adminDetailLocationAddress = document.getElementById('admin-detail-location-address');
@@ -325,6 +336,14 @@
     const adminDoorDetailStatus = document.getElementById('admin-door-detail-status');
     const adminDoorDetailMeta = document.getElementById('admin-door-detail-meta');
     const adminDoorDetailOpen = document.getElementById('admin-door-detail-open');
+    const adminBulkGroupDialogOverlay = document.getElementById('admin-bulk-group-dialog-overlay');
+    const adminBulkGroupDialog = document.getElementById('admin-bulk-group-dialog');
+    const adminBulkGroupDialogContext = document.getElementById('admin-bulk-group-dialog-context');
+    const adminBulkGroupInput = document.getElementById('admin-bulk-group-input');
+    const adminBulkGroupError = document.getElementById('admin-bulk-group-error');
+    const adminBulkGroupSave = document.getElementById('admin-bulk-group-save');
+    const adminBulkGroupCancel = document.getElementById('admin-bulk-group-cancel');
+    const adminBulkGroupClose = document.getElementById('admin-bulk-group-close');
     const adminKpiEls = {
       customers: document.getElementById('admin-kpi-customers'),
       floorplans: document.getElementById('admin-kpi-floorplans'),
@@ -1869,6 +1888,20 @@
       return FD.SelectSheetService.getFloorplanLocationDetails(customer, floorplan);
     }
 
+    function floorplanGroupName(floorplan) {
+      return FD.SelectSheetService.floorplanGroupName(floorplan);
+    }
+
+    function floorplanGroupMeta(floorplan) {
+      const group = floorplanGroupName(floorplan);
+      return group ? `Groep: ${group}` : '';
+    }
+
+    function floorplanGroupDisplayLabel(floorplan) {
+      const group = floorplanGroupName(floorplan);
+      return group || FD.SelectSheetService.GROUP_NONE_LABEL || 'Zonder groep';
+    }
+
     function floorplanAddressMeta(customer, floorplan) {
       return formatLocationMeta(getFloorplanLocationDetails(customer, floorplan));
     }
@@ -1895,13 +1928,23 @@
       return String(value || '').trim().toLowerCase();
     }
 
-    function getPersistedCustomerLocationDetails(customersList, customerName, locationName) {
+    function getPersistedCustomerLocationDetails(customersList, customerName, locationName, locationGroup = '') {
       const customerKey = String(customerName || '');
       const locationKey = normalizeLocationDetailsKey(locationName);
+      const groupKey = normalizeLocationDetailsKey(locationGroup);
       if (!customerKey || !locationKey || !Array.isArray(customersList)) return null;
       const customer = customersList.find(item => String(item?.customer || '') === customerKey);
       if (!customer || !Array.isArray(customer.locations)) return null;
-      const location = customer.locations.find(item => normalizeLocationDetailsKey(item?.name) === locationKey);
+      const exactLocation = groupKey
+        ? customer.locations.find(item =>
+            normalizeLocationDetailsKey(item?.name) === locationKey &&
+            normalizeLocationDetailsKey(item?.locationGroup || item?.group) === groupKey
+          )
+        : null;
+      const location = exactLocation || customer.locations.find(item =>
+        normalizeLocationDetailsKey(item?.name) === locationKey &&
+        !normalizeLocationDetailsKey(item?.locationGroup || item?.group)
+      ) || customer.locations.find(item => normalizeLocationDetailsKey(item?.name) === locationKey);
       if (!location) return null;
       return {
         address: String(location.address || '').trim(),
@@ -1909,11 +1952,11 @@
       };
     }
 
-    function assertLocationDetailsPersisted(customersList, customerName, locationName, expectedAddress, expectedNote) {
+    function assertLocationDetailsPersisted(customersList, customerName, locationName, expectedAddress, expectedNote, locationGroup = '') {
       if (!String(locationName || '').trim()) return;
       const address = String(expectedAddress || '').trim();
       const note = String(expectedNote || '').trim();
-      const details = getPersistedCustomerLocationDetails(customersList, customerName, locationName);
+      const details = getPersistedCustomerLocationDetails(customersList, customerName, locationName, locationGroup);
       if (!address && !note) {
         if (details && (details.address || details.note)) throw locationDetailsSaveError();
         return;
@@ -1939,6 +1982,7 @@
 
     function floorplanPickerMetaText(customer, floorplan) {
       return [
+        floorplanGroupMeta(floorplan),
         floorplanAddressMeta(customer, floorplan),
         floorplanPermissionMeta(customer, floorplan),
       ].filter(Boolean).join(' · ');
@@ -1967,7 +2011,7 @@
         locationAddressNote.textContent = note ? `Notitie: ${note}` : '';
         locationAddressNote.hidden = !note;
       }
-      locationAddressBar.title = [details.name, address, note].filter(Boolean).join(' · ');
+      locationAddressBar.title = [details.locationGroup, details.name, address, note].filter(Boolean).join(' · ');
     }
 
     function hideLocationAddressBar() {
@@ -1982,6 +2026,7 @@
         customer: customer.customer,
         name: floorplan.name,
         displayName: FD.SelectSheetService.floorplanDisplayName(floorplan),
+        locationGroup: floorplanGroupName(floorplan),
         building: floorplan.building || '',
         floorLabel: floorplan.floorLabel || '',
         locationAddress: locationDetails?.address || '',
@@ -2252,8 +2297,16 @@
       return FD.SelectSheetService.floorplanLocationFilterValue(floorplan);
     }
 
+    function floorplanGroupValue(floorplan) {
+      return FD.SelectSheetService.floorplanGroupFilterValue(floorplan);
+    }
+
     function floorplanLocationLabelForValue(value) {
       return FD.SelectSheetService.floorplanLocationFilterLabel(value);
+    }
+
+    function floorplanGroupLabelForValue(value) {
+      return FD.SelectSheetService.floorplanGroupFilterLabel(value);
     }
 
     function compareFloorplanLocationValues(left, right) {
@@ -2267,9 +2320,46 @@
       );
     }
 
+    function compareFloorplanGroupValues(left, right) {
+      const noneValue = FD.SelectSheetService.GROUP_NONE_VALUE;
+      const leftNone = left === noneValue;
+      const rightNone = right === noneValue;
+      if (leftNone !== rightNone) return leftNone ? 1 : -1;
+      return LOCATION_COLLATOR.compare(
+        floorplanGroupLabelForValue(left),
+        floorplanGroupLabelForValue(right)
+      );
+    }
+
+    function buildFloorplanPrimaryFilterOptions(items, customer = null) {
+      const groups = FD.SelectSheetService.buildGroupFilterOptions(items);
+      if (groups.length) return groups.map(option => ({ ...option, kind: 'group' }));
+      return buildLocationFilterOptions(items, customer).map(option => ({ ...option, kind: 'location' }));
+    }
+
+    function floorplanPrimaryFilterKind(items, customer = null) {
+      return buildFloorplanPrimaryFilterOptions(items, customer)[0]?.kind || 'location';
+    }
+
+    function floorplanPrimaryFilterValue(floorplan, kind) {
+      return kind === 'group' ? floorplanGroupValue(floorplan) : floorplanLocationValue(floorplan);
+    }
+
+    function floorplanPrimaryFilterLabelForValue(value, kind) {
+      return kind === 'group' ? floorplanGroupLabelForValue(value) : floorplanLocationLabelForValue(value);
+    }
+
+    function compareFloorplanPrimaryFilterValues(left, right, kind) {
+      return kind === 'group'
+        ? compareFloorplanGroupValues(left, right)
+        : compareFloorplanLocationValues(left, right);
+    }
+
     function compareFloorplanSheetItems(left, right) {
-      const locationCompare = compareFloorplanLocationValues(left.filterValue, right.filterValue);
+      const locationCompare = compareFloorplanPrimaryFilterValues(left.filterValue, right.filterValue, left.filterKind || 'location');
       if (locationCompare) return locationCompare;
+      const buildingCompare = compareFloorplanLocationValues(left.locationValue, right.locationValue);
+      if (buildingCompare) return buildingCompare;
       const labelCompare = LOCATION_COLLATOR.compare(left.label, right.label);
       return labelCompare || left.index - right.index;
     }
@@ -2278,8 +2368,10 @@
       return [
         label,
         meta,
+        floorplanGroupLabelForValue(floorplanGroupValue(floorplan)),
         floorplanLocationLabelForValue(floorplanLocationValue(floorplan)),
         floorplan?.name,
+        floorplanGroupName(floorplan),
         floorplan?.building,
         floorplan?.floorLabel,
         floorplan?.file,
@@ -2317,10 +2409,10 @@
       if (ci === null || !customers[ci]) return [];
       topbarFloorplanLocationFilter = normalizeLocationFilterValue(
         topbarFloorplanLocationFilter,
-        buildLocationFilterOptions(customers[ci].floorplans || [], customers[ci])
+        buildFloorplanPrimaryFilterOptions(customers[ci].floorplans || [], customers[ci])
       );
       if (type === 'location') {
-        return buildLocationFilterOptions(customers[ci].floorplans || [], customers[ci])
+        return buildFloorplanPrimaryFilterOptions(customers[ci].floorplans || [], customers[ci])
           .map((option, index) => ({
             index,
             value: option.value,
@@ -2335,7 +2427,9 @@
         .map(({ item: fp, index, label }) => {
           const customer = customers[ci];
           const readOnly = isViewerReadOnlyFloorplan(customer.customer, fp.name);
-          const filterValue = floorplanLocationValue(fp);
+          const filterKind = floorplanPrimaryFilterKind(customers[ci].floorplans || [], customer);
+          const filterValue = floorplanPrimaryFilterValue(fp, filterKind);
+          const locationValue = floorplanLocationValue(fp);
           const description = floorplanAddressMeta(customer, fp);
           const meta = floorplanPermissionMeta(customer, fp);
           return {
@@ -2344,7 +2438,9 @@
             meta,
             description,
             filterValue,
-            groupLabel: floorplanLocationLabelForValue(filterValue),
+            filterKind,
+            locationValue,
+            groupLabel: floorplanPrimaryFilterLabelForValue(filterValue, filterKind),
             searchText: floorplanSheetSearchText(fp, label, [description, meta].filter(Boolean).join(' ')),
             readOnly,
           };
@@ -2356,9 +2452,18 @@
       if (type !== 'floorplan') return [];
       const ci = FD.SelectSheetService.selectedIndex(customerSelect);
       if (ci === null || !customers[ci]) return [];
-      const options = buildLocationFilterOptions(customers[ci].floorplans || [], customers[ci]);
+      const options = buildFloorplanPrimaryFilterOptions(customers[ci].floorplans || [], customers[ci]);
       topbarFloorplanLocationFilter = normalizeLocationFilterValue(topbarFloorplanLocationFilter, options);
       return options;
+    }
+
+    function getSelectSheetFilterLabel(type) {
+      if (type !== 'floorplan') return 'Locatie';
+      const ci = FD.SelectSheetService.selectedIndex(customerSelect);
+      if (ci === null || !customers[ci]) return 'Locatie';
+      return floorplanPrimaryFilterKind(customers[ci].floorplans || [], customers[ci]) === 'group'
+        ? 'Groep'
+        : 'Locatie';
     }
 
     function getSelectSheetFilterValue(type) {
@@ -2477,6 +2582,8 @@
         record.customer,
         record.displayName,
         record.name,
+        floorplanGroupLabelForValue(floorplanGroupValue(record)),
+        floorplanGroupName(record),
         floorplanLocationLabelForValue(floorplanLocationValue(record)),
         record.building,
         record.floorLabel,
@@ -2592,13 +2699,19 @@
       return Array.from(names).sort((a, b) => ADMIN_COLLATOR.compare(a, b));
     }
 
+    function buildAdminGroupFilterOptions(records) {
+      return FD.SelectSheetService.buildGroupFilterOptions(records, { allLabel: 'Alle groepen' });
+    }
+
     function getFilteredAdminFloorplans() {
       const data = getAdminData();
       const query = adminNormalizeSearch(adminDashboardState.searchQuery);
       const selectedCustomer = adminDashboardState.selectedCustomer;
+      const selectedGroup = adminDashboardState.selectedGroup;
       const selectedLocation = adminDashboardState.selectedLocation;
       return (Array.isArray(data.floorplans) ? data.floorplans : []).filter(record => {
         if (selectedCustomer && record.customer !== selectedCustomer) return false;
+        if (selectedGroup && floorplanGroupValue(record) !== selectedGroup) return false;
         if (selectedLocation && floorplanLocationValue(record) !== selectedLocation) return false;
         if (query && !adminFloorplanSearchText(record).includes(query)) return false;
         return true;
@@ -2847,7 +2960,7 @@
         type: 'floorplan',
         record,
         label: adminFloorplanDisplayName(record),
-        meta: record.customer || 'Onbekende klant',
+        meta: [record.customer || 'Onbekende klant', floorplanGroupMeta(record)].filter(Boolean).join(' · '),
         badge,
       };
     }
@@ -2976,18 +3089,24 @@
         button.addEventListener('click', () => {
           if (record.type === 'customer') {
             adminDashboardState.selectedCustomer = record.customer || '';
+            adminDashboardState.selectedGroup = '';
             adminDashboardState.selectedLocation = '';
             adminDashboardState.selectedKey = '';
             adminDashboardState.selectedDoorKey = '';
             adminDashboardState.previewKey = '';
+            adminDashboardState.bulkMode = false;
+            adminDashboardState.bulkSelectedKeys.clear();
             setAdminTab('floorplans');
             renderAdminDashboard();
             return;
           }
           const target = record.record || record;
+          adminDashboardState.selectedGroup = '';
           adminDashboardState.selectedLocation = '';
           adminDashboardState.selectedKey = adminFloorplanKey(target);
           adminDashboardState.selectedDoorKey = '';
+          adminDashboardState.bulkMode = false;
+          adminDashboardState.bulkSelectedKeys.clear();
           setAdminTab('details');
           renderAdminDashboard();
         });
@@ -3085,9 +3204,12 @@
         button.addEventListener('click', () => {
           const targetFloorplan = floorplan || door || row;
           adminDashboardState.selectedCustomer = '';
+          adminDashboardState.selectedGroup = '';
           adminDashboardState.selectedLocation = '';
           adminDashboardState.selectedKey = adminFloorplanKey(targetFloorplan);
           adminDashboardState.selectedDoorKey = door ? adminDoorKey(door) : adminDoorKey(row);
+          adminDashboardState.bulkMode = false;
+          adminDashboardState.bulkSelectedKeys.clear();
           setAdminTab('details');
           renderAdminDashboard();
         });
@@ -3148,14 +3270,142 @@
         button.append(label, count);
         button.addEventListener('click', () => {
           adminDashboardState.selectedCustomer = item.value;
+          adminDashboardState.selectedGroup = '';
           adminDashboardState.selectedLocation = '';
           adminDashboardState.selectedKey = '';
           adminDashboardState.selectedDoorKey = '';
           adminDashboardState.previewKey = '';
+          adminDashboardState.bulkMode = false;
+          adminDashboardState.bulkSelectedKeys.clear();
           renderAdminDashboard();
         });
         adminCustomerFilters.appendChild(button);
       });
+    }
+
+    function renderAdminGroupFilters() {
+      if (!adminGroupFilters) return;
+      adminGroupFilters.innerHTML = '';
+      const data = getAdminData();
+      const selectedCustomer = adminDashboardState.selectedCustomer;
+      const scopedFloorplans = (Array.isArray(data.floorplans) ? data.floorplans : [])
+        .filter(record => !selectedCustomer || record.customer === selectedCustomer);
+      const options = buildAdminGroupFilterOptions(scopedFloorplans);
+      adminDashboardState.selectedGroup = normalizeLocationFilterValue(
+        adminDashboardState.selectedGroup,
+        options
+      );
+
+      if (!options.length) {
+        if (adminGroupFilterHeading) adminGroupFilterHeading.hidden = true;
+        adminGroupFilters.hidden = true;
+        adminDashboardState.selectedGroup = '';
+        return;
+      }
+
+      if (adminGroupFilterHeading) adminGroupFilterHeading.hidden = false;
+      adminGroupFilters.hidden = false;
+      const select = document.createElement('select');
+      select.className = 'admin-dashboard-input admin-location-select';
+      select.setAttribute('aria-label', 'Groep');
+      options.forEach(item => {
+        const value = String(item.value || '');
+        const option = document.createElement('option');
+        option.value = value;
+        option.textContent = `${item.label} (${item.count})`;
+        select.appendChild(option);
+      });
+      select.value = adminDashboardState.selectedGroup;
+      select.addEventListener('change', () => {
+        adminDashboardState.selectedGroup = select.value;
+        adminDashboardState.selectedLocation = '';
+        adminDashboardState.selectedKey = '';
+        adminDashboardState.selectedDoorKey = '';
+        adminDashboardState.previewKey = '';
+        renderAdminDashboard();
+      });
+      adminGroupFilters.appendChild(select);
+    }
+
+    function getAdminBulkSelectedRecords() {
+      const selectedKeys = adminDashboardState.bulkSelectedKeys;
+      if (!selectedKeys || !selectedKeys.size) return [];
+      return (getAdminData().floorplans || [])
+        .filter(record => selectedKeys.has(adminFloorplanKey(record)) &&
+          (!adminDashboardState.selectedCustomer || record.customer === adminDashboardState.selectedCustomer));
+    }
+
+    function pruneAdminBulkSelection() {
+      const allKeys = new Set((getAdminData().floorplans || [])
+        .filter(record => !adminDashboardState.selectedCustomer || record.customer === adminDashboardState.selectedCustomer)
+        .map(adminFloorplanKey));
+      Array.from(adminDashboardState.bulkSelectedKeys).forEach(key => {
+        if (!allKeys.has(key)) adminDashboardState.bulkSelectedKeys.delete(key);
+      });
+    }
+
+    function setAdminBulkMode(active) {
+      if (active && !adminDashboardState.selectedCustomer) {
+        showToast('Kies eerst één klant voor bulkbewerking', 'error');
+        return;
+      }
+      adminDashboardState.bulkMode = Boolean(active);
+      adminDashboardState.bulkSelectedKeys.clear();
+      hideAdminBulkGroupDialog();
+      renderAdminDashboard();
+    }
+
+    function renderAdminBulkControls(filtered) {
+      pruneAdminBulkSelection();
+      const bulkMode = Boolean(adminDashboardState.bulkMode);
+      const selectedCount = getAdminBulkSelectedRecords().length;
+      if (adminBulkToggle) {
+        adminBulkToggle.hidden = bulkMode;
+        adminBulkToggle.disabled = !adminDashboardState.selectedCustomer;
+        adminBulkToggle.title = adminDashboardState.selectedCustomer
+          ? 'Meerdere plattegronden selecteren'
+          : 'Kies eerst één klant';
+      }
+      if (adminBulkSelectVisible) {
+        adminBulkSelectVisible.hidden = !bulkMode;
+        adminBulkSelectVisible.disabled = !filtered.length;
+      }
+      if (adminBulkClear) {
+        adminBulkClear.hidden = !bulkMode;
+        adminBulkClear.disabled = selectedCount === 0;
+      }
+      if (adminBulkGroup) {
+        adminBulkGroup.hidden = !bulkMode;
+        adminBulkGroup.disabled = selectedCount === 0;
+        adminBulkGroup.textContent = selectedCount ? `Groep wijzigen (${selectedCount})` : 'Groep wijzigen';
+      }
+      if (adminBulkCancel) {
+        adminBulkCancel.hidden = !bulkMode;
+      }
+    }
+
+    function toggleAdminBulkRecord(record) {
+      const key = adminFloorplanKey(record);
+      if (!key.trim()) return;
+      if (adminDashboardState.bulkSelectedKeys.has(key)) {
+        adminDashboardState.bulkSelectedKeys.delete(key);
+      } else {
+        adminDashboardState.bulkSelectedKeys.add(key);
+      }
+      renderAdminFloorplanList();
+    }
+
+    function selectVisibleAdminBulkFloorplans() {
+      if (!adminDashboardState.bulkMode) return;
+      getFilteredAdminFloorplans().forEach(record => {
+        adminDashboardState.bulkSelectedKeys.add(adminFloorplanKey(record));
+      });
+      renderAdminFloorplanList();
+    }
+
+    function clearAdminBulkSelection() {
+      adminDashboardState.bulkSelectedKeys.clear();
+      renderAdminFloorplanList();
     }
 
     function renderAdminLocationFilters() {
@@ -3163,8 +3413,10 @@
       adminLocationFilters.innerHTML = '';
       const data = getAdminData();
       const selectedCustomer = adminDashboardState.selectedCustomer;
+      const selectedGroup = adminDashboardState.selectedGroup;
       const scopedFloorplans = (Array.isArray(data.floorplans) ? data.floorplans : [])
-        .filter(record => !selectedCustomer || record.customer === selectedCustomer);
+        .filter(record => !selectedCustomer || record.customer === selectedCustomer)
+        .filter(record => !selectedGroup || floorplanGroupValue(record) === selectedGroup);
       const options = buildLocationFilterOptions(scopedFloorplans);
       adminDashboardState.selectedLocation = normalizeLocationFilterValue(
         adminDashboardState.selectedLocation,
@@ -3204,9 +3456,10 @@
     function renderAdminFloorplanList() {
       if (!adminFloorplanList) return;
       const filtered = getFilteredAdminFloorplans();
-      const selected = getSelectedAdminFloorplan(filtered);
+      renderAdminBulkControls(filtered);
       if (adminFloorplanCount) {
-        adminFloorplanCount.textContent = `${filtered.length} gevonden`;
+        const bulkSelected = adminDashboardState.bulkMode ? ` · ${getAdminBulkSelectedRecords().length} geselecteerd` : '';
+        adminFloorplanCount.textContent = `${filtered.length} gevonden${bulkSelected}`;
       }
 
       adminFloorplanList.innerHTML = '';
@@ -3222,16 +3475,33 @@
         const row = document.createElement('button');
         row.type = 'button';
         row.className = 'admin-floorplan-row';
-        row.classList.toggle('active', adminFloorplanKey(record) === adminDashboardState.selectedKey);
+        const key = adminFloorplanKey(record);
+        const bulkSelected = adminDashboardState.bulkSelectedKeys.has(key);
+        row.classList.toggle('has-bulk-checkbox', adminDashboardState.bulkMode);
+        row.classList.toggle('active', !adminDashboardState.bulkMode && key === adminDashboardState.selectedKey);
+        row.classList.toggle('is-bulk-selected', bulkSelected);
+
+        if (adminDashboardState.bulkMode) {
+          const checkbox = document.createElement('input');
+          checkbox.type = 'checkbox';
+          checkbox.className = 'admin-bulk-checkbox';
+          checkbox.checked = bulkSelected;
+          checkbox.tabIndex = -1;
+          checkbox.setAttribute('aria-hidden', 'true');
+          row.appendChild(checkbox);
+        }
 
         const main = document.createElement('div');
         const name = document.createElement('div');
         name.className = 'admin-floorplan-name';
         name.textContent = record.displayName || record.name || 'Plattegrond';
+        const group = document.createElement('div');
+        group.className = 'admin-floorplan-group-meta';
+        group.textContent = floorplanGroupMeta(record) || 'Geen groep';
         const customer = document.createElement('div');
         customer.className = 'admin-floorplan-customer';
         customer.textContent = record.customer || 'Onbekende klant';
-        main.append(name, customer);
+        main.append(name, group, customer);
 
         const counts = document.createElement('div');
         counts.className = 'admin-floorplan-counts';
@@ -3244,6 +3514,10 @@
 
         row.append(main, counts);
         row.addEventListener('click', () => {
+          if (adminDashboardState.bulkMode) {
+            toggleAdminBulkRecord(record);
+            return;
+          }
           adminDashboardState.selectedKey = adminFloorplanKey(record);
           adminDashboardState.selectedDoorKey = '';
           setAdminTab('details');
@@ -3378,9 +3652,12 @@
         item.append(code, meta);
         item.addEventListener('click', () => {
           adminDashboardState.selectedCustomer = '';
+          adminDashboardState.selectedGroup = '';
           adminDashboardState.selectedLocation = '';
           adminDashboardState.selectedKey = adminFloorplanKey(door);
           adminDashboardState.selectedDoorKey = adminDoorKey(door);
+          adminDashboardState.bulkMode = false;
+          adminDashboardState.bulkSelectedKeys.clear();
           setAdminTab('details');
           renderAdminDashboard();
         });
@@ -3432,7 +3709,10 @@
     function getAdminRecordLocationDetails(record) {
       const customer = (getAdminData().customers || customers || [])
         .find(item => item?.customer === record?.customer);
-      const details = getFloorplanLocationDetails(customer, { building: record?.building || '' });
+      const details = getFloorplanLocationDetails(customer, {
+        building: record?.building || '',
+        locationGroup: floorplanGroupName(record),
+      });
       return {
         address: String(record?.locationAddress || details?.address || '').trim(),
         note: String(record?.locationNote || details?.note || '').trim(),
@@ -3443,6 +3723,7 @@
       if (!record) return;
       const locationDetails = getAdminRecordLocationDetails(record);
       renderAdminCustomerSelect(record);
+      if (adminDetailLocationGroup) adminDetailLocationGroup.value = floorplanGroupName(record);
       if (adminDetailBuilding) adminDetailBuilding.value = record.building || '';
       if (adminDetailFloorLabel) adminDetailFloorLabel.value = record.floorLabel || record.displayName || record.name || '';
       if (adminDetailLocationAddress) adminDetailLocationAddress.value = locationDetails.address;
@@ -3475,6 +3756,93 @@
       if (adminMetadataDialog) adminMetadataDialog.hidden = true;
       if (adminDetailError) adminDetailError.textContent = '';
       adminDashboardState.metadataRecord = null;
+    }
+
+    function hideAdminBulkGroupDialog() {
+      if (adminBulkGroupDialogOverlay) adminBulkGroupDialogOverlay.hidden = true;
+      if (adminBulkGroupDialog) adminBulkGroupDialog.hidden = true;
+      if (adminBulkGroupError) adminBulkGroupError.textContent = '';
+    }
+
+    function openAdminBulkGroupDialog() {
+      const records = getAdminBulkSelectedRecords();
+      if (!records.length) {
+        showToast('Selecteer eerst plattegronden', 'error');
+        return;
+      }
+      const firstGroup = floorplanGroupName(records[0]);
+      const sharedGroup = records.every(record => floorplanGroupName(record) === firstGroup) ? firstGroup : '';
+      if (adminBulkGroupDialogContext) {
+        adminBulkGroupDialogContext.textContent =
+          `${records.length} plattegrond${records.length === 1 ? '' : 'en'} bij ${adminDashboardState.selectedCustomer}.`;
+      }
+      if (adminBulkGroupInput) adminBulkGroupInput.value = sharedGroup;
+      if (adminBulkGroupError) adminBulkGroupError.textContent = '';
+      if (adminBulkGroupDialogOverlay) adminBulkGroupDialogOverlay.hidden = false;
+      if (adminBulkGroupDialog) adminBulkGroupDialog.hidden = false;
+      requestAnimationFrame(() => adminBulkGroupInput?.focus());
+    }
+
+    async function saveAdminBulkGroup() {
+      const records = getAdminBulkSelectedRecords();
+      if (!records.length) {
+        if (adminBulkGroupError) adminBulkGroupError.textContent = 'Selecteer eerst plattegronden.';
+        return;
+      }
+      const customerName = adminDashboardState.selectedCustomer;
+      if (!customerName) {
+        if (adminBulkGroupError) adminBulkGroupError.textContent = 'Kies eerst één klant.';
+        return;
+      }
+      const locationGroup = adminBulkGroupInput?.value.trim() || '';
+      const selectedBeforeUpdate = getSelectedFloorplan();
+      if (adminBulkGroupSave) {
+        adminBulkGroupSave.disabled = true;
+        adminBulkGroupSave.textContent = 'Opslaan...';
+      }
+      if (adminBulkGroupError) adminBulkGroupError.textContent = '';
+      busyOverlay.show({
+        title: 'Groep wijzigen',
+        subtitle: `${records.length} plattegrond${records.length === 1 ? '' : 'en'} worden bijgewerkt...`,
+      });
+      try {
+        const result = await FD.DataService.updateFloorplanGroupsBulk(CONFIG, {
+          customerName,
+          locationGroup,
+          records: records.map(record => ({
+            floorplanName: record.name,
+            repo: record.repo,
+            fileName: record.file,
+          })),
+        });
+        if (Array.isArray(result.customers)) {
+          customers = result.customers;
+          cacheCustomers();
+          populateCustomerDropdown();
+          restoreTopbarSelectionAfterCustomerRefresh(selectedBeforeUpdate);
+        }
+        adminDashboardState.bulkMode = false;
+        adminDashboardState.bulkSelectedKeys.clear();
+        adminDashboardState.selectedGroup = '';
+        adminDashboardState.selectedLocation = '';
+        adminDashboardState.selectedKey = '';
+        adminDashboardState.previewKey = '';
+        await loadAdminDashboard({ force: true });
+        hideAdminBulkGroupDialog();
+        showToast('Groep bijgewerkt', 'success');
+      } catch (err) {
+        if (adminBulkGroupError) {
+          adminBulkGroupError.textContent = err?.status === 409
+            ? 'Deze groep zou dubbele zichtbare plattegrondnamen maken.'
+            : 'Groep wijzigen mislukt: ' + (err?.message || 'onbekende fout');
+        }
+      } finally {
+        if (adminBulkGroupSave) {
+          adminBulkGroupSave.disabled = false;
+          adminBulkGroupSave.textContent = 'Groep opslaan';
+        }
+        busyOverlay.hide();
+      }
     }
 
     function openSelectedTopbarMetadataDialog() {
@@ -3512,7 +3880,9 @@
       if (adminDetailTitle) adminDetailTitle.textContent = record.displayName || record.name || 'Plattegrond';
       if (adminDetailMeta) {
         const repoLabel = record.repo === 'uploads' ? 'upload' : 'gallery';
-        adminDetailMeta.textContent = `${record.customer} · ${repoLabel} · technisch: ${record.name}`;
+        adminDetailMeta.textContent = [record.customer, floorplanGroupMeta(record), repoLabel, `technisch: ${record.name}`]
+          .filter(Boolean)
+          .join(' · ');
       }
       if (adminDetailStats) {
         adminDetailStats.textContent = `${record.done || 0} van ${record.doorsTotal || 0} deuren afgerond · ${record.open || 0} openstaand · ${record.attention || 0} aandacht nodig`;
@@ -3527,6 +3897,7 @@
       renderAdminOverview();
       renderAdminActivity();
       renderAdminCustomerFilters();
+      renderAdminGroupFilters();
       renderAdminLocationFilters();
       renderAdminFloorplanList();
       renderAdminDoorResults();
@@ -3749,6 +4120,7 @@
       const record = getActiveAdminMetadataRecord();
       if (!record) return;
       const nextCustomerName = adminDetailCustomer?.value || record.customer;
+      const locationGroup = adminDetailLocationGroup?.value.trim() || '';
       const buildingName = adminDetailBuilding?.value.trim() || '';
       const floorLabel = adminDetailFloorLabel?.value.trim() || '';
       const locationAddress = adminDetailLocationAddress?.value.trim() || '';
@@ -3783,12 +4155,13 @@
           repo: record.repo,
           fileName: record.file,
           nextCustomerName,
+          locationGroup,
           buildingName,
           floorLabel,
           locationAddress,
           locationNote,
         });
-        assertLocationDetailsPersisted(result.customers, nextCustomerName, buildingName, locationAddress, locationNote);
+        assertLocationDetailsPersisted(result.customers, nextCustomerName, buildingName, locationAddress, locationNote, locationGroup);
         if (Array.isArray(result.customers)) {
           customers = result.customers;
           cacheCustomers();
@@ -3802,6 +4175,7 @@
           customer: nextCustomerName,
           name: record.name,
           displayName: buildingName ? `${buildingName} - ${floorLabel}` : floorLabel,
+          locationGroup,
           building: buildingName,
           floorLabel,
           locationAddress,
@@ -3817,6 +4191,7 @@
         }
         selectTopbarFloorplanRecord(nextRecord);
         adminDashboardState.selectedCustomer = nextCustomerName;
+        adminDashboardState.selectedGroup = '';
         adminDashboardState.selectedLocation = '';
         adminDashboardState.selectedKey = adminFloorplanKey(nextRecord);
         adminDashboardState.previewKey = '';
@@ -3856,6 +4231,7 @@
         file: record.file,
         repo: record.repo === 'uploads' ? 'uploads' : 'gallery',
         uploaded: true,
+        locationGroup: floorplanGroupName(record),
         building: record.building || '',
         floorLabel: record.floorLabel || '',
       };
@@ -3894,6 +4270,7 @@
       getState: () => ({ customersLoading }),
       getItems: getSelectSheetItems,
       getFilters: getSelectSheetFilters,
+      getFilterLabel: getSelectSheetFilterLabel,
       getFilterValue: getSelectSheetFilterValue,
       getPickerMeta: getSelectSheetPickerMeta,
       onFilterChange: handleSelectSheetFilterChange,
@@ -4133,6 +4510,7 @@
       adminDashboardState.data = null;
       adminDashboardState.selectedKey = '';
       adminDashboardState.selectedCustomer = '';
+      adminDashboardState.selectedGroup = '';
       adminDashboardState.selectedLocation = '';
       adminDashboardState.searchQuery = '';
       adminDashboardState.doorQuery = '';
@@ -4148,6 +4526,9 @@
       adminDashboardState.activityUnavailable = false;
       adminDashboardState.previewKey = '';
       adminDashboardState.previewRequestId += 1;
+      adminDashboardState.metadataRecord = null;
+      adminDashboardState.bulkMode = false;
+      adminDashboardState.bulkSelectedKeys.clear();
       adminDashboardState.lastUpdatedAt = '';
       adminDashboardState.loadError = '';
       if (adminDashboardSearch) adminDashboardSearch.value = '';
@@ -4166,6 +4547,7 @@
       statusCount.textContent = '';
       hideTopbarMenu();
       hideExportExcelDialog();
+      hideAdminBulkGroupDialog();
       updatePickerButtons();
       updateDeleteButton();
       updateRoleActionButtons();
@@ -5778,6 +6160,7 @@
         customerSelect: document.getElementById('upload-customer-select'),
         newCustomerWrapper: document.getElementById('upload-new-customer-wrapper'),
         newCustomerInput: document.getElementById('upload-new-customer'),
+        locationGroupInput: document.getElementById('upload-location-group'),
         buildingNameInput: document.getElementById('upload-building-name'),
         floorplanNameInput: document.getElementById('upload-floorplan-name'),
         errorEl: document.getElementById('upload-error'),
@@ -5799,6 +6182,7 @@
         pdfZoomFitButton: document.getElementById('btn-upload-pdf-zoom-fit'),
         pdfZoomInButton: document.getElementById('btn-upload-pdf-zoom-in'),
         pdfCustomerSelect: document.getElementById('upload-pdf-customer-select'),
+        pdfLocationGroupInput: document.getElementById('upload-pdf-location-group'),
         pdfBuildingNameInput: document.getElementById('upload-pdf-building-name'),
         pdfNewCustomerWrapper: document.getElementById('upload-pdf-new-customer-wrapper'),
         pdfNewCustomerInput: document.getElementById('upload-pdf-new-customer'),
@@ -5851,9 +6235,10 @@
       getPdfJsLib: () => window.pdfjsLib,
       onSave: async ({ form, fileName, svgText }) => {
         const { customers: currentCustomers } = await FD.DataService.addUploadedFloorplan(CONFIG, {
-          customerName: form.customerName,
-          floorplanName: form.floorplanName,
-          buildingName: form.buildingName,
+	          customerName: form.customerName,
+	          floorplanName: form.floorplanName,
+	          locationGroup: form.locationGroup || '',
+	          buildingName: form.buildingName,
           floorLabel: form.floorLabel,
           fileName,
           svgText,
@@ -5908,6 +6293,7 @@
     const metadataFpOverlay = document.getElementById('metadata-fp-overlay');
     const metadataFpPopup = document.getElementById('metadata-fp-popup');
     const metadataFpContext = document.getElementById('metadata-fp-context');
+    const metadataLocationGroupInput = document.getElementById('metadata-location-group');
     const metadataBuildingInput = document.getElementById('metadata-building-name');
     const metadataFloorLabelInput = document.getElementById('metadata-floor-label');
     const metadataLocationAddressInput = document.getElementById('metadata-location-address');
@@ -6029,6 +6415,7 @@
       if (!customer || !floorplan || !(floorplan.uploaded || floorplan.repo === 'uploads')) return;
       const parts = FD.SelectSheetService.floorplanDisplayParts(floorplan);
       const locationDetails = getFloorplanLocationDetails(customer, floorplan);
+      if (metadataLocationGroupInput) metadataLocationGroupInput.value = parts.locationGroup || floorplanGroupName(floorplan);
       metadataBuildingInput.value = parts.building;
       metadataFloorLabelInput.value = parts.floorLabel || floorplan.name || '';
       if (metadataLocationAddressInput) metadataLocationAddressInput.value = locationDetails?.address || '';
@@ -6049,6 +6436,7 @@
       const { customer, floorplan } = getSelectedFloorplan();
       if (!customer || !floorplan) return;
       const floorLabel = metadataFloorLabelInput.value.trim();
+      const locationGroup = metadataLocationGroupInput?.value.trim() || '';
       const buildingName = metadataBuildingInput.value.trim();
       const locationAddress = metadataLocationAddressInput?.value.trim() || '';
       const locationNote = metadataLocationNoteInput?.value.trim() || '';
@@ -6072,12 +6460,13 @@
         const { customers: currentCustomers } = await FD.DataService.updateUploadedFloorplanMetadata(CONFIG, {
           customerName: customer.customer,
           floorplan,
+          locationGroup,
           buildingName,
           floorLabel,
           locationAddress,
           locationNote,
         });
-        assertLocationDetailsPersisted(currentCustomers, customer.customer, buildingName, locationAddress, locationNote);
+        assertLocationDetailsPersisted(currentCustomers, customer.customer, buildingName, locationAddress, locationNote, locationGroup);
         customers = currentCustomers;
         cacheCustomers();
 
@@ -6264,6 +6653,15 @@
       });
     });
     adminDashboardRefresh?.addEventListener('click', () => loadAdminDashboard({ force: true }));
+    adminBulkToggle?.addEventListener('click', () => setAdminBulkMode(true));
+    adminBulkSelectVisible?.addEventListener('click', selectVisibleAdminBulkFloorplans);
+    adminBulkClear?.addEventListener('click', clearAdminBulkSelection);
+    adminBulkGroup?.addEventListener('click', openAdminBulkGroupDialog);
+    adminBulkCancel?.addEventListener('click', () => setAdminBulkMode(false));
+    adminBulkGroupSave?.addEventListener('click', saveAdminBulkGroup);
+    adminBulkGroupCancel?.addEventListener('click', hideAdminBulkGroupDialog);
+    adminBulkGroupClose?.addEventListener('click', hideAdminBulkGroupDialog);
+    adminBulkGroupDialogOverlay?.addEventListener('click', hideAdminBulkGroupDialog);
     adminDashboardSearch?.addEventListener('input', () => {
       adminDashboardState.searchQuery = adminDashboardSearch.value;
       adminDashboardState.selectedKey = '';

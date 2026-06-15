@@ -35,6 +35,7 @@
     elements.customerSelect.style.display = '';
     elements.newCustomerWrapper.style.display = 'none';
     elements.newCustomerInput.value = '';
+    if (elements.locationGroupInput) elements.locationGroupInput.value = '';
     if (elements.buildingNameInput) elements.buildingNameInput.value = '';
     elements.floorplanNameInput.value = '';
   }
@@ -163,11 +164,12 @@
   }
 
   function validateUploadForm({
-    customerValue,
-    newCustomerName,
-    buildingName = '',
-    floorplanName,
-    customers,
+	    customerValue,
+	    newCustomerName,
+	    locationGroup = '',
+	    buildingName = '',
+	    floorplanName,
+	    customers,
   }) {
     if (customerValue === '') return { ok: false, error: 'Kies een klant.' };
 
@@ -191,6 +193,7 @@
     }
 
     const cleanBuildingName = String(buildingName || '').trim();
+    const cleanLocationGroup = String(locationGroup || '').trim();
     const cleanFloorLabel = String(floorplanName || '').trim();
     if (!cleanFloorLabel) return { ok: false, error: 'Vul een verdieping of naam in voor de plattegrond.' };
     const cleanFloorplanName = cleanBuildingName ? `${cleanBuildingName} - ${cleanFloorLabel}` : cleanFloorLabel;
@@ -205,6 +208,7 @@
       ok: true,
       customerName,
       floorplanName: cleanFloorplanName,
+      locationGroup: cleanLocationGroup,
       buildingName: cleanBuildingName,
       floorLabel: cleanFloorLabel,
       isNewCustomer,
@@ -1017,7 +1021,7 @@
     });
   }
 
-  function validatePdfBatchForm({ customerValue, newCustomerName, pages, customers }) {
+  function validatePdfBatchForm({ customerValue, newCustomerName, locationGroup = '', pages, customers }) {
     if (!pages.length) return { ok: false, error: 'Selecteer minimaal 1 pagina.' };
     if (customerValue === '') return { ok: false, error: 'Kies een klant.' };
 
@@ -1042,6 +1046,7 @@
       if (!customerName) return { ok: false, error: 'Kies een klant.' };
     }
 
+    const cleanLocationGroup = String(locationGroup || '').trim();
     const seen = new Set();
     for (const page of pages) {
       const cleanBuildingName = String(page.buildingName || '').trim();
@@ -1064,6 +1069,7 @@
     return {
       ok: true,
       customerName,
+      locationGroup: cleanLocationGroup,
       isNewCustomer,
       pages,
     };
@@ -1495,6 +1501,7 @@
       elements.pdfCustomerSelect.style.display = '';
       elements.pdfNewCustomerWrapper.style.display = 'none';
       elements.pdfNewCustomerInput.value = '';
+      if (elements.pdfLocationGroupInput) elements.pdfLocationGroupInput.value = '';
       if (elements.pdfBuildingNameInput) elements.pdfBuildingNameInput.value = '';
       elements.pdfErrorEl.textContent = '';
       hide(elements.pdfOverview);
@@ -1542,6 +1549,7 @@
       const form = validatePdfBatchForm({
         customerValue,
         newCustomerName,
+        locationGroup: elements.pdfLocationGroupInput?.value || '',
         pages: pagesToUpload,
         customers,
       });
@@ -1587,10 +1595,11 @@
           updateBatchProgress(index, 2, `Pagina ${index + 1}/${form.pages.length} uploaden...`);
           result = await onSave({
             form: {
-              customerName: form.customerName,
-              floorplanName: page.floorplanName,
-              buildingName: page.buildingName,
-              floorLabel: page.floorLabel,
+	              customerName: form.customerName,
+	              floorplanName: page.floorplanName,
+	              locationGroup: form.locationGroup,
+	              buildingName: page.buildingName,
+	              floorLabel: page.floorLabel,
               isNewCustomer,
             },
             fileName,
@@ -1639,9 +1648,10 @@
       onSaved({
         result,
         form: {
-          customerName: form.customerName,
-          floorplanName: lastUploadedPage.floorplanName,
-        },
+	          customerName: form.customerName,
+	          floorplanName: lastUploadedPage.floorplanName,
+	          locationGroup: form.locationGroup,
+	        },
         batch: true,
         pages: form.pages,
       });
@@ -1668,9 +1678,10 @@
     async function saveUpload() {
       const customers = currentCustomers();
       const form = validateUploadForm({
-        customerValue: elements.customerSelect.value,
-        newCustomerName: elements.newCustomerInput.value,
-        buildingName: elements.buildingNameInput?.value || '',
+	        customerValue: elements.customerSelect.value,
+	        newCustomerName: elements.newCustomerInput.value,
+	        locationGroup: elements.locationGroupInput?.value || '',
+	        buildingName: elements.buildingNameInput?.value || '',
         floorplanName: elements.floorplanNameInput.value,
         customers,
       });
