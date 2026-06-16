@@ -497,10 +497,20 @@
 
       const filterGroups = filterGroupsForType(activeType);
       if (filterGroups.length) {
+        const hasSpecificFilter = filterGroups.some(group => Boolean(group.value));
+        const visibleFilterGroups = hasSpecificFilter
+          ? filterGroups
+          : filterGroups.filter(group => Boolean(group.value));
+        if (!visibleFilterGroups.length) {
+          filterEl.hidden = true;
+          filterEl.classList.remove('select-sheet-filters--chips');
+          filterEl.classList.remove('select-sheet-filters--buttons');
+          return;
+        }
         filterEl.hidden = false;
         filterEl.classList.remove('select-sheet-filters--chips');
         filterEl.classList.add('select-sheet-filters--buttons');
-        filterGroups.forEach(group => {
+        visibleFilterGroups.forEach(group => {
           const button = document.createElement('button');
           button.type = 'button';
           button.className = 'select-sheet-location-button';
@@ -544,6 +554,12 @@
       const currentValue = filterValueForType(activeType);
       const currentFilter = filters.find(filter => String(filter.value || '') === currentValue) || filters[0];
       const filterLabel = typeof getFilterLabel === 'function' ? getFilterLabel(activeType) : 'Locatie';
+      if (!currentValue && filters.length > DIRECT_LOCATION_FILTER_LIMIT) {
+        filterEl.hidden = true;
+        filterEl.classList.remove('select-sheet-filters--chips');
+        filterEl.classList.remove('select-sheet-filters--buttons');
+        return;
+      }
       filterEl.hidden = false;
       filterEl.classList.toggle('select-sheet-filters--chips', filters.length <= DIRECT_LOCATION_FILTER_LIMIT);
       filterEl.classList.remove('select-sheet-filters--buttons');

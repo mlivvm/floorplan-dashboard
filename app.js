@@ -2,7 +2,7 @@
     // CONFIGURATION
     // ============================================================
 
-    const APP_VERSION = '1.9.30';
+    const APP_VERSION = '1.9.31';
     const ENV_CONFIG = window.FD?.Env?.config || window.FD_ENV_CONFIG || {};
     const DEFAULT_JOTFORM_FORM_ID = '250122093908351';
     const DEFAULT_JOTFORM_FORMS = {
@@ -83,6 +83,7 @@
     const APP_UPDATE_EXPECTED_VERSION_KEY = envStorageKey('fd_app_update_expected_version');
     const RECENT_FLOORPLANS_STORAGE_KEY = envStorageKey('fd_recent_floorplans');
     const RECENT_FLOORPLAN_LIMIT = 4;
+    const RECENT_FLOORPLAN_MIN_COUNT = 10;
     const APP_UPDATE_MESSAGE = 'FD_SKIP_WAITING';
     const APP_SHELL_STYLES = [
       'app.css',
@@ -2394,7 +2395,8 @@
     function rememberRecentFloorplan(customer, floorplan) {
       const customerKey = floorplanCustomerRecentKey(customer);
       const floorplanKey = floorplanRecentKey(floorplan);
-      if (!customerKey || !floorplanKey.trim()) return;
+      const floorplans = Array.isArray(customer?.floorplans) ? customer.floorplans : [];
+      if (!customerKey || !floorplanKey.trim() || floorplans.length < RECENT_FLOORPLAN_MIN_COUNT) return;
       const recent = readRecentFloorplans();
       const current = Array.isArray(recent[customerKey]) ? recent[customerKey] : [];
       recent[customerKey] = [
@@ -2412,7 +2414,7 @@
 
     function recentFloorplanIndexes(customer, floorplans) {
       const customerKey = floorplanCustomerRecentKey(customer);
-      if (!customerKey || !Array.isArray(floorplans) || !floorplans.length) return [];
+      if (!customerKey || !Array.isArray(floorplans) || floorplans.length < RECENT_FLOORPLAN_MIN_COUNT) return [];
       const recent = readRecentFloorplans();
       const records = Array.isArray(recent[customerKey]) ? recent[customerKey] : [];
       if (!records.length) return [];
