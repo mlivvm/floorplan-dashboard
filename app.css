@@ -1,4 +1,4 @@
-@import url('./admin-dashboard-tokens.css?v=1.9.29');
+@import url('./admin-dashboard-tokens.css?v=1.9.30');
 
     * {
       margin: 0;
@@ -4084,6 +4084,7 @@
     .report-problem-actions button:focus-visible,
     .upload-btn:focus-visible,
     .select-sheet-close:focus-visible,
+    .select-sheet-collapse-button:focus-visible,
     .select-sheet-item:focus-visible {
       outline: 3px solid rgba(11, 87, 208, 0.18) !important;
       outline-offset: 2px;
@@ -5007,6 +5008,61 @@
       height: 12px;
       background: #fff;
       pointer-events: none;
+    }
+
+    .select-sheet-collapse-button {
+      width: 100%;
+      min-height: 58px;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto auto;
+      align-items: center;
+      gap: 8px;
+      padding: 12px 14px;
+      border: none;
+      border-bottom: 1px solid #e5e7eb;
+      background: #fff;
+      color: #202124;
+      text-align: left;
+      cursor: pointer;
+    }
+
+    .select-sheet-collapse-button::after {
+      content: '›';
+      color: #66717f;
+      font-size: 24px;
+      line-height: 1;
+      transform: rotate(0deg);
+      transition: transform 120ms ease;
+    }
+
+    .select-sheet-collapse-button[aria-expanded="true"]::after {
+      transform: rotate(90deg);
+    }
+
+    .select-sheet-collapse-button:hover,
+    .select-sheet-collapse-button:focus-visible {
+      background: #f8fafc;
+      outline: none;
+    }
+
+    .select-sheet-collapse-label {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-size: 17px;
+      font-weight: 800;
+    }
+
+    .select-sheet-collapse-meta {
+      flex: 0 0 auto;
+      padding: 4px 8px;
+      border-radius: 999px;
+      background: #eef4ff;
+      color: #174ea6;
+      font-size: 12px;
+      font-weight: 850;
+      white-space: nowrap;
     }
 
     .select-sheet-item {

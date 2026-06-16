@@ -2,7 +2,7 @@
     // CONFIGURATION
     // ============================================================
 
-    const APP_VERSION = '1.9.29';
+    const APP_VERSION = '1.9.30';
     const ENV_CONFIG = window.FD?.Env?.config || window.FD_ENV_CONFIG || {};
     const DEFAULT_JOTFORM_FORM_ID = '250122093908351';
     const DEFAULT_JOTFORM_FORMS = {
@@ -81,6 +81,8 @@
 
     const APP_UPDATE_EXPECTED_CACHE_KEY = envStorageKey('fd_app_update_expected_cache');
     const APP_UPDATE_EXPECTED_VERSION_KEY = envStorageKey('fd_app_update_expected_version');
+    const RECENT_FLOORPLANS_STORAGE_KEY = envStorageKey('fd_recent_floorplans');
+    const RECENT_FLOORPLAN_LIMIT = 4;
     const APP_UPDATE_MESSAGE = 'FD_SKIP_WAITING';
     const APP_SHELL_STYLES = [
       'app.css',
@@ -2333,12 +2335,127 @@
     }
 
     function compareFloorplanSheetItems(left, right) {
-      const groupCompare = compareFloorplanGroupValues(left.groupValue, right.groupValue);
-      if (groupCompare) return groupCompare;
-      const buildingCompare = compareFloorplanLocationValues(left.locationValue, right.locationValue);
-      if (buildingCompare) return buildingCompare;
+      if ((left.sectionRank || 0) !== (right.sectionRank || 0)) {
+        return (left.sectionRank || 0) - (right.sectionRank || 0);
+      }
+      if (left.isRecent || right.isRecent) {
+        return (left.recentRank || 0) - (right.recentRank || 0);
+      }
+      if ((left.organizerNone ? 1 : 0) !== (right.organizerNone ? 1 : 0)) {
+        return left.organizerNone ? 1 : -1;
+      }
+      const organizerCompare = LOCATION_COLLATOR.compare(left.organizerLabel || '', right.organizerLabel || '');
+      if (organizerCompare) return organizerCompare;
+      if (left.organizerKind === 'group' && right.organizerKind === 'group') {
+        const buildingCompare = compareFloorplanLocationValues(left.locationValue, right.locationValue);
+        if (buildingCompare) return buildingCompare;
+      }
+      const displayCompare = FD.SelectSheetService.compareFloorplanDisplayOrder(
+        left.floorplan,
+        right.floorplan,
+        left.label,
+        right.label
+      );
+      if (displayCompare) return displayCompare;
       const labelCompare = LOCATION_COLLATOR.compare(left.label, right.label);
       return labelCompare || left.index - right.index;
+    }
+
+    function floorplanRecentKey(floorplan) {
+      return [
+        String(floorplan?.name || '').trim(),
+        floorplan?.repo === 'uploads' ? 'uploads' : 'gallery',
+        String(floorplan?.file || '').trim(),
+      ].join('\n');
+    }
+
+    function floorplanCustomerRecentKey(customer) {
+      return String(customer?.customer || '').trim();
+    }
+
+    function readRecentFloorplans() {
+      try {
+        const parsed = JSON.parse(localStorage.getItem(RECENT_FLOORPLANS_STORAGE_KEY) || '{}');
+        return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+      } catch (err) {
+        console.warn('Recente plattegronden konden niet gelezen worden:', err);
+        return {};
+      }
+    }
+
+    function writeRecentFloorplans(value) {
+      try {
+        localStorage.setItem(RECENT_FLOORPLANS_STORAGE_KEY, JSON.stringify(value || {}));
+      } catch (err) {
+        console.warn('Recente plattegronden konden niet opgeslagen worden:', err);
+      }
+    }
+
+    function rememberRecentFloorplan(customer, floorplan) {
+      const customerKey = floorplanCustomerRecentKey(customer);
+      const floorplanKey = floorplanRecentKey(floorplan);
+      if (!customerKey || !floorplanKey.trim()) return;
+      const recent = readRecentFloorplans();
+      const current = Array.isArray(recent[customerKey]) ? recent[customerKey] : [];
+      recent[customerKey] = [
+        {
+          key: floorplanKey,
+          name: String(floorplan?.name || '').trim(),
+          file: String(floorplan?.file || '').trim(),
+          repo: floorplan?.repo === 'uploads' ? 'uploads' : 'gallery',
+          at: new Date().toISOString(),
+        },
+        ...current.filter(item => String(item?.key || '') !== floorplanKey),
+      ].slice(0, RECENT_FLOORPLAN_LIMIT);
+      writeRecentFloorplans(recent);
+    }
+
+    function recentFloorplanIndexes(customer, floorplans) {
+      const customerKey = floorplanCustomerRecentKey(customer);
+      if (!customerKey || !Array.isArray(floorplans) || !floorplans.length) return [];
+      const recent = readRecentFloorplans();
+      const records = Array.isArray(recent[customerKey]) ? recent[customerKey] : [];
+      if (!records.length) return [];
+      const indexByKey = new Map();
+      floorplans.forEach((floorplan, index) => {
+        indexByKey.set(floorplanRecentKey(floorplan), index);
+      });
+      const seen = new Set();
+      return records
+        .map(record => indexByKey.get(String(record?.key || '')))
+        .filter(index => {
+          if (!Number.isInteger(index) || seen.has(index)) return false;
+          seen.add(index);
+          return true;
+        })
+        .slice(0, RECENT_FLOORPLAN_LIMIT);
+    }
+
+    function floorplanOrganizerMeta(floorplan) {
+      const group = floorplanGroupName(floorplan);
+      if (group) {
+        return {
+          key: `group:${group}`,
+          label: group,
+          kind: 'group',
+          none: false,
+        };
+      }
+      const location = FD.SelectSheetService.floorplanLocationName(floorplan);
+      if (location) {
+        return {
+          key: `location:${location}`,
+          label: location,
+          kind: 'location',
+          none: false,
+        };
+      }
+      return {
+        key: FD.SelectSheetService.ORGANIZER_NONE_VALUE,
+        label: FD.SelectSheetService.ORGANIZER_NONE_LABEL,
+        kind: 'none',
+        none: true,
+      };
     }
 
     function floorplanSheetSearchText(floorplan, label, meta = '') {
@@ -2428,38 +2545,71 @@
       }
       const ci = FD.SelectSheetService.selectedIndex(customerSelect);
       if (ci === null || !customers[ci]) return [];
-      const { groupOptions } = syncTopbarFloorplanFilters(customers[ci], customers[ci].floorplans || []);
+      const customer = customers[ci];
+      const floorplans = customer.floorplans || [];
+      const { groupOptions } = syncTopbarFloorplanFilters(customer, floorplans);
       if (type === 'location') return [];
+      const hasOrganizerBlocks = floorplans.some(floorplan =>
+        floorplanGroupName(floorplan) || FD.SelectSheetService.floorplanLocationName(floorplan)
+      );
       const groupFilterActive = Boolean(groupOptions.length && !topbarFloorplanGroupFilter);
       const locationFilterActive = Boolean(!topbarFloorplanLocationFilter);
-      return FD.SelectSheetService
-        .sortedWithOriginalIndex(customers[ci].floorplans, floorplan => FD.SelectSheetService.floorplanDisplayName(floorplan))
-        .map(({ item: fp, index, label }) => {
-          const customer = customers[ci];
-          const readOnly = isViewerReadOnlyFloorplan(customer.customer, fp.name);
-          const groupValue = floorplanGroupValue(fp);
-          const locationValue = floorplanLocationValue(fp);
-          const description = floorplanAddressMeta(customer, fp);
-          const meta = floorplanPermissionMeta(customer, fp);
-          const groupLabel = groupFilterActive
+      const toSheetItem = (fp, index, label, overrides = {}) => {
+        const readOnly = isViewerReadOnlyFloorplan(customer.customer, fp.name);
+        const groupValue = floorplanGroupValue(fp);
+        const locationValue = floorplanLocationValue(fp);
+        const description = floorplanAddressMeta(customer, fp);
+        const meta = floorplanPermissionMeta(customer, fp);
+        const organizer = floorplanOrganizerMeta(fp);
+        const groupLabel = overrides.groupLabel !== undefined
+          ? overrides.groupLabel
+          : (groupFilterActive
             ? floorplanGroupLabelForValue(groupValue)
-            : (locationFilterActive ? floorplanLocationLabelForValue(locationValue) : '');
-          return {
-            index,
-            label,
-            meta,
-            description,
-            filterValues: {
-              group: groupValue,
-              location: locationValue,
-            },
-            groupValue,
-            locationValue,
-            groupLabel,
-            searchText: floorplanSheetSearchText(fp, label, [description, meta].filter(Boolean).join(' ')),
-            readOnly,
-          };
+            : (locationFilterActive ? floorplanLocationLabelForValue(locationValue) : organizer.label));
+        return {
+          index,
+          label,
+          meta,
+          description,
+          filterValues: {
+            group: groupValue,
+            location: locationValue,
+          },
+          floorplan: fp,
+          groupValue,
+          locationValue,
+          organizerKey: organizer.key,
+          organizerLabel: organizer.label,
+          organizerKind: organizer.kind,
+          organizerNone: organizer.none,
+          collapsibleGroupKey: hasOrganizerBlocks ? organizer.key : '',
+          collapsibleGroupLabel: hasOrganizerBlocks ? organizer.label : '',
+          groupLabel,
+          searchText: floorplanSheetSearchText(fp, label, [description, meta].filter(Boolean).join(' ')),
+          readOnly,
+          sectionRank: 1,
+          ...overrides,
+        };
+      };
+      const sortedItems = FD.SelectSheetService
+        .sortedWithOriginalIndex(customers[ci].floorplans, floorplan => FD.SelectSheetService.floorplanDisplayName(floorplan))
+        .map(({ item: fp, index, label }) => toSheetItem(fp, index, label))
+        .sort(compareFloorplanSheetItems);
+      const recentItems = recentFloorplanIndexes(customer, floorplans)
+        .map((index, recentRank) => {
+          const fp = floorplans[index];
+          if (!fp) return null;
+          return toSheetItem(fp, index, FD.SelectSheetService.floorplanDisplayName(fp), {
+            collapsibleGroupKey: '',
+            collapsibleGroupLabel: '',
+            groupLabel: 'Recent',
+            isRecent: true,
+            recentRank,
+            sectionRank: 0,
+          });
         })
+        .filter(Boolean);
+      return [...recentItems, ...sortedItems]
         .sort(compareFloorplanSheetItems);
     }
 
@@ -4606,7 +4756,9 @@
       const fp = c.floorplans[floorplanIndex];
       currentCustomer = c.customer;
       currentFloorplan = fp.name;
-      return floorplanLoadController.load({ customerIndex, floorplanIndex, customer: c, floorplan: fp });
+      const result = await floorplanLoadController.load({ customerIndex, floorplanIndex, customer: c, floorplan: fp });
+      rememberRecentFloorplan(c, fp);
+      return result;
     }
 
     function getDoorId(el) {

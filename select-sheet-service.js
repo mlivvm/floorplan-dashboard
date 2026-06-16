@@ -9,7 +9,30 @@
   const LOCATION_NONE_LABEL = 'Zonder locatie';
   const GROUP_NONE_VALUE = '__fd_no_group__';
   const GROUP_NONE_LABEL = 'Zonder groep';
+  const ORGANIZER_NONE_VALUE = '__fd_no_organizer__';
+  const ORGANIZER_NONE_LABEL = 'Zonder groep/locatie';
   const DIRECT_LOCATION_FILTER_LIMIT = 4;
+  const COLLAPSIBLE_FLOORPLAN_LIMIT = 8;
+  const UNKNOWN_FLOOR_RANK = 9999;
+  const FLOOR_WORD_RANKS = new Map([
+    ['kelder', -20],
+    ['souterrain', -10],
+    ['begane grond', 0],
+    ['benedenverdieping', 0],
+    ['bg', 0],
+    ['parterre', 0],
+    ['eerste', 1],
+    ['tweede', 2],
+    ['derde', 3],
+    ['vierde', 4],
+    ['vijfde', 5],
+    ['zesde', 6],
+    ['zevende', 7],
+    ['achtste', 8],
+    ['negende', 9],
+    ['tiende', 10],
+    ['dak', 90],
+  ]);
 
   function getSelectedOptionText(selectEl, fallback) {
     if (!selectEl?.value) return fallback;
@@ -19,6 +42,79 @@
   function sortLabelEntries(left, right) {
     const labelCompare = LABEL_COLLATOR.compare(left.label, right.label);
     return labelCompare || left.index - right.index;
+  }
+
+  function normalizeSortText(value) {
+    return String(value || '')
+      .trim()
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/\s+/g, ' ');
+  }
+
+  function floorRankFromText(value) {
+    const text = normalizeSortText(value);
+    if (!text) return UNKNOWN_FLOOR_RANK;
+
+    for (const [word, rank] of FLOOR_WORD_RANKS.entries()) {
+      const escaped = word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '\\s+');
+      if (new RegExp(`(^|\\b)${escaped}(\\b|$)`, 'i').test(text)) return rank;
+    }
+
+    const numbered = text.match(/(^|\b)(-?\d{1,2})(?:e|de|ste)?(?:\s*(?:verdieping|etage|vloer))?(\b|$)/i);
+    if (!numbered) return UNKNOWN_FLOOR_RANK;
+    const rank = parseInt(numbered[2], 10);
+    return Number.isFinite(rank) ? rank : UNKNOWN_FLOOR_RANK;
+  }
+
+  function splitDisplayBaseAndFloor(label) {
+    const text = String(label || '').trim();
+    if (!text) return { baseLabel: '', floorLabel: '', floorRank: UNKNOWN_FLOOR_RANK };
+    const parts = text.split(/\s+[-–—]\s+/).map(part => part.trim()).filter(Boolean);
+    if (parts.length > 1) {
+      const last = parts[parts.length - 1];
+      const rank = floorRankFromText(last);
+      if (rank !== UNKNOWN_FLOOR_RANK) {
+        return {
+          baseLabel: parts.slice(0, -1).join(' - '),
+          floorLabel: last,
+          floorRank: rank,
+        };
+      }
+    }
+    return { baseLabel: text, floorLabel: '', floorRank: UNKNOWN_FLOOR_RANK };
+  }
+
+  function floorplanSortKey(floorplan, labelOverride = '') {
+    const displayLabel = String(labelOverride || floorplanDisplayName(floorplan)).trim();
+    const building = floorplanLocationName(floorplan);
+    const explicitFloor = String(floorplan?.floorLabel || '').trim();
+    const parsed = splitDisplayBaseAndFloor(displayLabel);
+    const floorLabel = explicitFloor || parsed.floorLabel;
+    const floorRank = floorRankFromText(floorLabel);
+    return {
+      baseLabel: building || parsed.baseLabel || displayLabel,
+      floorLabel,
+      floorRank,
+      displayLabel,
+    };
+  }
+
+  function compareFloorplanSortKeys(left, right) {
+    const baseCompare = LABEL_COLLATOR.compare(left.baseLabel, right.baseLabel);
+    if (baseCompare) return baseCompare;
+    if (left.floorRank !== right.floorRank) return left.floorRank - right.floorRank;
+    const floorCompare = LABEL_COLLATOR.compare(left.floorLabel, right.floorLabel);
+    if (floorCompare) return floorCompare;
+    return LABEL_COLLATOR.compare(left.displayLabel, right.displayLabel);
+  }
+
+  function compareFloorplanDisplayOrder(leftFloorplan, rightFloorplan, leftLabel = '', rightLabel = '') {
+    return compareFloorplanSortKeys(
+      floorplanSortKey(leftFloorplan, leftLabel),
+      floorplanSortKey(rightFloorplan, rightLabel)
+    );
   }
 
   function sortedWithOriginalIndex(items, labelForItem) {
@@ -70,6 +166,21 @@
 
   function floorplanGroupFilterLabel(value) {
     return value === GROUP_NONE_VALUE ? GROUP_NONE_LABEL : String(value || '').trim();
+  }
+
+  function floorplanOrganizerValue(floorplan) {
+    const group = floorplanGroupName(floorplan);
+    if (group) return `group:${group}`;
+    const location = floorplanLocationName(floorplan);
+    if (location) return `location:${location}`;
+    return ORGANIZER_NONE_VALUE;
+  }
+
+  function floorplanOrganizerLabel(value, fallback = '') {
+    const text = String(value || '').trim();
+    if (!text || text === ORGANIZER_NONE_VALUE) return ORGANIZER_NONE_LABEL;
+    if (text.startsWith('group:') || text.startsWith('location:')) return text.slice(text.indexOf(':') + 1);
+    return fallback || text;
   }
 
   function floorplanLocationFilterValue(floorplan) {
@@ -272,6 +383,22 @@
     listEl.appendChild(header);
   }
 
+  function appendCollapseButton(listEl, group, expanded, onToggle) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'select-sheet-collapse-button';
+    button.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+    const label = document.createElement('span');
+    label.className = 'select-sheet-collapse-label';
+    label.textContent = group.label;
+    const meta = document.createElement('span');
+    meta.className = 'select-sheet-collapse-meta';
+    meta.textContent = `${group.items.length} plattegrond${group.items.length === 1 ? '' : 'en'}`;
+    button.append(label, meta);
+    button.addEventListener('click', onToggle);
+    listEl.appendChild(button);
+  }
+
   function setOptionalText(el, text) {
     if (!el) return;
     const value = String(text || '').trim();
@@ -293,6 +420,7 @@
   }) {
     let activeType = null;
     let activeFilterKey = '';
+    const expandedGroups = new Set();
 
     function state() {
       return typeof getState === 'function' ? getState() : {};
@@ -481,14 +609,18 @@
       const legacyLocationFilters = activeType === 'location' && !locationFilterGroup && typeof getFilters === 'function'
         ? (getFilters('floorplan') || [])
         : [];
-      const locationFilterOptions = locationFilterGroup?.options || legacyLocationFilters;
+      const rawLocationFilterOptions = locationFilterGroup?.options || legacyLocationFilters;
       const currentValue = activeType === 'customer'
         ? customerSelect.value
         : (activeType === 'floorplan'
           ? floorplanSelect.value
           : (locationFilterGroup?.value ?? filterValueForType('floorplan')));
+      const locationFilterOptions = activeType === 'location' && currentValue === ''
+        ? rawLocationFilterOptions.filter(option => String(option.value || '') !== '')
+        : rawLocationFilterOptions;
       const typeAtRender = activeType;
       const filterGroups = typeAtRender === 'floorplan' ? filterGroupsForType(typeAtRender) : [];
+      const hasSpecificFilter = filterGroups.some(group => Boolean(group.value));
       const activeFilter = typeAtRender === 'floorplan' && !filterGroups.length ? filterValueForType(typeAtRender) : '';
       const baseItems = typeAtRender === 'location' && locationFilterOptions.length
         ? locationFilterOptions.map((option, index) => ({
@@ -503,6 +635,7 @@
         : (typeof getItems === 'function' ? getItems(typeAtRender) : []);
       const items = baseItems
         .filter(item => {
+          if (query && item.isRecent) return false;
           if (typeAtRender === 'floorplan' && filterGroups.length) {
             const filterValues = item.filterValues || {};
             const matchesAll = filterGroups.every(group =>
@@ -520,12 +653,7 @@
         return;
       }
 
-      let lastGroupLabel = null;
-      items.forEach(item => {
-        if (typeAtRender === 'floorplan' && !activeFilter && item.groupLabel && item.groupLabel !== lastGroupLabel) {
-          lastGroupLabel = item.groupLabel;
-          appendGroupHeader(list, item.groupLabel);
-        }
+      const renderItemButton = (item) => {
         const btn = document.createElement('button');
         btn.type = 'button';
         btn.className = 'select-sheet-item';
@@ -552,6 +680,64 @@
           if (activeType === typeAtRender) close();
         });
         list.appendChild(btn);
+      };
+
+      const collapsibleItemCount = items.filter(item => !item.isRecent && item.collapsibleGroupKey).length;
+      const canCollapseGroups = typeAtRender === 'floorplan' &&
+        !query &&
+        !activeFilter &&
+        !hasSpecificFilter &&
+        collapsibleItemCount > COLLAPSIBLE_FLOORPLAN_LIMIT &&
+        items.some(item => !item.isRecent && item.collapsibleGroupKey);
+
+      if (canCollapseGroups) {
+        const recentItems = items.filter(item => item.isRecent);
+        const normalItems = items.filter(item => !item.isRecent);
+        if (recentItems.length) {
+          appendGroupHeader(list, 'Recent');
+          recentItems.forEach(renderItemButton);
+          appendGroupHeader(list, 'Alle plattegronden');
+        }
+
+        const groups = [];
+        const groupByKey = new Map();
+        normalItems.forEach(item => {
+          const key = String(item.collapsibleGroupKey || '');
+          const label = String(item.collapsibleGroupLabel || item.groupLabel || '').trim();
+          if (!key || !label) {
+            renderItemButton(item);
+            return;
+          }
+          if (!groupByKey.has(key)) {
+            const group = { key, label, items: [] };
+            groupByKey.set(key, group);
+            groups.push(group);
+          }
+          groupByKey.get(key).items.push(item);
+        });
+
+        groups.forEach(group => {
+          const expanded = expandedGroups.has(group.key);
+          appendCollapseButton(list, group, expanded, () => {
+            if (expandedGroups.has(group.key)) {
+              expandedGroups.delete(group.key);
+            } else {
+              expandedGroups.add(group.key);
+            }
+            renderItems();
+          });
+          if (expanded) group.items.forEach(renderItemButton);
+        });
+        return;
+      }
+
+      let lastGroupLabel = null;
+      items.forEach(item => {
+        if (typeAtRender === 'floorplan' && !activeFilter && item.groupLabel && item.groupLabel !== lastGroupLabel) {
+          lastGroupLabel = item.groupLabel;
+          appendGroupHeader(list, item.groupLabel);
+        }
+        renderItemButton(item);
       });
     }
 
@@ -564,6 +750,7 @@
       if (type === 'location' && !hasFilterGroups('floorplan') &&
         !(typeof getFilters === 'function' && (getFilters('floorplan') || []).length)) return;
 
+      if (activeType !== type) expandedGroups.clear();
       activeType = type;
       const activeGroup = type === 'location' ? activeFilterGroup() : null;
       const filterLabel = activeGroup?.label ||
@@ -589,6 +776,7 @@
       }
       activeType = null;
       activeFilterKey = '';
+      expandedGroups.clear();
     }
 
     function isOpen(type) {
@@ -696,9 +884,16 @@
     LOCATION_NONE_LABEL,
     GROUP_NONE_VALUE,
     GROUP_NONE_LABEL,
+    ORGANIZER_NONE_VALUE,
+    ORGANIZER_NONE_LABEL,
     DIRECT_LOCATION_FILTER_LIMIT,
+    COLLAPSIBLE_FLOORPLAN_LIMIT,
     buildGroupFilterOptions,
     buildLocationFilterOptions,
+    compareFloorplanDisplayOrder,
+    floorplanOrganizerLabel,
+    floorplanOrganizerValue,
+    floorplanSortKey,
     createController,
     createSelectionController,
     floorplanLocationFilterLabel,
