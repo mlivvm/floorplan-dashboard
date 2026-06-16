@@ -82,12 +82,27 @@
     if (!button) return;
     const baseLabel = String(form.label || 'JotForm');
     const unavailable = Boolean(form.disabled);
+    const locked = Boolean(lookupState?.locked);
+    const lockedLabel = String(lookupState?.lockedByLabel || '').trim();
+    const lockedTitle = lockedLabel
+      ? `Er hangt al een ${lockedLabel} formulier aan deze deur`
+      : 'Er hangt al een ander formulier aan deze deur';
     button.dataset.jotformUnavailable = unavailable ? '1' : '0';
+    button.dataset.jotformLocked = locked ? '1' : '0';
+    button.dataset.jotformLockedTitle = locked ? lockedTitle : '';
     button.title = unavailable ? `${baseLabel} formulier nog niet beschikbaar` : '';
     if (!doorId || unavailable) {
       button.textContent = baseLabel;
       button.dataset.jotformAction = 'none';
       button.dataset.jotformPending = '0';
+      setActionDisabled(button, true);
+      return;
+    }
+    if (locked) {
+      button.textContent = baseLabel;
+      button.dataset.jotformAction = 'locked';
+      button.dataset.jotformPending = '0';
+      button.title = lockedTitle;
       setActionDisabled(button, true);
       return;
     }

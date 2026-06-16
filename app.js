@@ -2,7 +2,7 @@
     // CONFIGURATION
     // ============================================================
 
-    const APP_VERSION = '1.9.32';
+    const APP_VERSION = '1.9.33';
     const ENV_CONFIG = window.FD?.Env?.config || window.FD_ENV_CONFIG || {};
     const DEFAULT_JOTFORM_FORM_ID = '250122093908351';
     const DEFAULT_JOTFORM_FORMS = {
@@ -1218,6 +1218,17 @@
         .filter(Boolean);
     }
 
+    function getOtherCachedJotFormSubmission(doorId, formType) {
+      const type = normalizeJotFormFormType(formType);
+      return getCachedJotFormSubmissionsForDoor(doorId)
+        .find(submission => submission?.editUrl && normalizeJotFormFormType(submission.formType) !== type) || null;
+    }
+
+    function getJotFormFormLabel(formType) {
+      const type = normalizeJotFormFormType(formType);
+      return String(CONFIG.jotformForms?.[type]?.label || (type === 'inspection' ? 'Opname' : 'Onderhoud'));
+    }
+
     function isJotFormConditionChecking(doorId) {
       if (!isJotFormLookupEnabled()) return false;
       if (!doorId || !getDoorStatus(doorId)) return false;
@@ -1249,6 +1260,17 @@
         ? getCachedJotFormSubmission(doorId, type)
         : null;
       if (cached?.editUrl) return { action: 'edit', editUrl: cached.editUrl };
+      const otherSubmission = key && jotformSubmissionCache.key === key
+        ? getOtherCachedJotFormSubmission(doorId, type)
+        : null;
+      if (otherSubmission?.editUrl) {
+        return {
+          action: 'locked',
+          locked: true,
+          lockedByFormType: normalizeJotFormFormType(otherSubmission.formType),
+          lockedByLabel: getJotFormFormLabel(otherSubmission.formType),
+        };
+      }
       if (hasManualNewFormHint(doorId)) return { action: 'new' };
       if (!key || jotformSubmissionCache.key !== key) return { action: 'open', loading: true };
       if (jotformSubmissionCache.loading || !jotformSubmissionCache.ready) return { action: 'open', loading: true };
@@ -2062,12 +2084,15 @@
             if (!button) return;
             const jotformPending = button.dataset.jotformPending === '1';
             const jotformUnavailable = button.dataset.jotformUnavailable === '1';
-            button.classList.toggle('disabled', !allowed || jotformPending || jotformUnavailable);
+            const jotformLocked = button.dataset.jotformLocked === '1';
+            button.classList.toggle('disabled', !allowed || jotformPending || jotformUnavailable || jotformLocked);
             button.title = jotformUnavailable
               ? 'Opname formulier nog niet beschikbaar'
+              : (jotformLocked
+              ? (button.dataset.jotformLockedTitle || 'Er hangt al een ander formulier aan deze deur')
               : (!allowed
               ? 'Alleen kijken op deze plattegrond'
-              : (jotformPending ? 'Formulierstatus controleren...' : ''));
+              : (jotformPending ? 'Formulierstatus controleren...' : '')));
           });
         }
 
