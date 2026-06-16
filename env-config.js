@@ -11,7 +11,7 @@
       const STAGING_WORKER = 'https://floorplan-dashboard-api-staging.mko-floorplan-dashboard.workers.dev';
       const jotformForms = {
         maintenance: { label: 'Onderhoud', formId: '250122093908351' },
-        inspection: { label: 'Opname', formId: '243196137549364', disabled: true },
+        inspection: { label: 'Opname', formId: '243196137549364', disabled: false },
       };
 
   const liveConfig = {

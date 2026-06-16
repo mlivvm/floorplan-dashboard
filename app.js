@@ -2,12 +2,12 @@
     // CONFIGURATION
     // ============================================================
 
-    const APP_VERSION = '1.9.31';
+    const APP_VERSION = '1.9.32';
     const ENV_CONFIG = window.FD?.Env?.config || window.FD_ENV_CONFIG || {};
     const DEFAULT_JOTFORM_FORM_ID = '250122093908351';
     const DEFAULT_JOTFORM_FORMS = {
       maintenance: { label: 'Onderhoud', formId: DEFAULT_JOTFORM_FORM_ID, disabled: false },
-      inspection: { label: 'Opname', formId: '243196137549364', disabled: true },
+      inspection: { label: 'Opname', formId: '243196137549364', disabled: false },
     };
     const envStorageKey = (key) => (
       typeof ENV_CONFIG.storageKey === 'function'
