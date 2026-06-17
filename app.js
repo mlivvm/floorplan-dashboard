@@ -2,7 +2,7 @@
     // CONFIGURATION
     // ============================================================
 
-    const APP_VERSION = '1.9.33';
+    const APP_VERSION = '1.9.34';
     const ENV_CONFIG = window.FD?.Env?.config || window.FD_ENV_CONFIG || {};
     const DEFAULT_JOTFORM_FORM_ID = '250122093908351';
     const DEFAULT_JOTFORM_FORMS = {
@@ -5597,13 +5597,21 @@
         setExportExcelError('Selecteer minimaal een plattegrond.');
         return;
       }
-      const result = FD.ExportService.downloadDoorcodeWorkbook({
+      const exportDoors = getAdminData().doors || [];
+      const selectedKeys = new Set(selectedFloorplans.map(record => FD.ExportService.floorplanKey(record)));
+      const exportedDoorCount = exportDoors
+        .filter(door => selectedKeys.has(FD.ExportService.floorplanKey(door)))
+        .filter(door => String(door?.code || door?.doorId || '').trim())
+        .length;
+      FD.ExportService.downloadDoorcodeWorkbook({
         floorplans: selectedFloorplans,
-        doors: getAdminData().doors || [],
+        doors: exportDoors,
         documentEl: document,
       });
       hideExportExcelDialog();
-      showToast(`Excel export gemaakt: ${result.filename}`, 'success');
+      const floorplanText = `${selectedFloorplans.length} plattegrond${selectedFloorplans.length === 1 ? '' : 'en'}`;
+      const doorText = `${exportedDoorCount} deurcode${exportedDoorCount === 1 ? '' : 's'}`;
+      showToast(`Excel export gemaakt: ${floorplanText}, ${doorText}`, 'success');
     }
 
     function renderExportFloorplanChoices() {
