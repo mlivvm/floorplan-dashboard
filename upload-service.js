@@ -15,6 +15,45 @@
     if (el) el.style.display = display;
   }
 
+  function isNetworkUploadError(err) {
+    const message = String(err?.message || '');
+    return err?.name === 'TypeError' ||
+      /Failed to fetch|NetworkError|Load failed|ERR_INTERNET_DISCONNECTED/i.test(message) ||
+      (Number(err?.status) >= 502 && Number(err?.status) <= 504);
+  }
+
+  function isSessionUploadError(err) {
+    const code = String(err?.code || err?.message || '');
+    return Number(err?.status) === 401 && (
+      code === 'session_required' ||
+      code === 'invalid_session' ||
+      code === 'worker_session_required'
+    );
+  }
+
+  function formatUploadError(err) {
+    const code = String(err?.code || err?.message || '');
+    if (isSessionUploadError(err)) {
+      return 'Sessie verlopen. Log opnieuw in en probeer de upload opnieuw.';
+    }
+    if (Number(err?.status) === 403) {
+      return 'Geen uploadrechten voor dit account. Log in met een admin-account.';
+    }
+    if (isNetworkUploadError(err)) {
+      return 'Uploadserver tijdelijk niet bereikbaar. De PDF/foto is waarschijnlijk niet het probleem. Controleer internet/VPN en probeer opnieuw.';
+    }
+    if (code === 'uploaded_floorplan_already_exists' || code === 'uploaded_floorplan_file_exists') {
+      return 'Deze plattegrond lijkt al te bestaan. Ververs de app en controleer de klantlijst voordat je opnieuw uploadt.';
+    }
+    if (code === 'customer_not_found') {
+      return 'Klant niet gevonden. Ververs de app en kies de klant opnieuw.';
+    }
+    if (code === 'customer_already_exists') {
+      return 'Deze klant bestaat al. Ververs de app en selecteer de bestaande klant.';
+    }
+    return err?.message || 'Upload mislukt.';
+  }
+
   function resetPreviewState(elements) {
     elements.imageState.dataUrl = null;
     elements.imageState.width = 0;
@@ -1085,6 +1124,7 @@
     hideTopbarMenu = () => {},
     showToast = () => {},
     getPdfJsLib = () => global.pdfjsLib,
+    ensureSession = async () => true,
     onSave,
     onSaved = () => {},
   }) {
@@ -1557,6 +1597,16 @@
         elements.pdfErrorEl.textContent = form.error;
         return;
       }
+      try {
+        const sessionOk = await ensureSession({ purpose: 'pdf_upload' });
+        if (!sessionOk) {
+          elements.pdfErrorEl.textContent = 'Sessie verlopen. Log opnieuw in en probeer de upload opnieuw.';
+          return;
+        }
+      } catch (err) {
+        elements.pdfErrorEl.textContent = formatUploadError(err);
+        return;
+      }
 
       saving = true;
       modeController.enter(modes.UPLOAD_SAVING);
@@ -1619,14 +1669,14 @@
           const failed = failedIndex >= 0 ? form.pages[failedIndex] : null;
         if (failed) {
           failed.status = 'error';
-          failed.error = err.message || 'Upload mislukt';
+          failed.error = formatUploadError(err);
         }
         setPdfUploadProgress(elements, {
           visible: true,
           value: Math.max(0, (Math.max(0, failedIndex) * 4) / totalUnits * 100),
           text: failed ? `Upload gestopt bij ${pdfPageLabel(failed).toLowerCase()}` : 'Upload gestopt',
         });
-        elements.pdfErrorEl.textContent = `Upload gestopt: ${err.message || 'onbekende fout'}. Eerder gelukte pagina's blijven staan.`;
+        elements.pdfErrorEl.textContent = `Upload gestopt: ${formatUploadError(err)} Eerder gelukte pagina's blijven staan.`;
         renderPdfNameRows(elements);
         return;
       } finally {
@@ -1705,9 +1755,14 @@
 
       let result;
       try {
+        const sessionOk = await ensureSession({ purpose: 'image_upload' });
+        if (!sessionOk) {
+          elements.errorEl.textContent = 'Sessie verlopen. Log opnieuw in en probeer de upload opnieuw.';
+          return;
+        }
         result = await onSave({ form, fileName, svgText });
       } catch (err) {
-        elements.errorEl.textContent = 'Fout: ' + err.message;
+        elements.errorEl.textContent = 'Fout: ' + formatUploadError(err);
         return;
       } finally {
         controls.saveButton.textContent = 'Opslaan';
@@ -1895,6 +1950,7 @@
     canvasToUploadJPEG,
     createUploadedFloorplanActionsController,
     createUploadController,
+    formatUploadError,
     populateCustomerSelect,
     resetFormState,
     resetPreviewState,

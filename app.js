@@ -2,7 +2,7 @@
     // CONFIGURATION
     // ============================================================
 
-    const APP_VERSION = '1.9.34';
+    const APP_VERSION = '1.9.35';
     const ENV_CONFIG = window.FD?.Env?.config || window.FD_ENV_CONFIG || {};
     const DEFAULT_JOTFORM_FORM_ID = '250122093908351';
     const DEFAULT_JOTFORM_FORMS = {
@@ -137,11 +137,17 @@
     let customersLoading = false;
     const AppModes = FD.ModeService.MODES;
     const appMode = FD.ModeService.createModeController(AppModes.LOGIN);
+    const SESSION_CHECK_STALE_MS = 5 * 60 * 1000;
+    const SESSION_RENEW_WINDOW_MS = 60 * 60 * 1000;
     let statusSync = null;
     let jotformReturnRefreshTimer = null;
     let jotformSubmissionLookupRetryTimer = null;
     let sessionHeartbeatTimer = null;
     let sessionHeartbeatInFlight = false;
+    let sessionCheckPromise = null;
+    let lastSessionCheckAt = 0;
+    let handlingExpiredSession = false;
+    let authController = null;
     let adminActiveUsersPollTimer = null;
     let adminActiveUsersInFlight = false;
     let jotformFocusRefreshDoorId = null;
@@ -948,13 +954,14 @@
       if (document.visibilityState === 'visible') {
         checkForAppUpdate();
         startSessionHeartbeat();
-        runSessionHeartbeat();
+        validateSessionAfterResume();
         startAdminActiveUsersPolling({ refreshNow: true });
       } else {
         stopSessionHeartbeat();
         stopAdminActiveUsersPolling();
       }
     });
+    window.addEventListener('focus', validateSessionAfterResume);
 
     function updateConnectionIndicator() {
       const isOnline = navigator.onLine;
@@ -984,7 +991,7 @@
       scheduleFloorplanCacheWarmup();
       checkForAppUpdate();
       startSessionHeartbeat();
-      runSessionHeartbeat();
+      validateSessionAfterResume();
       startAdminActiveUsersPolling({ refreshNow: true });
     });
 
@@ -1802,20 +1809,129 @@
       return currentUser;
     }
 
+    function isSessionAuthError(err) {
+      if (FD.DataService.isSessionAuthError?.(err)) return true;
+      const code = String(err?.code || err?.message || '');
+      return Number(err?.status) === 401 && (
+        code === 'session_required' ||
+        code === 'invalid_session' ||
+        code === 'worker_session_required'
+      );
+    }
+
+    function handleExpiredSession(err, context = {}) {
+      if (handlingExpiredSession || appMode.is(AppModes.LOGIN)) return false;
+      if (!isSessionAuthError(err)) return false;
+      handlingExpiredSession = true;
+      try {
+        lastSessionCheckAt = 0;
+        sessionCheckPromise = null;
+        stopSessionHeartbeat();
+        stopAdminActiveUsersPolling();
+        stopPolling();
+        hideTopbarMenu();
+        FD.AuthService.clearSession(LOGIN_CONFIG);
+        FD.DataService.clearWorkerSession(CONFIG);
+        currentUser = null;
+        updateAccountIndicator();
+        resetAppToStartScreen();
+        authController?.showLoginScreen?.({
+          message: 'Sessie verlopen. Log opnieuw in om verder te gaan.',
+          clearPassword: true,
+          restoreRemember: true,
+        });
+        showToast('Sessie verlopen. Log opnieuw in.', 'error');
+        return true;
+      } finally {
+        handlingExpiredSession = false;
+      }
+    }
+
+    function getWorkerSessionInfo() {
+      return FD.DataService.getWorkerSessionInfo?.(CONFIG) || {
+        hasToken: false,
+        expiresInMs: 0,
+        fresh: false,
+      };
+    }
+
+    function shouldRenewWorkerSession(info) {
+      return Boolean(info?.hasToken) &&
+        Number(info.expiresInMs || 0) > 0 &&
+        Number(info.expiresInMs || 0) <= SESSION_RENEW_WINDOW_MS;
+    }
+
+    async function ensureActiveSession({
+      force = false,
+      purpose = 'session_check',
+      background = false,
+      allowRenew = true,
+    } = {}) {
+      if (appMode.is(AppModes.LOGIN)) return false;
+      if (navigator.onLine === false) return Boolean(refreshCurrentUser());
+
+      const info = getWorkerSessionInfo();
+      if (!info.hasToken || Number(info.expiresInMs || 0) <= 0) {
+        handleExpiredSession(Object.assign(new Error('invalid_session'), {
+          status: 401,
+          code: 'invalid_session',
+        }), { purpose });
+        return false;
+      }
+
+      const shouldRenew = allowRenew && shouldRenewWorkerSession(info);
+      if (!force && !shouldRenew && Date.now() - lastSessionCheckAt < SESSION_CHECK_STALE_MS) {
+        return true;
+      }
+      if (sessionCheckPromise) return sessionCheckPromise;
+
+      sessionCheckPromise = (async () => {
+        try {
+          if (shouldRenew) {
+            await FD.DataService.renewWorkerSession(CONFIG, {
+              diagnostics: {
+                suppress: true,
+                background: true,
+                expireSessionOnAuthError: true,
+                purpose: `${purpose}_renew`,
+              },
+            });
+          } else {
+            await FD.DataService.refreshWorkerSessionUser(CONFIG, {
+              diagnostics: {
+                suppress: background,
+                level: 'warn',
+                background,
+                expireSessionOnAuthError: true,
+                purpose,
+              },
+            });
+          }
+          lastSessionCheckAt = Date.now();
+          refreshCurrentUser();
+          updateRoleActionButtons();
+          if (selectionController.isOpen('floorplan')) renderSelectSheetItems();
+          return true;
+        } catch (err) {
+          if (handleExpiredSession(err, { purpose })) return false;
+          if (!background && navigator.onLine !== false) throw err;
+          if (navigator.onLine !== false) console.warn('Sessiecontrole mislukt:', err);
+          return false;
+        } finally {
+          sessionCheckPromise = null;
+        }
+      })();
+
+      return sessionCheckPromise;
+    }
+
     function refreshCurrentUserFromWorker() {
       refreshCurrentUser();
       if (navigator.onLine === false || typeof FD.DataService.refreshWorkerSessionUser !== 'function') return;
-
-      FD.DataService.refreshWorkerSessionUser(CONFIG, {
-        diagnostics: {
-          level: 'warn',
-          purpose: 'refresh session user metadata',
-          background: true,
-        },
-      }).then(() => {
-        refreshCurrentUser();
-        updateRoleActionButtons();
-        if (selectionController.isOpen('floorplan')) renderSelectSheetItems();
+      ensureActiveSession({
+        force: true,
+        purpose: 'refresh session user metadata',
+        background: true,
       }).catch(err => {
         console.warn('Worker gebruiker/rechten verversen mislukt:', err);
       });
@@ -1830,27 +1946,19 @@
       if (appMode.is(AppModes.LOGIN)) return false;
       if (typeof FD.DataService.refreshWorkerSessionUser !== 'function') return false;
       if (!currentUser) refreshCurrentUser();
-      return Boolean(currentUser);
+      return Boolean(currentUser || getWorkerSessionInfo().hasToken);
     }
 
     async function runSessionHeartbeat() {
       if (!shouldRunSessionHeartbeat() || sessionHeartbeatInFlight) return;
       sessionHeartbeatInFlight = true;
       try {
-        await FD.DataService.refreshWorkerSessionUser(CONFIG, {
-          diagnostics: {
-            suppress: true,
-            background: true,
-            purpose: 'session_heartbeat',
-          },
+        await ensureActiveSession({
+          force: true,
+          purpose: 'session_heartbeat',
+          background: true,
         });
-        refreshCurrentUser();
-        updateRoleActionButtons();
       } catch (err) {
-        if (err?.status === 401 || err?.status === 403) {
-          stopSessionHeartbeat();
-          return;
-        }
         if (navigator.onLine !== false) {
           console.warn('Sessie heartbeat mislukt:', err);
         }
@@ -1872,6 +1980,16 @@
       if (!sessionHeartbeatTimer) return;
       window.clearInterval(sessionHeartbeatTimer);
       sessionHeartbeatTimer = null;
+    }
+
+    function validateSessionAfterResume() {
+      if (!shouldRunSessionHeartbeat()) return;
+      ensureActiveSession({
+        purpose: 'resume_session_check',
+        background: true,
+      }).catch(err => {
+        if (navigator.onLine !== false) console.warn('Sessie hervatten mislukt:', err);
+      });
     }
 
     function canManageUploads() {
@@ -3444,6 +3562,7 @@
         const result = await FD.DataService.fetchAdminActivity(CONFIG, {
           diagnostics: {
             purpose: 'admin_activity',
+            background: true,
           },
         });
         adminDashboardState.activity = normalizeAdminActivityRows(result.activity);
@@ -4138,6 +4257,7 @@
         const data = await FD.DataService.fetchAdminOverview(CONFIG, {
           diagnostics: {
             purpose: 'admin_overview',
+            background: true,
           },
         });
         adminDashboardState.data = data;
@@ -6462,6 +6582,10 @@
       hideTopbarMenu,
       showToast,
       getPdfJsLib: () => window.pdfjsLib,
+      ensureSession: () => ensureActiveSession({
+        purpose: 'upload_preflight',
+        background: false,
+      }),
       onSave: async ({ form, fileName, svgText }) => {
         const { customers: currentCustomers } = await FD.DataService.addUploadedFloorplan(CONFIG, {
 	          customerName: form.customerName,
@@ -6941,7 +7065,7 @@
     exportExcelSelect?.addEventListener('click', showExportFloorplanSelection);
     exportExcelConfirm?.addEventListener('click', exportSelectedFloorplans);
 
-    const authController = FD.AuthService.createAuthController({
+    authController = FD.AuthService.createAuthController({
       loginConfig: LOGIN_CONFIG,
       appConfig: CONFIG,
       elements: {
@@ -6984,6 +7108,10 @@
         stopAdminActiveUsersPolling();
         resetAppToStartScreen();
       },
+    });
+
+    FD.DataService.setSessionExpiredHandler?.((err, context) => {
+      handleExpiredSession(err, context);
     });
 
     authController.bind();

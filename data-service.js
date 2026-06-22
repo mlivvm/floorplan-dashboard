@@ -2,6 +2,8 @@
   const FD = global.FD = global.FD || {};
   const CUSTOMER_WIDE_FLOORPLAN_PERMISSION = '*';
   const workerFeatureSupportCache = new Map();
+  let sessionExpiredHandler = null;
+  let sessionExpiredNotifying = false;
 
   function workerOnlyError(code) {
     const error = new Error(code || 'worker_route_required');
@@ -138,6 +140,21 @@
     return getWorkerSession(config).token;
   }
 
+  function getWorkerSessionInfo(config) {
+    const session = getWorkerSession(config);
+    const expiresTime = Date.parse(session.expiresAt || '');
+    const hasExpiresTime = Number.isFinite(expiresTime);
+    return {
+      token: session.token,
+      expiresAt: session.expiresAt,
+      expiresTime: hasExpiresTime ? expiresTime : 0,
+      expiresInMs: hasExpiresTime ? expiresTime - Date.now() : 0,
+      storageType: session.storageType,
+      hasToken: Boolean(session.token),
+      fresh: Boolean(session.token && isWorkerSessionFresh(session.expiresAt)),
+    };
+  }
+
   function requireWorkerSessionToken(config) {
     const token = getWorkerSessionToken(config);
     if (!token) throw workerError(401, 'worker_session_required');
@@ -231,11 +248,43 @@
   function workerError(status, code, data = null) {
     const error = new Error(code || 'Worker request failed');
     error.status = status;
+    error.code = code || '';
     if (data && typeof data === 'object') {
-      error.code = data.error || code || '';
+      error.code = data.error || error.code;
       error.details = data.details || null;
     }
     return error;
+  }
+
+  function isSessionAuthError(err) {
+    const code = String(err?.code || err?.message || '');
+    return Number(err?.status) === 401 && (
+      code === 'session_required' ||
+      code === 'invalid_session' ||
+      code === 'worker_session_required'
+    );
+  }
+
+  function setSessionExpiredHandler(handler) {
+    sessionExpiredHandler = typeof handler === 'function' ? handler : null;
+  }
+
+  function notifySessionExpired(err, context = {}) {
+    if (!sessionExpiredHandler || sessionExpiredNotifying) return;
+    sessionExpiredNotifying = true;
+    try {
+      sessionExpiredHandler(err, context);
+    } finally {
+      sessionExpiredNotifying = false;
+    }
+  }
+
+  function handleSessionError(path, method, err, options = {}) {
+    const diagnostics = options?.diagnostics || {};
+    if (path === '/api/session/login') return;
+    if (diagnostics.purpose === 'offline_cache_warmup') return;
+    if (diagnostics.background === true && diagnostics.expireSessionOnAuthError !== true) return;
+    if (isSessionAuthError(err)) notifySessionExpired(err, { path, method });
   }
 
   function reportWorkerFailure(path, method, err, options) {
@@ -276,6 +325,7 @@
       return data;
     } catch (err) {
       if (err?.name !== 'AbortError') reportWorkerFailure(path, 'GET', err, options);
+      handleSessionError(path, 'GET', err, options);
       throw err;
     }
   }
@@ -299,6 +349,7 @@
       return responseData;
     } catch (err) {
       if (err?.name !== 'AbortError') reportWorkerFailure(path, 'POST', err, options);
+      handleSessionError(path, 'POST', err, options);
       throw err;
     }
   }
@@ -322,6 +373,7 @@
       return responseData;
     } catch (err) {
       if (err?.name !== 'AbortError') reportWorkerFailure(path, 'PUT', err, options);
+      handleSessionError(path, 'PUT', err, options);
       throw err;
     }
   }
@@ -345,6 +397,7 @@
       return responseData;
     } catch (err) {
       if (err?.name !== 'AbortError') reportWorkerFailure(path, 'PATCH', err, options);
+      handleSessionError(path, 'PATCH', err, options);
       throw err;
     }
   }
@@ -368,6 +421,7 @@
       return responseData;
     } catch (err) {
       if (err?.name !== 'AbortError') reportWorkerFailure(path, 'DELETE', err, options);
+      handleSessionError(path, 'DELETE', err, options);
       throw err;
     }
   }
@@ -966,6 +1020,7 @@
     fetchAdminActivity,
     fetchActiveUsers,
     fetchDoorCodeIndex,
+    getWorkerSessionInfo,
     updateFloorplanRecord,
     updateFloorplanGroupsBulk,
     supportsJotFormSubmissionBatch,
@@ -992,5 +1047,7 @@
     loginWorkerSession,
     refreshWorkerSessionUser,
     renewWorkerSession,
+    setSessionExpiredHandler,
+    isSessionAuthError,
   };
 })(window);

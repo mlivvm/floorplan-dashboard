@@ -258,7 +258,15 @@
       await Promise.all(Array.from(new Set(queue.map(item => item.repo))).map(async repo => {
         if (shouldCancel(runGeneration, signal)) return;
         try {
-          repoTreeMaps[repo] = await FD.DataService.fetchFloorplanTreeMap(repo, { signal, config });
+          repoTreeMaps[repo] = await FD.DataService.fetchFloorplanTreeMap(repo, {
+            signal,
+            config,
+            diagnostics: {
+              suppress: true,
+              purpose: 'offline_cache_warmup',
+              background: true,
+            },
+          });
         } catch (err) {
           if (err?.name === 'AbortError') return;
           repoTreeMaps[repo] = null;
