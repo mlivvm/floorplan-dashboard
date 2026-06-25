@@ -297,9 +297,14 @@
         eventType: diagnostics.eventType || 'api_failure',
         message: err?.code || err?.message || 'Worker request failed',
         source: 'data-service',
+        customer: diagnostics.customer || '',
+        floorplan: diagnostics.floorplan || '',
+        doorId: diagnostics.doorId || '',
         endpoint: path,
         status: err?.status || null,
         details: {
+          ...(diagnostics.details && typeof diagnostics.details === 'object' ? diagnostics.details : {}),
+          ...(err?.details && typeof err.details === 'object' ? err.details : {}),
           method,
           purpose: diagnostics.purpose || '',
           background: diagnostics.background === true,
@@ -646,6 +651,20 @@
         signal: options.signal,
         headers: {
           Authorization: `Bearer ${token}`,
+        },
+        diagnostics: {
+          purpose: 'uploaded_floorplan_create',
+          customer: customerName,
+          floorplan: floorplanName,
+          details: {
+            uploadCustomer: customerName,
+            uploadFloorplan: floorplanName,
+            uploadFileName: fileName,
+            uploadBuildingName: buildingName || '',
+            uploadFloorLabel: floorLabel || '',
+            uploadLocationGroup: options.locationGroup || '',
+            uploadIsNewCustomer: isNewCustomer === true,
+          },
         },
       });
       return {

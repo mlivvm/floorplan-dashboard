@@ -42,6 +42,12 @@
     if (isNetworkUploadError(err)) {
       return 'Uploadserver tijdelijk niet bereikbaar. De PDF/foto is waarschijnlijk niet het probleem. Controleer internet/VPN en probeer opnieuw.';
     }
+    if (code === 'github_content_put_failed' && Number(err?.status) === 409) {
+      return 'Opslag was tijdelijk bezig door een andere wijziging. Automatisch opnieuw geprobeerd, maar nog niet gelukt. Probeer opnieuw.';
+    }
+    if (code === 'github_content_put_failed') {
+      return 'Opslaan in de online opslag is niet gelukt. Probeer opnieuw; als dit blijft gebeuren, meld dit met klant en plattegrondnaam.';
+    }
     if (code === 'uploaded_floorplan_already_exists' || code === 'uploaded_floorplan_file_exists') {
       return 'Deze plattegrond lijkt al te bestaan. Ververs de app en controleer de klantlijst voordat je opnieuw uploadt.';
     }
@@ -1643,18 +1649,25 @@
           });
           const fileName = sanitizeFilename(`${form.customerName} ${page.floorplanName}`, Date.now() + index) + '.svg';
           updateBatchProgress(index, 2, `Pagina ${index + 1}/${form.pages.length} uploaden...`);
-          result = await onSave({
-            form: {
-	              customerName: form.customerName,
-	              floorplanName: page.floorplanName,
-	              locationGroup: form.locationGroup,
-	              buildingName: page.buildingName,
-	              floorLabel: page.floorLabel,
-              isNewCustomer,
-            },
-            fileName,
-            svgText,
-          });
+          const slowUploadTimer = setTimeout(() => {
+            updateBatchProgress(index, 2, `Pagina ${index + 1}/${form.pages.length} opslaan duurt iets langer...`);
+          }, 4000);
+          try {
+            result = await onSave({
+              form: {
+                customerName: form.customerName,
+                floorplanName: page.floorplanName,
+                locationGroup: form.locationGroup,
+                buildingName: page.buildingName,
+                floorLabel: page.floorLabel,
+                isNewCustomer,
+              },
+              fileName,
+              svgText,
+            });
+          } finally {
+            clearTimeout(slowUploadTimer);
+          }
           isNewCustomer = false;
           elements.pdfState.batchCustomerName = form.customerName;
           page.status = 'uploaded';
@@ -1760,7 +1773,14 @@
           elements.errorEl.textContent = 'Sessie verlopen. Log opnieuw in en probeer de upload opnieuw.';
           return;
         }
-        result = await onSave({ form, fileName, svgText });
+        const slowUploadTimer = setTimeout(() => {
+          controls.saveButton.textContent = 'Opslaan duurt iets langer...';
+        }, 4000);
+        try {
+          result = await onSave({ form, fileName, svgText });
+        } finally {
+          clearTimeout(slowUploadTimer);
+        }
       } catch (err) {
         elements.errorEl.textContent = 'Fout: ' + formatUploadError(err);
         return;
