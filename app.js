@@ -2,7 +2,7 @@
     // CONFIGURATION
     // ============================================================
 
-    const APP_VERSION = '1.9.36';
+    const APP_VERSION = '1.9.37';
     const ENV_CONFIG = window.FD?.Env?.config || window.FD_ENV_CONFIG || {};
     const DEFAULT_JOTFORM_FORM_ID = '250122093908351';
     const DEFAULT_JOTFORM_FORMS = {
@@ -156,6 +156,7 @@
     let jotformFocusBaselineSubmission = null;
     const jotformManualNewFormHints = new Map();
     let serviceWorkerRegistration = null;
+    let deferredInstallPrompt = null;
     let updateCheckTimer = null;
     let pendingAppUpdate = null;
     let doorActionController = null;
@@ -285,6 +286,11 @@
     const appUpdateMessage = document.getElementById('app-update-message');
     const appUpdateConfirmButton = document.getElementById('app-update-confirm');
     const appUpdateLaterButton = document.getElementById('app-update-later');
+    const btnInstallAppLogin = document.getElementById('btn-install-app-login');
+    const btnInstallAppMenu = document.getElementById('btn-install-app-menu');
+    const installAppOverlay = document.getElementById('install-app-overlay');
+    const installAppPopup = document.getElementById('install-app-popup');
+    const installAppClose = document.getElementById('install-app-close');
     const environmentBadges = [
       document.getElementById('login-environment-badge'),
       document.getElementById('topbar-environment-badge'),
@@ -423,6 +429,10 @@
       overlayEl: appUpdateOverlay,
       popupEl: appUpdatePopup,
     });
+    const installAppDialog = FD.UIShellService.createPopupPair({
+      overlayEl: installAppOverlay,
+      popupEl: installAppPopup,
+    });
     const adminSessionsDialog = FD.UIShellService.createPopupPair({
       overlayEl: adminSessionsOverlay,
       popupEl: adminSessionsPopup,
@@ -515,6 +525,47 @@
     function showToast(message, type) {
       lastToast = { message: String(message || ''), type: String(type || ''), at: new Date().toISOString() };
       toastController.show(message, type);
+    }
+
+    function isStandaloneApp() {
+      return Boolean(
+        window.matchMedia?.('(display-mode: standalone)').matches ||
+        window.matchMedia?.('(display-mode: fullscreen)').matches ||
+        navigator.standalone === true,
+      );
+    }
+
+    function updateInstallAppButtons() {
+      const visible = !isStandaloneApp();
+      [btnInstallAppLogin, btnInstallAppMenu].forEach(button => {
+        if (button) button.hidden = !visible;
+      });
+    }
+
+    function showInstallAppHelp() {
+      installAppDialog.show();
+    }
+
+    async function promptInstallApp() {
+      hideTopbarMenu();
+      if (!deferredInstallPrompt) {
+        showInstallAppHelp();
+        return;
+      }
+
+      const installPrompt = deferredInstallPrompt;
+      deferredInstallPrompt = null;
+      try {
+        await installPrompt.prompt();
+        const choice = await installPrompt.userChoice;
+        if (choice?.outcome === 'accepted') {
+          showToast('Deuren staat nu op het startscherm', 'success');
+          updateInstallAppButtons();
+        }
+      } catch (err) {
+        console.warn('PWA installeren mislukt:', err);
+        showInstallAppHelp();
+      }
     }
 
     function normalizeRemoteVersion(data) {
@@ -941,6 +992,26 @@
     appUpdateLaterButton?.addEventListener('click', hideAppUpdateDialog);
     appUpdateConfirmButton?.addEventListener('click', applyAppUpdate);
     appUpdateOverlay?.addEventListener('click', hideAppUpdateDialog);
+    [btnInstallAppLogin, btnInstallAppMenu].forEach(button => {
+      button?.addEventListener('click', event => {
+        event.preventDefault();
+        event.stopPropagation();
+        promptInstallApp();
+      });
+    });
+    installAppClose?.addEventListener('click', () => installAppDialog.hide());
+    installAppOverlay?.addEventListener('click', () => installAppDialog.hide());
+    window.addEventListener('beforeinstallprompt', event => {
+      event.preventDefault();
+      deferredInstallPrompt = event;
+      updateInstallAppButtons();
+    });
+    window.addEventListener('appinstalled', () => {
+      deferredInstallPrompt = null;
+      updateInstallAppButtons();
+      showToast('Deuren staat nu op het startscherm', 'success');
+    });
+    updateInstallAppButtons();
     adminOnlinePanel?.addEventListener('click', showAdminSessionsPopup);
     adminOnlinePanel?.addEventListener('keydown', event => {
       if (event.key !== 'Enter' && event.key !== ' ') return;
