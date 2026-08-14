@@ -2,7 +2,7 @@
     // CONFIGURATION
     // ============================================================
 
-    const APP_VERSION = '1.9.37';
+    const APP_VERSION = '1.9.39';
     const ENV_CONFIG = window.FD?.Env?.config || window.FD_ENV_CONFIG || {};
     const DEFAULT_JOTFORM_FORM_ID = '250122093908351';
     const DEFAULT_JOTFORM_FORMS = {
@@ -1084,7 +1084,7 @@
     function readCachedCustomers() {
       try {
         const cached = JSON.parse(localStorage.getItem(CUSTOMERS_CACHE_KEY) || '[]');
-        return Array.isArray(cached) ? cached : [];
+        return FD.DataService.filterVisibleCustomers(cached);
       } catch {
         return [];
       }
@@ -1092,7 +1092,10 @@
 
     function cacheCustomers() {
       try {
-        localStorage.setItem(CUSTOMERS_CACHE_KEY, JSON.stringify(customers));
+        localStorage.setItem(
+          CUSTOMERS_CACHE_KEY,
+          JSON.stringify(FD.DataService.filterVisibleCustomers(customers))
+        );
       } catch (err) {
         console.warn('Klanten cache kon niet worden opgeslagen:', err);
       }
@@ -6336,6 +6339,10 @@
     }
 
     // Pan via pointer events
+    svgContainer.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+    });
+
     svgContainer.addEventListener('pointerdown', (e) => {
       if (e.pointerType === 'touch' && e.isPrimary === false) return;
 
@@ -6982,7 +6989,6 @@
       onCancel: cancelEditMode,
     }).bind();
 
-    editOverlay.addEventListener('click', closeEditPopup);
     const markerSlider = document.getElementById('edit-marker-size');
     markerSizeSliderController = FD.EditUIService.createMarkerSizeSliderController({
       sliderEl: markerSlider,

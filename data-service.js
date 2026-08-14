@@ -1,6 +1,20 @@
 (function (global) {
   const FD = global.FD = global.FD || {};
   const CUSTOMER_WIDE_FLOORPLAN_PERMISSION = '*';
+  const HIDDEN_FLOORPLAN_TARGETS = Object.freeze([
+    {
+      displayName: 'gasthuislaan 40 rheden - begane grond',
+      file: 'floorplan gasthuislaan 40 rheden-0.svg',
+    },
+    {
+      displayName: 'gasthuislaan 40 velp - begane grond',
+      file: 'floorplan gasthuislaan 40 velp-0.svg',
+    },
+    {
+      displayName: 'gasthuislaan 40 velp - 1e verdieping',
+      file: 'floorplan gasthuislaan 40 velp-1.svg',
+    },
+  ]);
   const workerFeatureSupportCache = new Map();
   let sessionExpiredHandler = null;
   let sessionExpiredNotifying = false;
@@ -9,6 +23,71 @@
     const error = new Error(code || 'worker_route_required');
     error.status = 503;
     return error;
+  }
+
+  function normalizeFloorplanVisibilityText(value) {
+    return String(value || '')
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, ' ');
+  }
+
+  function floorplanVisibilityNames(floorplan) {
+    const building = String(floorplan?.building || '').trim();
+    const floorLabel = String(floorplan?.floorLabel || '').trim();
+    return [
+      floorplan?.name,
+      floorplan?.displayName,
+      floorplan?.floorplan,
+      floorplan?.floorplanDisplayName,
+      building && floorLabel ? `${building} - ${floorLabel}` : '',
+    ].map(normalizeFloorplanVisibilityText).filter(Boolean);
+  }
+
+  function isFloorplanVisible(floorplan) {
+    const names = new Set(floorplanVisibilityNames(floorplan));
+    const file = normalizeFloorplanVisibilityText(floorplan?.file);
+    return !HIDDEN_FLOORPLAN_TARGETS.some(target =>
+      names.has(target.displayName) || file === target.file
+    );
+  }
+
+  function filterVisibleCustomers(customers) {
+    return (Array.isArray(customers) ? customers : []).map(customer => {
+      if (!Array.isArray(customer?.floorplans)) return customer;
+      return {
+        ...customer,
+        floorplans: customer.floorplans.filter(isFloorplanVisible),
+      };
+    });
+  }
+
+  function filterVisibleAdminOverview(data) {
+    const customers = filterVisibleCustomers(data?.customers);
+    const sourceFloorplans = Array.isArray(data?.floorplans) ? data.floorplans : [];
+    const sourceDoors = Array.isArray(data?.doors) ? data.doors : [];
+    const floorplans = sourceFloorplans
+      .filter(isFloorplanVisible);
+    const doors = sourceDoors
+      .filter(isFloorplanVisible);
+    const summary = {
+      ...(data?.summary && typeof data.summary === 'object' ? data.summary : {}),
+    };
+    if (sourceFloorplans.length || sourceDoors.length) {
+      Object.assign(summary, {
+        floorplans: floorplans.length,
+        doors: doors.length,
+        done: floorplans.reduce((total, floorplan) => total + Number(floorplan.done || 0), 0),
+        attention: floorplans.reduce((total, floorplan) => total + Number(floorplan.attention || 0), 0),
+        open: floorplans.reduce((total, floorplan) => total + Number(floorplan.open || 0), 0),
+      });
+    }
+    return { summary, customers, floorplans, doors };
+  }
+
+  function filterVisibleAdminActivity(rows) {
+    return (Array.isArray(rows) ? rows : [])
+      .filter(isFloorplanVisible);
   }
 
   function getWorkerApiBaseUrl(config) {
@@ -509,7 +588,7 @@
       const data = await fetchWorkerJSON(config, '/api/customers', {
         headers: withWorkerAuthHeaders(config),
       });
-      return Array.isArray(data.customers) ? data.customers : [];
+      return filterVisibleCustomers(data.customers);
     }
 
     throw workerOnlyError('worker_read_required');
@@ -668,7 +747,7 @@
         },
       });
       return {
-        customers: Array.isArray(data.customers) ? data.customers : [],
+        customers: filterVisibleCustomers(data.customers),
         entry: data.entry,
         uploadUrl,
       };
@@ -699,7 +778,7 @@
           Authorization: `Bearer ${token}`,
         },
       });
-      return { customers: Array.isArray(data.customers) ? data.customers : [] };
+      return { customers: filterVisibleCustomers(data.customers) };
     }
 
     throw workerOnlyError('worker_upload_write_required');
@@ -722,7 +801,7 @@
           Authorization: `Bearer ${token}`,
         },
       });
-      return { customers: Array.isArray(data.customers) ? data.customers : [] };
+      return { customers: filterVisibleCustomers(data.customers) };
     }
 
     throw workerOnlyError('worker_upload_write_required');
@@ -855,10 +934,8 @@
         Authorization: `Bearer ${token}`,
       },
     });
-    return {
-      entries: Array.isArray(data.entries) ? data.entries : [],
-      count: Number(data.count || 0),
-    };
+    const entries = (Array.isArray(data.entries) ? data.entries : []).filter(isFloorplanVisible);
+    return { entries, count: entries.length };
   }
 
   async function fetchAdminOverview(config, options = {}) {
@@ -871,12 +948,7 @@
         Authorization: `Bearer ${token}`,
       },
     });
-    return {
-      summary: data.summary && typeof data.summary === 'object' ? data.summary : {},
-      customers: Array.isArray(data.customers) ? data.customers : [],
-      floorplans: Array.isArray(data.floorplans) ? data.floorplans : [],
-      doors: Array.isArray(data.doors) ? data.doors : [],
-    };
+    return filterVisibleAdminOverview(data);
   }
 
   async function fetchActiveUsers(config, options = {}) {
@@ -936,7 +1008,7 @@
       generatedAt: String(data.generated_at || ''),
       generatedAtAmsterdam: String(data.generated_at_amsterdam || ''),
       limit: Number(data.limit || 30),
-      activity: Array.isArray(data.activity) ? data.activity.map(row => ({
+      activity: filterVisibleAdminActivity(Array.isArray(data.activity) ? data.activity.map(row => ({
         id: Number(row.id || 0),
         createdAt: String(row.created_at || row.createdAt || ''),
         createdAtAmsterdam: String(row.created_at_amsterdam || row.createdAtAmsterdam || ''),
@@ -949,7 +1021,7 @@
         newStatus: String(row.new_status || row.newStatus || ''),
         doorCondition: String(row.door_condition || row.doorCondition || 'unknown'),
         doorConditionLabel: String(row.door_condition_label || row.doorConditionLabel || ''),
-      })) : [],
+      })) : []),
     };
   }
 
@@ -975,7 +1047,7 @@
       },
     });
     return {
-      customers: Array.isArray(data.customers) ? data.customers : [],
+      customers: filterVisibleCustomers(data.customers),
       status: data.status && typeof data.status === 'object' ? data.status : null,
       record: data.record || null,
     };
@@ -1000,7 +1072,7 @@
       },
     });
     return {
-      customers: Array.isArray(data.customers) ? data.customers : [],
+      customers: filterVisibleCustomers(data.customers),
       updated: Number(data.updated || 0),
       locationGroup: String(data.locationGroup || ''),
     };
@@ -1031,6 +1103,9 @@
   FD.DataService = {
     canManageUploads,
     canWriteFloorplan,
+    filterVisibleAdminOverview,
+    filterVisibleCustomers,
+    isFloorplanVisible,
     clearWorkerSession,
     createJotFormContext,
     findJotFormSubmission,
